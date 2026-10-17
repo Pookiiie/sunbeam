@@ -386,8 +386,13 @@ def _wishlists():
     _stage("wishlists", "Updating wishlists")
     res = wishlist.refresh()
     notes = []
+    other = res.pop("other_store", None)  # prices on the store whose wishlist doesn't have the game
+    if other and other.get("error"):
+        _log(f"Prices on the other store: couldn't check ({other['error']}).", "warn")
+    elif other:
+        _log(f"Prices on the other store: found for {other['count']:,} wishlist game{'s' if other['count'] != 1 else ''}.")
     for store, r in res.items():
-        label = wishlist.STORES[store]
+        label = wishlist.STORES.get(store, store)
         if r.get("error"):
             _log(f"{label} wishlist: couldn't update ({r['error']}).", "warn")
         elif r.get("note"):

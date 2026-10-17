@@ -857,7 +857,8 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .pbox-price .on-sale { color: var(--accent); }
 .pbox-price s { color: var(--faint); font-size: 12px; font-weight: 400; }
 .pbox small { color: var(--muted); font-size: 12px; }
-.pbox.none { justify-content: center; border-style: dashed; }
+.pbox.none { border-style: dashed; }
+.pbox .pbox-added { color: var(--faint); }
 .pbox.none small { color: var(--faint); }
 /* game page header: platform tags with their icons */
 .badge.ptag { display: inline-flex; align-items: center; gap: 5px; }
