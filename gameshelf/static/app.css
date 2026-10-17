@@ -827,3 +827,44 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 @media (max-width: 640px) { .fpop.wide { width: calc(100vw - 32px); } .fcols { grid-template-columns: 1fr; } }
 .fcols .frow { min-width: 0; }
 .fpop-search:focus { outline: none; border-color: rgba(255,92,158,.6); }
+
+/* ------------------------------------------------------------ Wishlist prices on both stores (1.1) */
+.smark { position: relative; display: inline-grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%;
+  background: rgba(255,255,255,.12); vertical-align: middle; }
+.smark i { width: 12px; height: 12px; background: var(--text);
+  -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+.smark b { display: none; font: 800 7.5px/1 var(--body); color: var(--text); }
+.no-icons .smark i { display: none; }
+.no-icons .smark b { display: block; }
+/* on cards: a small mark in front of the price */
+.wp-store { display: inline-block; margin-right: 3px; vertical-align: -3px; }
+.wp-store .wheart { width: 19px; height: 18px; }
+.wp-store .wheart i { width: 9px; height: 9px; margin-top: -2px; }
+.wp-store .wheart b { font-size: 6px; margin-top: -2px; }
+.wp-store .smark { width: 16px; height: 16px; }
+.wp-store .smark i { width: 9px; height: 9px; }
+.wp-store .smark b { font-size: 6px; }
+/* game page */
+.wish-info { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 10px !important; font-size: 13.5px; }
+.wish-on { display: inline-flex; align-items: center; gap: 4px; }
+.wish-on em { font-style: normal; color: var(--muted); }
+.pboxes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-width: 640px; }
+.pbox { display: flex; flex-direction: column; gap: 2px; padding: 8px 11px 9px; border-radius: var(--radius-m); border: 1px solid var(--line);
+  background: rgba(255,255,255,.02); color: var(--text) !important; text-decoration: none; min-width: 0; }
+a.pbox[href]:hover { border-color: #4a4263; }
+.pbox.best { border-color: rgba(255,92,158,.6); background: rgba(255,92,158,.07); }
+a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
+.pbox-top { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.pbox-top .wheart { width: 24px; height: 22px; }
+.pbox-top .wpill { margin-left: auto; }
+.pbox-price { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.pbox-price .on-sale { color: var(--accent); }
+.pbox-price s { color: var(--faint); font-size: 12px; font-weight: 400; }
+.pbox small { color: var(--muted); font-size: 12px; }
+.pbox.none { justify-content: center; border-style: dashed; }
+.pbox.none small { color: var(--faint); }
+/* game page header: platform tags with their icons */
+.badge.ptag { display: inline-flex; align-items: center; gap: 5px; }
+.badge.ptag i { width: 12px; height: 12px; display: block; background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+.no-icons .badge.ptag i { display: none; }

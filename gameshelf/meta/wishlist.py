@@ -7,6 +7,11 @@
   same NPSSO token as your PlayStation library. Each product's release date and
   price come from the store's product queries.
 
+Each game is priced on both stores: when it's only on one wishlist, the other store's
+price is looked up too (Steam by the game's Steam app id, else a Steam store search; the
+PlayStation Store by its own search, full games with the same name only), unless you
+already own it there. The lowest price is the one shown on the card.
+
 The app only reads the wishlists; it can't change them. Every wishlist game is
 linked to the matching game in your library (owned, or on XGP / PS+), else it
 gets a game of its own with a "wishlist" copy, so it has details, art, reviews
@@ -32,6 +37,9 @@ PS_LOCALE = "en-CA"
 PS_WISHLIST = ("storeRetrieveWishlist", "1fa88dd6c70279e3d914f7ba535b2558a7e45821d030cb2a63a8e450963d12c3")
 PS_PRODUCT = ("metGetProductById", "a128042177bd93dd831164103d53b73ef790d56f51dae647064cb8f9d9fc9d1a")
 PS_PRICE = ("productRetrieveForCtasWithPrice", "1f0ca607e170abbfb7d67bd76c9bbc97f21fe2e807be49e5fe764e14566cb605")
+PS_SEARCH = ("getSearchResults", "4df6284f982e57bec70f23c77e2c219dc792eb19af7fb3d3a81767aa3f1958aa")
+STEAM_SEARCH = "https://store.steampowered.com/api/storesearch/"
+RESEARCH_AFTER = 14 * 86400  # a game not found on the other store is searched for again after this long
 
 PLATFORM = "wishlist"  # the platform of a wishlist copy (external_id "steam:<appid>" / "psn:<id>")
 
@@ -50,6 +58,12 @@ def _table(c) -> None:
         first_seen INTEGER, last_seen INTEGER, game_id INTEGER,
         PRIMARY KEY (store, item_id))""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_game ON wishlist(game_id)")
+    # The other store's price for a wishlist game (item_id NULL: searched, not found there).
+    c.execute("""CREATE TABLE IF NOT EXISTS wish_prices (
+        game_id INTEGER NOT NULL, store TEXT NOT NULL, item_id TEXT, url TEXT,
+        price_text TEXT, base_text TEXT, price_cents INTEGER, base_cents INTEGER, discount_pct INTEGER,
+        sale_ends INTEGER, sale_note TEXT, checked_at INTEGER,
+        PRIMARY KEY (game_id, store))""")
 
 
 # ------------------------------------------------------------------ Steam
@@ -225,6 +239,114 @@ def fetch_psn() -> list[dict]:
         return list(ex.map(details, items))
 
 
+# ------------------------------------------------------------------ the other store's price
+
+def _key(title: str) -> str:
+    """Title key for matching store listings: no edition/platform noise, no trailing year."""
+    t = db.normalize_title(_plain(title or ""))
+    return re.sub(r"\s*\(?\b(?:19|20)\d\d\)?\s*$", "", t).strip()
+
+
+def _steam_items(appids: list[int]) -> dict[int, dict]:
+    req = {"ids": [{"appid": a} for a in appids], "context": {"language": "english", "country_code": "CA"},
+           "data_request": {}}
+    info = net.get_json(f"{STEAM_API}/IStoreBrowseService/GetItems/v1/",
+                        params={"input_json": json.dumps(req, separators=(",", ":"))}) or {}
+    return {it.get("appid") or it.get("id"): it for it in (info.get("response") or {}).get("store_items") or []}
+
+
+def _steam_find(title: str) -> int | None:
+    """A game on the Steam store by name (exact match once editions and years are set aside)."""
+    data = net.get_json(STEAM_SEARCH, params={"term": _plain(title), "l": "english", "cc": "CA"}, retries=1) or {}
+    want = _key(title)
+    for it in data.get("items") or []:
+        if it.get("type") == "app" and _key(it.get("name")) == want:
+            return int(it["id"])
+    return None
+
+
+def _ps_find(title: str) -> list[str]:
+    """PlayStation Store products that are the full game with this name (PS4 and PS5 versions)."""
+    data = _ps_query(PS_SEARCH, {"countryCode": "CA", "languageCode": "en", "nextCursor": "", "pageOffset": 0,
+                                 "pageSize": 20, "searchTerm": _plain(title)})
+    results = (((data.get("data") or {}).get("universalSearch")) or {}).get("results") or []
+    want = _key(title)
+    return [r["id"] for r in results if isinstance(r, dict) and r.get("__typename") == "Product"
+            and r.get("storeDisplayClassification") == "FULL_GAME" and _key(r.get("name")) == want][:3]
+
+
+def _other_steam(g: dict, prev: dict) -> dict:
+    appid = g["steam_appid"] or (int(prev["item_id"]) if prev.get("item_id") else None) or _steam_find(g["title"])
+    if not appid:
+        return {"item_id": None}
+    it = _steam_items([appid]).get(appid) or {}
+    return {"item_id": str(appid), "url": f"https://store.steampowered.com/app/{appid}", **_steam_price(it)}
+
+
+def _other_psn(g: dict, prev: dict) -> dict:
+    ids = [prev["item_id"]] if prev.get("item_id") else []
+    priced = [(pid, _ps_price(pid)) for pid in ids]
+    if not any(p for _, p in priced):  # nothing remembered, or it stopped answering: search again
+        priced = [(pid, _ps_price(pid)) for pid in _ps_find(g["title"])]
+    priced = [(pid, p) for pid, p in priced if p.get("price_cents") is not None]
+    if not priced:
+        return {"item_id": None}
+    pid, p = min(priced, key=lambda x: x[1]["price_cents"])
+    return {"item_id": pid, "url": f"https://store.playstation.com/{PS_LOCALE.lower()}/product/{pid}", **p}
+
+
+OTHER = {"steam": _other_steam, "psn": _other_psn}
+OWN_PLATFORM = {"steam": "steam", "psn": "playstation"}
+PRICE_FIELDS = ("item_id", "url", "price_text", "base_text", "price_cents", "base_cents", "discount_pct", "sale_ends", "sale_note")
+
+
+def other_prices() -> int:
+    """Price every wishlist game on the store whose wishlist doesn't have it (skipped where
+    you own it). Returns how many games have a price there."""
+    with db.tx() as c:
+        _table(c)
+    wished: dict[int, set] = {}
+    for r in db.query("SELECT game_id, store FROM wishlist WHERE game_id IS NOT NULL"):
+        wished.setdefault(r["game_id"], set()).add(r["store"])
+    if not wished:
+        return 0
+    ids = ",".join(str(int(g)) for g in wished)
+    owned: dict[int, set] = {}
+    for r in db.query(f"""SELECT game_id, platform FROM entries WHERE game_id IN ({ids})
+                          AND COALESCE(ownership, '') NOT IN ('catalog', 'wishlist', 'game_pass', 'ps_plus')"""):
+        owned.setdefault(r["game_id"], set()).add(r["platform"])
+    games = {r["id"]: dict(r) for r in db.query(f"SELECT id, title, steam_appid FROM games WHERE id IN ({ids})")}
+    prev = {(r["game_id"], r["store"]): dict(r) for r in db.query("SELECT * FROM wish_prices")}
+    now = db.now()
+    jobs = [(gid, store) for gid, stores in wished.items() if gid in games for store in OTHER
+            if store not in stores and OWN_PLATFORM[store] not in owned.get(gid, ())]
+
+    def look(job):
+        gid, store = job
+        p = prev.get(job) or {}
+        if p and not p.get("item_id") and now - (p.get("checked_at") or 0) < RESEARCH_AFTER:
+            return job, None  # not on that store at the last look: keep that for a while
+        try:
+            return job, OTHER[store](games[gid], p)
+        except Exception:
+            return job, None  # the store didn't answer: keep what we had
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        found = list(ex.map(look, jobs))
+    keep = set(jobs)
+    with db.tx() as c:
+        for (gid, store), res in found:
+            if res is None:
+                continue
+            vals = [res.get(f) for f in PRICE_FIELDS]
+            c.execute(f"""INSERT OR REPLACE INTO wish_prices(game_id, store, {', '.join(PRICE_FIELDS)}, checked_at)
+                          VALUES (?, ?, {', '.join('?' * len(PRICE_FIELDS))}, ?)""", (gid, store, *vals, now))
+        for gid, store in prev:
+            if (gid, store) not in keep:  # off your wishlists, bought there, or now on that store's wishlist
+                c.execute("DELETE FROM wish_prices WHERE game_id=? AND store=?", (gid, store))
+    return db.query("SELECT COUNT(*) n FROM wish_prices WHERE price_cents IS NOT NULL")[0]["n"]
+
+
 # ------------------------------------------------------------------ storing and linking
 
 FIELDS = ("title", "norm_title", "image", "url", "added_at", "priority", "release_ts", "release_text", "precision",
@@ -328,6 +450,10 @@ def refresh() -> dict:
         except Exception as e:
             out[store] = {"error": str(e)}
     link()
+    try:
+        out["other_store"] = {"count": other_prices()}
+    except Exception as e:
+        out["other_store"] = {"error": str(e)}
     db.set_meta("wishlist_at", str(db.now()))
     return out
 
@@ -351,10 +477,32 @@ def by_game() -> dict[int, dict]:
                          AND platform <> 'xbox' AND NOT COALESCE(excluded, 0)
                          AND game_id IN (SELECT game_id FROM wishlist) GROUP BY game_id"""):
         owned[r["game_id"]] = sorted((r["p"] or "").split(","))
-    return {gid: _summary(rs, owned.get(gid, [])) for gid, rs in grouped.items()}
+    others: dict[int, list[dict]] = {}
+    try:
+        for r in db.query("SELECT * FROM wish_prices"):
+            others.setdefault(r["game_id"], []).append(dict(r))
+    except Exception:
+        pass
+    return {gid: _summary(rs, owned.get(gid, []), others.get(gid, [])) for gid, rs in grouped.items()}
 
 
-def _summary(rows: list[dict], owned_on: list[str]) -> dict:
+def _cents(text) -> int | None:
+    """ "C$ 1,299.99" / "$79.99" -> 129999 / 7999; "Free" -> 0."""
+    if not text:
+        return None
+    if str(text).strip().lower() == "free":
+        return 0
+    m = re.search(r"\d[\d,]*(?:\.\d{1,2})?", str(text))
+    return round(float(m.group(0).replace(",", "")) * 100) if m else None
+
+
+def _money(cents) -> str | None:
+    if cents is None:
+        return None
+    return "Free" if cents == 0 else f"C${cents / 100:,.2f}"
+
+
+def _summary(rows: list[dict], owned_on: list[str], others: list[dict] | None = None) -> dict:
     now = db.now()
     out = [r for r in rows if r["released"] == 1]
     soon = [r for r in rows if r["released"] != 1 and r["release_ts"]]
@@ -370,18 +518,36 @@ def _summary(rows: list[dict], owned_on: list[str]) -> dict:
         texts = [r["release_text"] for r in rows if r["release_text"]]
         rel = {"release_ts": None, "precision": None, "released": None if any(r["released"] is None for r in rows) else False,
                "release_text": texts[0] if texts else None}
-    for r in rows:
+    others = others or []
+    for r in rows + others:
         # A sale that ended since the last sync: back to the usual price until the next one.
         if r["discount_pct"] and r["sale_ends"] and r["sale_ends"] < now:
-            r.update(price_text=r["base_text"] or r["price_text"], base_text=None, discount_pct=None, sale_ends=None, sale_note=None)
+            r.update(price_text=r["base_text"] or r["price_text"], price_cents=r["base_cents"] or r["price_cents"],
+                     base_text=None, discount_pct=None, sale_ends=None, sale_note=None)
     stores = [{
         "store": r["store"], "url": r["url"], "added_at": r["added_at"] or r["first_seen"], "price_text": r["price_text"],
         "base_text": r["base_text"], "discount_pct": r["discount_pct"], "sale_ends": r["sale_ends"], "sale_note": r["sale_note"],
         "release_ts": r["release_ts"], "release_text": r["release_text"], "precision": r["precision"], "released": r["released"],
     } for r in sorted(rows, key=lambda x: x["store"])]
-    sale = max((s for s in stores if s["discount_pct"]), key=lambda s: s["discount_pct"], default=None)
+    # Every price we know, cheapest first: the wishlists' own and the other store's ("wished": False).
+    # Both stores are asked for Canadian prices; written the same way ("C$38.99") so they compare at a glance.
+    prices = []
+    for wished, rs in ((True, rows), (False, others)):
+        for r in rs:
+            if not r["price_text"]:
+                continue
+            cents = r["price_cents"] if r["price_cents"] is not None else _cents(r["price_text"])
+            base = (r["base_cents"] if r["base_cents"] is not None else _cents(r["base_text"])) if r["discount_pct"] else None
+            prices.append({"store": r["store"], "wished": wished, "url": r["url"], "price_cents": cents,
+                           "price_text": _money(cents) or r["price_text"], "base_text": (_money(base) or r["base_text"]) if base else None,
+                           "discount_pct": r["discount_pct"], "sale_ends": r["sale_ends"], "sale_note": r["sale_note"]})
+    prices.sort(key=lambda x: (x["price_cents"] if x["price_cents"] is not None else 1 << 40, not x["wished"]))
+    best = prices[0] if prices else None
+    missing = sorted({r["store"] for r in others if not r["item_id"]})  # looked for, not on that store
     return {**rel, "stores": stores, "added_at": min(s["added_at"] or now for s in stores),
-            "sale": sale, "owned_on": owned_on}
+            "prices": prices, "best": best, "missing": missing,
+            # On sale: when the lowest price is a sale price
+            "sale": best if best and best["discount_pct"] else None, "owned_on": owned_on}
 
 
 def test() -> str:

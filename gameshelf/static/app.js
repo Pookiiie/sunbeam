@@ -23,6 +23,11 @@ function platformBadge(p) {
   if (!icon) return `<span class="badge" title="${esc(name)}">${esc(PLATFORM_SHORT[p] || p)}</span>`;
   return `<span class="badge icon" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(icon)}')"></i>${p === "switch2" ? "<b>2</b>" : ""}<span class="badge-text">${esc(PLATFORM_SHORT[p] || p)}</span></span>`;
 }
+// A platform with its icon and full name (the game page's header).
+function platformTag(p) {
+  const icon = PLATFORM_ICON[p];
+  return `<span class="badge ptag">${icon ? `<i style="--icon:url('${iconUrl(icon)}')"></i>` : ""}${esc(state.platforms?.[p] || PLATFORM_NAME[p] || p)}</span>`;
+}
 // If the icons can't load (offline), fall back to text tags.
 (() => { const probe = new Image(); probe.onerror = () => document.documentElement.classList.add("no-icons"); probe.src = ICON_CDN + "steam.svg"; })();
 
@@ -564,13 +569,19 @@ function wishPills(g, { sale = true } = {}) {
 }
 // The price to show: the sale if there is one, else the lowest listed price.
 // Followed by where you can already play it: "C$ 38.99 · On XGP".
+// The lowest price across Steam and PlayStation (wishlist.py looks up the store whose wishlist
+// doesn't have it), with that store's mark in front.
 function wishPrice(g) {
-  const stores = (g.wish?.stores || []).filter((x) => x.price_text);
+  const x = g.wish?.best;
   const tags = playableTags(g).map((t) => `<span class="wtag">${esc(t)}</span>`).join(" · ");
-  if (!stores.length) return tags;
-  const x = g.wish.sale || stores[0];
-  const where = stores.length > 1 || (g.wish.stores || []).length > 1 ? ` <em>${esc(WISH_STORE[x.store])}</em>` : "";
-  return `<span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}${where}${tags ? ` · ${tags}` : ""}`;
+  if (!x) return tags;
+  return `<span class="wp-store">${storeMark(x.store, x.wished)}</span><span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}${tags ? ` · ${tags}` : ""}`;
+}
+// A store's mark: the heart version when the game is on that store's wishlist, else its plain icon.
+function storeMark(store, wished) {
+  if (wished) return wishBadge(store);
+  const name = WISH_STORE[store];
+  return `<span class="smark" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[WISH_PLATFORM[store]])}')"></i><b>${store === "psn" ? "PS" : "S"}</b></span>`;
 }
 
 // Wishlist marker: a heart with the store's icon inside, so it never reads as a copy you own.
@@ -709,24 +720,38 @@ function renderWishRows() {
     </section>`);
 }
 
-// On a game's page: which wishlists it's on, when it comes out and what it costs.
+// On a game's page: which wishlists it's on, when it comes out, and its price on each store
+// (one box per store, the cheapest outlined).
 function wishBox(g) {
   if (!g.wish) return "";
-  const tags = playableTags(g);
+  const w = g.wish, tags = playableTags(g);
   const when = (x) => {
     if (x.released === 1 || g.rel.state === "out") return "";  // out already: the date doesn't matter
     if (x.release_ts) return `Coming ${fmtRelease({ ts: x.release_ts, prec: x.precision || "day" })}`;
     return x.release_text || (g.rel.state === "soon" ? `Coming ${fmtRelease(g.rel)}` : "");
   };
+  const info = (w.stores || []).map((x) => {
+    const bits = [x.store === "steam" && x.added_at ? `added ${fmtDate(x.added_at)}` : "", when(x)].filter(Boolean);
+    return `<span class="wish-on">${wishBadge(x.store)}${esc(WISH_STORE[x.store])}${bits.length ? ` <em>${esc(bits.join(", "))}</em>` : ""}</span>`;
+  }).join("");
+  const box = (x, best) => {
+    const small = x.discount_pct ? `Sale${x.sale_note ? ` ${x.sale_note}` : ""}${x.sale_ends ? ` until ${fmtDate(x.sale_ends)}` : ""}`
+      : x.price_text ? "Regular price" : (when(x) || "No price yet");
+    return `<a class="pbox ${best ? "best" : ""}" ${x.url ? `href="${esc(x.url)}" target="_blank" rel="noopener" title="Open the store page"` : ""}>
+      <span class="pbox-top">${storeMark(x.store, x.wished)}<b>${esc(WISH_STORE[x.store])}</b>${x.discount_pct ? `<i class="wpill sale">-${x.discount_pct}%</i>` : ""}</span>
+      <span class="pbox-price">${x.price_text ? `<span class="${x.discount_pct ? "on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}` : "—"}</span>
+      <small>${esc(small)}</small></a>`;
+  };
+  const prices = w.prices || [];
+  const boxes = [
+    ...prices.map((x, i) => box(x, i === 0 && prices.length > 1)),
+    ...(w.stores || []).filter((s) => !prices.some((x) => x.store === s.store)).map((s) => box({ ...s, wished: true }, false)),
+    ...(w.missing || []).map((st) => `<div class="pbox none"><small>Not on ${st === "psn" ? "the PlayStation Store" : "Steam"}</small></div>`),
+  ];
   return `<section class="wish-box">
     <h2>On your wishlist</h2>
-    <ul>${(g.wish.stores || []).map((x) => `<li>
-      ${wishBadge(x.store)}<b>${esc(WISH_STORE[x.store])}</b>
-      ${x.store === "steam" && x.added_at ? `<span>added ${esc(fmtDate(x.added_at))}</span>` : ""}
-      ${when(x) ? `<span>${esc(when(x))}</span>` : ""}
-      ${x.price_text ? `<span>${esc(x.price_text)}${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}${x.discount_pct ? ` <i class="wpill sale">-${x.discount_pct}%</i>${x.sale_note ? ` ${esc(x.sale_note)}` : ""}${x.sale_ends ? ` until ${esc(fmtDate(x.sale_ends))}` : ""}` : ""}</span>` : ""}
-      ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">Store page</a>` : ""}
-    </li>`).join("")}</ul>
+    <p class="wish-info">${info}</p>
+    ${boxes.length ? `<div class="pboxes">${boxes.join("")}</div>` : ""}
     ${tags.length ? `<p class="source-note">You can already play it: ${esc(tags.join(" · "))}.</p>` : ""}
   </section>`;
 }
@@ -1214,7 +1239,7 @@ function renderDetail(g) {
           <h1 class="hero-title ${logo ? "sr" : ""}" id="detail-title">${esc(g.title)}</h1>
           <div class="hero-sub">
             ${g.isWishOnly ? (g.wish?.stores || []).map((x) => wishBadge(x.store)).join("")
-              : g.platforms.map((p) => `<span class="badge">${esc(state.platforms[p] || p)}</span>`).join("")}
+              : g.platforms.map(platformTag).join("")}
             ${year(g.release_date) ? `<span>${year(g.release_date)}</span>` : ""}
             ${devs ? `<span>${esc(devs)}</span>` : ""}
           </div>
