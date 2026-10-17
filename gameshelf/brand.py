@@ -13,4 +13,4 @@ saved preferences.
 
 NAME = "Sunbeam"
 TAGLINE = "All your games in one place"
-REPO = "Pookiiie/Sunbeam"  # GitHub owner/repository, for updates
+REPO = "Pookiiie/sunbeam"  # GitHub owner/repository, for updates

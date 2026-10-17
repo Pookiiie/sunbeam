@@ -5,7 +5,7 @@ Runs privately on your own PC: your keys and library never leave it.
 
 ## Get it
 
-1. Download the latest **Sunbeam zip** from [the releases page](https://github.com/Pookiiie/Sunbeam/releases/latest) (under *Assets*). It's for Windows 10 and 11 and includes everything it needs: nothing else to install.
+1. Download the latest **Sunbeam zip** from [the releases page](https://github.com/Pookiiie/sunbeam/releases/latest) (under *Assets*). It's for Windows 10 and 11 and includes everything it needs: nothing else to install.
 2. Right-click the zip › **Extract All**, into a folder you'll keep (for example `Documents\Sunbeam`).
 3. Open that folder and double-click **Start Sunbeam**. If Windows says it protected your PC, choose **More info › Run anyway** (only the first time: Sunbeam isn't signed with a paid certificate).
 4. A short setup walks you through connecting your stores, and offers desktop and Start menu shortcuts.
