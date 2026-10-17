@@ -1,3 +1,1 @@
-- **Library:** the filter menus now sit on the same row as Sort by, and the pink filter tags are gone (the menus already show what's filtered, and Clear all is still there). The game count only shows up when filters or a search narrow the list, as "836 of 1,546".
-- **Wishlist:** a cover size slider, like the library's (they share the same size).
-- **Settings** checks for updates every time you open it.
+- **Nintendo Switch import:** clearer step-by-step instructions. They now point to the **Nintendo Store** phone app (iPhone or Android) › your profile › **Play History**, and explain how to start a screen recording on each kind of phone and how to get the video onto your PC.

@@ -1134,7 +1134,7 @@ function playHistory(g) {
   const fmtDay = (d) => new Date(d + "T12:00:00").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   const fmtMin = (m) => m <= 5 ? "A few min" : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
   return `<section class="section"><h2>Play history</h2>
-    <p class="source-note">Played on ${counted} day${counted === 1 ? "" : "s"}. Most recent sessions from Nintendo's Play Activity:</p>
+    <p class="source-note">Played on ${counted} day${counted === 1 ? "" : "s"}. Most recent sessions from Nintendo's Play History:</p>
     <div class="play-days">${days.slice(0, 12).map((d) => `<div><span>${esc(fmtDay(d.day))}</span><b>${fmtMin(d.minutes)}</b></div>`).join("")}</div>
   </section>`;
 }
@@ -1262,7 +1262,7 @@ function renderDetail(g) {
             const counts = `<td><input type="checkbox" data-field="counts" ${e.excluded ? "" : "checked"} aria-label="Count this copy"></td>`;
             if (e.manual) return `
             <tr data-entry="${e.id}" class="${e.excluded ? "excluded" : ""}">
-              ${versionCell(e, ` <span class="source-note">${String(e.external_id || "").startsWith("nsw:") ? "from Play Activity" : "added by hand"}</span>`)}
+              ${versionCell(e, ` <span class="source-note">${String(e.external_id || "").startsWith("nsw:") ? "from Play History" : "added by hand"}</span>`)}
               <td><input type="number" min="0" step="0.5" value="${Math.round(hours(e.playtime_min) * 10) / 10}" data-field="hours" aria-label="Hours played"> h</td>
               <td class="source-note">All yours</td>
               <td><input type="date" value="${e.last_played ? new Date(e.last_played * 1000).toISOString().slice(0, 10) : ""}" data-field="last_played" aria-label="Last played"></td>
@@ -1539,15 +1539,17 @@ function renderShots(stage = "pick") {
     return;
   }
   body.innerHTML = `
-    <p class="lede">Record your screen in the Nintendo Switch app and drop the video here. ${APP} reads every game's playtime, first and last played dates and day-by-day history.</p>
+    <p class="lede">Nintendo doesn't share your games online, but its <b>Nintendo Store</b> phone app shows them. Record your screen while you flip through them, and ${APP} reads every game's playtime, first and last played dates and day-by-day history from the video.</p>
     <ol class="shots-how">
-      <li>In the <b>Nintendo Switch app</b>, open your user page › <b>Play Activity</b>, and tap your most recent game.</li>
-      <li>Start a screen recording, then swipe through the games one by one. A short pause on each card is plenty.</li>
-      <li>Send the recording to this PC (AirDrop, email or a cloud folder) and drop it below.</li>
+      <li>On your phone, open the <b>Nintendo Store</b> app (free on the App Store and Google Play) and sign in with your Nintendo Account.</li>
+      <li>Open your <b>profile</b>, go to <b>Play History</b> and tap the first game in the list to open its card.</li>
+      <li>Start a screen recording. iPhone: open Control Center and tap the record button (⏺). Android: swipe down from the top twice and tap <b>Screen record</b>.</li>
+      <li>Back in the app, swipe from card to card through all your games, pausing about a second on each one.</li>
+      <li>Stop the recording and get the video onto this PC (email it to yourself, or use OneDrive, Google Drive or Google Photos), then drop it below.</li>
     </ol>
     <label class="dropzone" id="shots-drop" tabindex="0">
       <input type="file" id="shots-input" accept="video/*,image/*" multiple hidden>
-      <b>Drop the screen recording here</b><span>or click to choose it. Screenshots of the Play Activity list work too (Ctrl+V to paste).</span>
+      <b>Drop the screen recording here</b><span>or click to choose it. Screenshots of the Play History list work too, but give hours only (Ctrl+V to paste).</span>
     </label>
     ${shots.files.length ? `<div class="shots-thumbs">${shots.files.map((f, i) => `<figure><img src="${f.url}" alt=""><button class="btn icon ghost" data-shots-remove="${i}" aria-label="Remove">✕</button></figure>`).join("")}</div>` : ""}
     <div class="dialog-actions"><button class="btn ghost" data-close-dialog>Cancel</button>
@@ -2270,7 +2272,7 @@ function renderSetup() {
       <p>Pick every one you'd like in ${APP}. You'll set them up one by one next.</p>
       <div class="setup-stores">${SETUP_STORES.map(([id, name]) => `<label class="chip ${setup.stores.includes(id) ? "on" : ""}">
         <input type="checkbox" value="${id}" ${setup.stores.includes(id) ? "checked" : ""}>${esc(name)}</label>`).join("")}</div>
-      ${setup.stores.includes("switch") ? `<p class="source-note">Nintendo doesn't share libraries online: once setup is done, use <b>Sync › Nintendo Switch</b> to import a screen recording of your Play Activity from the Nintendo Switch app.</p>` : ""}`;
+      ${setup.stores.includes("switch") ? `<p class="source-note">Nintendo doesn't share libraries online: once setup is done, use <b>Sync › Nintendo Switch</b> to import a screen recording of your Play History from the Nintendo Store phone app (iPhone or Android).</p>` : ""}`;
   } else if (step === "extras") {
     const extra = (id) => { const x = SERVICES.find((v) => v.id === id); const ok = x.ready(s);
       return `<details class="service" data-svc="${id}"><summary><div><h3>${x.name}</h3><p>${x.blurb}</p></div><span class="state ${ok ? "ok" : "later"}">${ok ? "Connected" : "Optional"}</span></summary>${serviceBody(x)}</details>`; };
