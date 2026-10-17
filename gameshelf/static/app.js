@@ -834,6 +834,17 @@ function scoreHTML(v, empty = "—", cls = null) {
   return v == null || v === 0 ? empty : `<span class="score ${cls || scoreClass(v)}">${Math.round(v)}%</span>`;
 }
 const statusLabel = (s) => ({ completed: "Completed", dnf: "Did not finish" }[s] || "Not marked");
+// Little icons on the game page's controls (drawn here, in the text colour).
+const svgIcon = (d) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+const STATUS_ICON = { "": "", completed: svgIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'), dnf: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>') };
+const INTEREST_SHORT = { more: "▲ More", less: "▼ Less", skip: "Not now" };
+const ACTION_ICON = {
+  more: svgIcon('<circle class="dot" cx="5" cy="12" r="1.7"/><circle class="dot" cx="12" cy="12" r="1.7"/><circle class="dot" cx="19" cy="12" r="1.7"/>'),
+  fix: svgIcon('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>'),
+  hide: svgIcon('<path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a16 16 0 0 1-2.6 3.2M6.6 7.6A16 16 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4.4-1.2M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
+  art: svgIcon('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>'),
+  refresh: svgIcon('<path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4"/>'),
+};
 
 const badgesHTML = (g) => g.platforms.map(platformBadge).join("") + interestMark(g);
 
@@ -1250,20 +1261,24 @@ function renderDetail(g) {
       ${g.isHidden ? `<p class="notice">${g.hidden === 1 ? "You hid this game." : "Hidden automatically: it looks like a playtest, beta, demo or tool rather than a game."} ${g.isWishOnly ? "It doesn't appear on the Wishlist page." : "It doesn't appear in your library or stats."}</p>` : ""}
       <div class="actions">
         ${g.isWishOnly ? "" : `<div class="status-picker" role="radiogroup" aria-label="Status">
-          ${["", "completed", "dnf"].map((s) => `<button data-s="${s}" class="${(g.status || "") === s ? "on" : ""}" role="radio" aria-checked="${(g.status || "") === s}">${statusLabel(s)}</button>`).join("")}
+          ${["", "completed", "dnf"].map((st) => `<button data-s="${st}" class="${(g.status || "") === st ? "on" : ""}" role="radio" aria-checked="${(g.status || "") === st}">${STATUS_ICON[st]}${statusLabel(st)}</button>`).join("")}
+        </div>
+        <div class="interest-picker ${g.status || g.isEndless ? "dim" : ""}" role="group" aria-label="${CURATOR}"
+          ${g.status || g.isEndless ? `title="${g.status ? "Finished or set-aside games aren't suggested" : "Open-ended games aren't suggested"}"` : ""}>
+          <span>${CURATOR}</span>
+          ${Object.entries(INTEREST_SHORT).map(([k, label]) => `<button class="${g.interest === k ? "on" : ""}" data-act="interest" data-v="${k}" aria-pressed="${g.interest === k}" title="${INTEREST[k]}">${label}</button>`).join("")}
         </div>`}
         <span class="spacer"></span>
-        <button class="btn ghost small" data-act="fix">${g.match_state === "none" ? "Identify game" : "Fix match"}</button>
-        <button class="btn ghost small" data-act="hide" data-v="${g.isHidden ? 0 : 1}">${g.isHidden ? "Unhide" : "Hide"}</button>
-        <button class="btn ghost small" data-act="art">Change art</button>
-        <button class="btn ghost small" data-act="refresh" title="Re-fetch this game's details, art, reviews and time to beat">Refresh assets</button>
+        <div class="more-menu">
+          <button class="btn icon ghost" data-act="menu" aria-label="More actions" aria-expanded="false" title="More actions">${ACTION_ICON.more}</button>
+          <div class="more-pop" hidden>
+            <button data-act="fix">${ACTION_ICON.fix}${g.match_state === "none" ? "Identify game" : "Fix match"}</button>
+            <button data-act="hide" data-v="${g.isHidden ? 0 : 1}">${ACTION_ICON.hide}${g.isHidden ? "Unhide" : "Hide"}</button>
+            <button data-act="art">${ACTION_ICON.art}Change art</button>
+            <button data-act="refresh" title="Re-fetch this game's details, art, reviews and time to beat">${ACTION_ICON.refresh}Refresh assets</button>
+          </div>
+        </div>
       </div>
-
-      ${g.isWishOnly ? "" : `<div class="interest-row" role="group" aria-label="${CURATOR}">
-        <span>${CURATOR}</span>
-        ${Object.entries(INTEREST).map(([k, label]) => `<button class="chip ${g.interest === k ? "on" : ""}" data-act="interest" data-v="${k}" aria-pressed="${g.interest === k}">${k === "more" ? "▲ " : k === "less" ? "▼ " : ""}${label}</button>`).join("")}
-        ${g.status || g.isEndless ? `<small class="source-note">${g.status ? "Finished or set-aside games aren't suggested." : "Open-ended games aren't suggested."}</small>` : ""}
-      </div>`}
       ${(g.subs || []).length ? `<p class="sub-note">${g.isCatalog ? "Not in your library. " : ""}${g.subs.map((x) => `${x.leaving ? "Leaving" : "Included with"} ${SUB_NAME[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}.${storeLink(x.s)}`).join(" ")}</p>` : ""}
       ${wishBox(g)}
       ${g.status === "completed" && g.status_auto ? `<p class="auto-note">✓ Marked completed automatically: ${esc(g.status_auto)}${g.status_at ? `, ${esc(fmtDate(g.status_at))}` : ""}. Not right? Pick another status above.</p>` : ""}
@@ -2778,6 +2793,10 @@ function bind() {
   $$("dialog").forEach((d) => d.addEventListener("click", (e) => { if (e.target === d) d.close(); }));
 
   // detail panel
+  document.addEventListener("click", (e) => { if (!e.target.closest(".more-menu")) toggleMoreMenu(false); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $(".more-pop:not([hidden])")) { e.stopImmediatePropagation(); toggleMoreMenu(false); }
+  }, true);
   $("#detail-wrap").addEventListener("click", async (e) => {
     if (e.target.closest("[data-close]")) { closeGame(); return; }
     const id = state.openId;
@@ -2785,6 +2804,8 @@ function bind() {
     const st = e.target.closest(".status-picker button");
     if (st) { setStatus(id, st.dataset.s); return; }
     const act = e.target.closest("[data-act]")?.dataset.act;
+    if (act === "menu") { toggleMoreMenu(); return; }
+    if (e.target.closest(".more-pop")) toggleMoreMenu(false);  // an action was picked
     if (act === "interest") { setInterest(id, e.target.closest("[data-act]").dataset.v); return; }
     if (act === "endless") {
       const v = e.target.closest("[data-act]").dataset.v;
@@ -2937,6 +2958,15 @@ $("#library").addEventListener("contextmenu", (e) => {
   e.preventDefault();
   openMenu(Number(card.dataset.id), e.clientX, e.clientY);
 });
+
+// The game page's ⋯ menu (Fix match, Hide, Change art, Refresh assets).
+function toggleMoreMenu(open) {
+  const pop = $("#detail .more-pop"), btn = $('#detail [data-act="menu"]');
+  if (!pop) return;
+  const show = open ?? pop.hidden;
+  pop.hidden = !show;
+  btn?.setAttribute("aria-expanded", String(show));
+}
 
 /* ------------------------------------------------------------ screenshot viewer */
 

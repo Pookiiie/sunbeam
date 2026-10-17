@@ -665,10 +665,6 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .imark.more { color: #ffb0cf; }
 .imark.less { color: var(--muted); }
 .imark.skip { color: var(--muted); letter-spacing: .04em; font-size: 9.5px; }
-.interest-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -2px 0 16px; }
-.interest-row > span { color: var(--muted); font-size: 13px; margin-right: 2px; }
-.interest-row .chip { font-size: 13px; padding: 5px 11px; }
-.interest-row .chip.on { background: var(--grad); color: var(--accent-ink); border-color: transparent; }
 .bookmarklet { cursor: grab; margin-left: 4px; vertical-align: middle; }
 .fact-link { color: inherit; text-decoration: underline; text-decoration-color: rgba(255,92,158,.6); text-underline-offset: 2px; }
 .fact-link:hover { color: var(--accent); }
@@ -868,3 +864,25 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .badge.ptag i { width: 12px; height: 12px; display: block; background: currentColor;
   -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
 .no-icons .badge.ptag i { display: none; }
+
+/* ------------------------------------------------------------ game page controls on one row (1.1) */
+.actions { gap: 10px; }
+.status-picker button, .interest-picker button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font: 600 13px/1.2 var(--body); white-space: nowrap; }
+.status-picker .ico { width: 14px; height: 14px; }
+.interest-picker { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--ink-2); }
+.interest-picker > span { padding: 0 6px 0 10px; color: var(--faint); font-size: 12px; font-weight: 600; }
+.interest-picker button { border: 0; background: none; border-radius: 999px; cursor: pointer; color: var(--muted); }
+.interest-picker button:hover, .status-picker button:hover { color: var(--text); }
+.interest-picker button.on { background: var(--grad); color: var(--accent-ink); }
+.interest-picker.dim { opacity: .5; }
+.ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.ico .dot { fill: currentColor; stroke: none; }
+.more-menu { position: relative; }
+.more-menu > .btn.icon { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; }
+.more-pop { position: absolute; right: 0; top: 42px; z-index: 20; min-width: 200px; padding: 6px; border-radius: 12px;
+  background: #221d2f; border: 1px solid var(--line); box-shadow: 0 12px 30px rgba(0,0,0,.5); display: grid; gap: 2px; }
+.more-pop[hidden] { display: none; }
+.more-pop button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none;
+  color: var(--text); font: 500 13.5px/1.2 var(--body); text-align: left; cursor: pointer; }
+.more-pop button:hover { background: rgba(255,255,255,.06); }
+.more-pop .ico { width: 15px; height: 15px; color: var(--muted); }
