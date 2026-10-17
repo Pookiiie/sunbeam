@@ -70,7 +70,63 @@ def _browser() -> str | None:
     return None
 
 
+def _find_window(every: bool = False):
+    """The app window if it's open (every=True: all of them): a Chrome/Edge window whose title is exactly the app's name
+    (a normal browser tab would add " - Microsoft Edge" and the like)."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def check(hwnd, _):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        n = user32.GetWindowTextLengthW(hwnd)
+        if not n or n > 200:
+            return True
+        title = ctypes.create_unicode_buffer(n + 1)
+        user32.GetWindowTextW(hwnd, title, n + 1)
+        cls = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, cls, 64)
+        if title.value == brand.NAME and cls.value.startswith("Chrome_WidgetWin"):
+            found.append(hwnd)
+            return every
+        return True
+
+    user32.EnumWindows(check, 0)
+    return found if every else (found[0] if found else None)
+
+
+def focus_window() -> bool:
+    """Bring the open app window to the front (restoring it if minimised). False if there's none."""
+    if not is_windows():
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        hwnd = _find_window()
+        if not hwnd:
+            return False
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        else:
+            user32.ShowWindow(hwnd, 5)  # SW_SHOW
+        if not user32.SetForegroundWindow(hwnd):
+            # Windows only lets the app that got the last click bring a window forward; a tap
+            # of Alt (which does nothing by itself) lifts that lock.
+            user32.keybd_event(0x12, 0, 0, 0)
+            user32.keybd_event(0x12, 0, 2, 0)
+            user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception:
+        return False
+
+
 def open_window(url: str) -> None:
+    """Show the app window: the one already open if there is one, else a new one."""
+    if focus_window():
+        return
     exe = _browser()
     if not exe:
         webbrowser.open(url)

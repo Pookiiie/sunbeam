@@ -86,6 +86,20 @@ jobs:
           Remove-Item -Recurse -Force "$root/data" -ErrorAction SilentlyContinue
           Get-ChildItem $root -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
 
+      - name: Check the app window (one window, reused)
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path "build/${{ steps.ver.outputs.name }}").Path
+          & "$root/runtime/python.exe" tools/ci_window_check.py $root
+          if ($LASTEXITCODE) { throw "window check failed" }
+          foreach ($i in 1..10) {
+            Start-Sleep 2
+            Remove-Item -Recurse -Force "$root/data" -ErrorAction SilentlyContinue
+            if (-not (Test-Path "$root/data")) { break }
+          }
+          Get-ChildItem $root -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+          if (Test-Path "$root/data") { throw "a data folder is left in the build" }
+
       - name: Zip
         shell: pwsh
         run: Compress-Archive -Path "build/${{ steps.ver.outputs.name }}" -DestinationPath "${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.version }}.zip"
