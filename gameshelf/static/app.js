@@ -1300,12 +1300,13 @@ function renderDetail(g) {
       <div class="facts">
         ${g.isWishOnly ? "" : fact("You've played", g.hoursUnknown ? "?" : fmtHours(g.played_h, { empty: "0 h" }), g.last_played ? `Last played ${esc(relDate(g.last_played).toLowerCase())}${g.hoursUnknown ? ". The store doesn't say for how long" : ""}` : g.playtime_min ? "Date unknown" : "Not played yet")}
         ${g.isWishOnly ? "" : fact("Progress", progressText, progressSmall, `<div class="bar">${meter(g)}</div><div class="endless-row">${endlessToggle}</div>`)}
-        ${ttb}
+        ${g.isWishOnly ? "" : ttb}
         ${g.oc_score != null
           ? fact(`${ext(g.oc_url, "OpenCritic")} score${g.oc_tier ? ` <i class="tier tier-${esc(g.oc_tier.toLowerCase())}">${esc(g.oc_tier)}</i>` : ""}`, scoreHTML(g.oc_score, "—", criticClass(g)),
               `${g.oc_recommend != null ? `${Math.round(g.oc_recommend)}% of critics recommend it` : "Top critic average"}${g.oc_count ? `, ${g.oc_count} reviews` : ""}`)
           : fact("OpenCritic score", "—", notOut ? "Not out yet" : "No score yet")}
         ${reviews}
+        ${g.isWishOnly ? ttb : ""}${/* wishlist games: the reviews first, then time to beat on the right */ ""}
       </div>
 
       ${entries.length ? `<section class="section">

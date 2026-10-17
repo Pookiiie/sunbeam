@@ -1,2 +1,1 @@
-- **Wishlist and prices** on game pages now has four narrower boxes in a row: Steam, PlayStation, **XGP** and **PS+**. The XGP and PS+ boxes say whether the game is included (and when it's leaving soon or was just added), and link to it there. The separate "Included with…" line is gone from wishlist game pages.
-- The store icon in front of wishlist prices now lines up with the price.
+- On wishlist game pages, the scores come first and time to beat sits on the right: OpenCritic, Steam reviews, then HowLongToBeat.
