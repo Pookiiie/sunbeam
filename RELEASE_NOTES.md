@@ -1,1 +1,2 @@
-- **Same price on both stores:** the card shows the store whose wishlist has the game; if it's on both wishlists, one is picked at random for each game (and stays the same from one sync to the next). On the game page, a box is only outlined when that store really is cheaper.
+- **Wishlist and prices** on game pages now has four narrower boxes in a row: Steam, PlayStation, **XGP** and **PS+**. The XGP and PS+ boxes say whether the game is included (and when it's leaving soon or was just added), and link to it there. The separate "Included with…" line is gone from wishlist game pages.
+- The store icon in front of wishlist prices now lines up with the price.

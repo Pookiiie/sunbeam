@@ -577,6 +577,11 @@ function wishPrice(g) {
   if (!x) return tags;
   return `<span class="wp-store">${storeMark(x.store, false)}</span><span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}${tags ? ` · ${tags}` : ""}`;
 }
+// XGP / PS+ marks for the game page boxes (PS+: the PlayStation icon with a +; XGP: its initials).
+function subMark(sv) {
+  if (sv === "psplus") return `<span class="smark plus" title="PS+"><i style="--icon:url('${iconUrl(PLATFORM_ICON.playstation)}')"></i><b>PS</b><em>+</em></span>`;
+  return `<span class="smark text" title="XGP">XGP</span>`;
+}
 // A store's mark: the heart version when the game is on that store's wishlist, else its plain icon.
 function storeMark(store, wished) {
   if (wished) return wishBadge(store);
@@ -724,7 +729,8 @@ function renderWishRows() {
 // says whether it's on that store's wishlist (heart, with the date it was added) or not (plain icon).
 function wishBox(g) {
   if (!g.wish) return "";
-  const w = g.wish, tags = playableTags(g);
+  const w = g.wish;
+  const tags = (g.wish.owned_on || []).filter((p) => p !== "xbox").map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`);  // XGP / PS+ have their own boxes
   const when = (x) => {
     if (!x || x.released === 1 || g.rel.state === "out") return "";  // out already: the date doesn't matter
     if (x.release_ts) return `Coming ${fmtRelease({ ts: x.release_ts, prec: x.precision || "day" })}`;
@@ -747,7 +753,17 @@ function wishBox(g) {
     ...prices.map((x, i) => box(x, i === 0 && prices.length > 1 && x.price_cents < prices[1].price_cents)),
     ...(w.stores || []).filter((s) => !prices.some((x) => x.store === s.store)).map((s) => box({ store: s.store, url: s.url }, false)),
     ...(w.missing || []).map((st) => `<div class="pbox none"><span class="pbox-top">${storeMark(st, false)}<b>${esc(WISH_STORE[st])}</b></span><small>Not sold on ${st === "psn" ? "the PlayStation Store" : "Steam"}</small></div>`),
+    ...["gamepass", "psplus"].map(subBox),
   ];
+  function subBox(sv) {
+    const x = (g.subs || []).find((t) => t.s === sv);
+    const link = (g.store_links || []).find((l) => l.s === sv);
+    const small = !x ? "" : x.leaving ? `<small class="leaving">Leaving soon</small>` : x.new && x.since ? `<small>Added ${esc(relDate(x.since).toLowerCase())}</small>` : "";
+    return `<${x && link ? `a href="${esc(link.url)}" target="_blank" rel="noopener" title="Open it on the ${sv === "gamepass" ? "Xbox" : "PlayStation"} store"` : "div"} class="pbox sub ${x ? "in" : "none"}">
+      <span class="pbox-top">${subMark(sv)}<b>${SUB_SHORT[sv]}</b></span>
+      <span class="pbox-price">${x ? "Included" : `<span class="dim">Not included</span>`}</span>
+      ${small || `<small>${sv === "gamepass" ? "Xbox PC Game Pass" : "PlayStation Plus Extra"}</small>`}</${x && link ? "a" : "div"}>`;
+  }
   return `<section class="wish-box">
     <h2>Wishlist and prices</h2>
     <div class="pboxes">${boxes.join("")}</div>
@@ -1278,7 +1294,7 @@ function renderDetail(g) {
           </div>
         </div>
       </div>
-      ${(g.subs || []).length ? `<p class="sub-note">${g.isCatalog ? "Not in your library. " : ""}${g.subs.map((x) => `${x.leaving ? "Leaving" : "Included with"} ${SUB_NAME[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}.${storeLink(x.s)}`).join(" ")}</p>` : ""}
+      ${(g.subs || []).length && !g.wish ? `<p class="sub-note">${g.isCatalog ? "Not in your library. " : ""}${g.subs.map((x) => `${x.leaving ? "Leaving" : "Included with"} ${SUB_NAME[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}.${storeLink(x.s)}`).join(" ")}</p>` : ""}
       ${wishBox(g)}
       ${g.status === "completed" && g.status_auto ? `<p class="auto-note">✓ Marked completed automatically: ${esc(g.status_auto)}${g.status_at ? `, ${esc(fmtDate(g.status_at))}` : ""}. Not right? Pick another status above.</p>` : ""}
       <div class="facts">

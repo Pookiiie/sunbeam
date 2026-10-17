@@ -833,7 +833,8 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .no-icons .smark i { display: none; }
 .no-icons .smark b { display: block; }
 /* on cards: a small mark in front of the price */
-.wp-store { display: inline-block; margin-right: 3px; vertical-align: -3px; }
+.wp-store { display: inline-flex; margin-right: 4px; vertical-align: middle; height: 16px; align-items: center; position: relative; top: -1px; }
+.wp-store .smark, .wp-store .wheart { vertical-align: top; }
 .wp-store .wheart { width: 19px; height: 18px; }
 .wp-store .wheart i { width: 9px; height: 9px; margin-top: -2px; }
 .wp-store .wheart b { font-size: 6px; margin-top: -2px; }
@@ -844,7 +845,8 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .wish-info { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 10px !important; font-size: 13.5px; }
 .wish-on { display: inline-flex; align-items: center; gap: 4px; }
 .wish-on em { font-style: normal; color: var(--muted); }
-.pboxes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-width: 640px; }
+.pboxes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 900px) { .pboxes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pbox { display: flex; flex-direction: column; gap: 2px; padding: 8px 11px 9px; border-radius: var(--radius-m); border: 1px solid var(--line);
   background: rgba(255,255,255,.02); color: var(--text) !important; text-decoration: none; min-width: 0; }
 a.pbox[href]:hover { border-color: #4a4263; }
@@ -887,3 +889,11 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
   color: var(--text); font: 500 13.5px/1.2 var(--body); text-align: left; cursor: pointer; }
 .more-pop button:hover { background: rgba(255,255,255,.06); }
 .more-pop .ico { width: 15px; height: 15px; color: var(--muted); }
+.pbox-top b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pbox small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pbox.sub.in .pbox-price { color: var(--done); }
+.pbox.sub.none { border-style: dashed; }
+.pbox .dim { color: var(--faint); font-weight: 600; }
+.pbox small.leaving { color: var(--accent); }
+.smark.text { font: 800 7px/1 var(--body); letter-spacing: .02em; color: var(--text); }
+.smark.plus em { position: absolute; right: -1px; top: -3px; font: 800 11px/1 var(--body); font-style: normal; color: var(--text); }
