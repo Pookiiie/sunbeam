@@ -1,0 +1,1 @@
+"""Metadata and artwork providers."""

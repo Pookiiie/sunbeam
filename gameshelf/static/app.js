@@ -1,0 +1,2929 @@
+/* GameShelf UI — plain JavaScript, no build step. */
+"use strict";
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Platform icons from Simple Icons (pinned version). Simple Icons has no Xbox logo, so Xbox
+// (and XGP, which uses the same icon) comes from Bootstrap Icons (MIT licence).
+const ICON_CDN = "https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/";
+const XBOX_ICON = "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/xbox.svg";
+const PLATFORM_ICON = { steam: "steam", playstation: "playstation", switch2: "nintendoswitch", switch: "nintendoswitch",
+  epic: "epicgames", battlenet: "battledotnet", ubisoft: "ubisoft", gog: "gogdotcom", xbox: XBOX_ICON };
+const iconUrl = (icon) => icon.startsWith("https:") ? icon : `${ICON_CDN}${icon}.svg`;
+const PLATFORM_NAME = { steam: "Steam", playstation: "PlayStation", switch2: "Nintendo Switch 2", switch: "Nintendo Switch",
+  xbox: "Xbox", epic: "Epic Games Store", battlenet: "Battle.net", ubisoft: "Ubisoft Connect", gog: "GOG", other: "Other" };
+function platformBadge(p) {
+  const icon = PLATFORM_ICON[p];
+  const name = PLATFORM_NAME[p] || p;
+  if (!icon) return `<span class="badge" title="${esc(name)}">${esc(PLATFORM_SHORT[p] || p)}</span>`;
+  return `<span class="badge icon" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(icon)}')"></i>${p === "switch2" ? "<b>2</b>" : ""}<span class="badge-text">${esc(PLATFORM_SHORT[p] || p)}</span></span>`;
+}
+// If the icons can't load (offline), fall back to text tags.
+(() => { const probe = new Image(); probe.onerror = () => document.documentElement.classList.add("no-icons"); probe.src = ICON_CDN + "steam.svg"; })();
+
+const PLATFORM_SHORT = { steam: "Steam", playstation: "PS", switch2: "Switch 2", switch: "Switch", xbox: "Xbox", epic: "Epic", battlenet: "Battle.net", ubisoft: "Ubisoft", gog: "GOG", other: "Other" };
+
+const DEFAULT_PREFS = {
+  sort: "last_played", dir: "desc", view: "grid", size: 170, showHidden: false,
+  hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], vr: true,
+  subTags: [], wishSort: "release", wishStore: "all", wishSale: false,
+};
+
+const state = {
+  games: [],
+  wishGames: [],  // games that are only on a wishlist (not in the library)
+  platforms: {},
+  q: "",
+  prefs: loadPrefs(),
+  settings: null,
+  sync: null,
+  openId: null,
+};
+
+function loadPrefs() {
+  try {
+    const p = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem("gameshelf.prefs") || "{}") };
+    if (p.genre) { p.genres = [p.genre]; }  // older single-genre filter
+    delete p.genre;
+    if (!Array.isArray(p.genres)) p.genres = [];
+    if (!Array.isArray(p.subTags)) p.subTags = [];
+    // On XGP / On PS+ are now part of the Xbox and PlayStation platforms.
+    p.subTags = p.subTags.filter((t) => t === "new" || t === "leaving");
+    // Played used to be one choice: all / played / unplayed.
+    if (!Array.isArray(p.played)) p.played = p.played === "played" ? ["played"] : p.played === "unplayed" ? ["never"] : ["played", "never"];
+    delete p.subs; delete p.catalog;
+  if (!["steam", "psn"].includes(p.wishStore)) p.wishStore = "all";
+    return p;
+  } catch { return { ...DEFAULT_PREFS }; }
+}
+function savePrefs() {
+  try { localStorage.setItem("gameshelf.prefs", JSON.stringify(state.prefs)); } catch { /* storage unavailable */ }
+}
+
+async function api(path, { method = "GET", body } = {}) {
+  const res = await fetch(path, {
+    method,
+    headers: { "X-GameShelf": "1", ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch { /* empty */ }
+  if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
+  return data;
+}
+
+let toastTimer;
+function toast(msg, isErr = false) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.toggle("err", isErr);
+  t.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("on"), isErr ? 5200 : 2600);
+}
+
+/* ------------------------------------------------------------ formatting */
+
+const hours = (min) => (min || 0) / 60;
+function fmtHours(h, { empty = "—" } = {}) {
+  if (h == null || isNaN(h) || h <= 0) return empty;
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+  if (h < 10) return `${(Math.round(h * 10) / 10).toLocaleString()} h`;
+  return `${Math.round(h).toLocaleString()} h`;
+}
+function fmtDate(ts) {
+  if (!ts) return "—";
+  return new Date(ts * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+function relDate(ts) {
+  if (!ts) return "Never";
+  const days = Math.floor((Date.now() / 1000 - ts) / 86400);
+  if (days < 1) return "Today";
+  if (days < 2) return "Yesterday";
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  if (days < 365) return `${Math.round(days / 30)} months ago`;
+  const y = Math.round(days / 365 * 10) / 10;
+  return `${y} ${y === 1 ? "year" : "years"} ago`;
+}
+const year = (ts) => (ts ? new Date(ts * 1000).getUTCFullYear() : null);
+function hue(str) { let h = 0; for (const c of String(str)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+
+/* ------------------------------------------------------------ derived values */
+
+// Time to beat, matched to how you play: Main + Extras. Once you've played well past
+// that (25% more), stretch towards Completionist: halfway there, but never more than
+// 50% above Main + Extras.
+function blendTtb(g) {
+  if (g.ttb_custom) return g.ttb_custom;  // set with the slider on the game's page
+  const base = g.ttb_extra || g.ttb_main || null;
+  const full = g.ttb_complete;
+  const played = (g.playtime_min || 0) / 60;
+  if (!base) return full || null;
+  if (full && full > base && played > base * 1.25) return base + Math.min(0.5 * (full - base), 0.5 * base);
+  return base;
+}
+
+// Games without a real ending (each game can override this from its page).
+// IGDB's tags are loose ("Sandbox" is on Skyrim and GTA; "Sport" on story games),
+// so a tag only counts when the genres around it agree.
+function autoEndless(g) {
+  if (g.endless_auto !== undefined) return Boolean(g.endless_auto);  // the server's rules (gameshelf/rules.py)
+  const modes = g.modes || [], genres = g.genres || [], themes = g.themes || [];
+  const has = (list, re) => list.some((x) => re.test(x));
+  const story = has(genres, /role-playing|adventure/i);
+  // Always-online and battle royale games, MOBAs, 4X strategy.
+  if (has(modes, /massively multiplayer|battle royale/i)) return true;
+  if (has(genres, /^moba$/i) || has(themes, /^4x/i)) return true;
+  // Sports and fighting games, unless they're also adventures or RPGs (Cairn, Yakuza).
+  if (has(genres, /^sport$/i) && !story && !has(genres, /platform/i)) return true;
+  if (has(genres, /^fighting$/i) && !story) return true;
+  const narrative = has(themes, /comedy|drama|mystery|horror|thriller|romance/i);
+  if (has(themes, /sandbox/i) && has(genres, /simulator/i)) {
+    // Builders and toys (Factorio, Cities: Skylines, Garry's Mod), but not ones with a story to tell.
+    if (!narrative && !story && !has(genres, /shooter|platform|puzzle/i)) return true;
+    // Grand strategy (Crusader Kings III).
+    if (!narrative && has(genres, /^strategy$/i) && !has(genres, /adventure|puzzle/i)) return true;
+    // Open-world survival sandboxes (Minecraft, Terraria, No Man's Sky).
+    if (has(themes, /survival/i) && has(themes, /open world/i)) return true;
+    // Life sims (The Sims, Stardew Valley).
+    if (has(themes, /romance/i)) return true;
+  }
+  // Management and driving simulators (Euro Truck Simulator, Football Manager), not puzzle-level games.
+  if (has(genres, /simulator/i) && has(themes, /business|non-fiction/i) && !story && !has(genres, /puzzle/i)) return true;
+  // Party games played in rounds with friends: trivia and drawing collections (Jackbox, Drawful),
+  // and board and card games (Mario Party, Monopoly, Uno).
+  if (/jackbox/i.test(g.title || "")) return true;
+  if (has(themes, /^party$/i) && has(modes, /multiplayer/i) && has(genres, /quiz|card & board/i) && !has(genres, /role-playing|adventure|platform/i)) return true;
+  // Time-to-beat numbers no story could produce (players logging endless play).
+  if ((g.ttb_main && g.ttb_main > 400) || (g.ttb_extra && g.ttb_extra > 600)) return true;
+  // Multiplayer-only shooters, fighters, racers and sports (Counter-Strike, ARC Raiders, The Finals).
+  const competitive = has(genres, /shooter|tactical|fighting|moba|racing|sport/i);
+  if (modes.length && !has(modes, /single player/i) && competitive) return true;
+  // Live-service multiplayer: a "100%" time many times the main one (Overwatch, Destiny 2, Deep Rock).
+  if (g.ttb_main && g.ttb_complete >= 8 * g.ttb_main && has(modes, /multiplayer/i) && competitive
+      && !has(themes, /stealth/i)) return true;
+  const ttb = blendTtb(g), played = (g.playtime_min || 0) / 60;
+  // Played far beyond the story's length: the multiplayer is clearly the main event.
+  if (has(modes, /multiplayer/i) && ttb && played >= 20 && played > ttb * 3) return true;
+  // Otherwise a known time to beat means there's an ending.
+  if (ttb) return false;
+  // Multiplayer-only with no time to beat at all.
+  return modes.length > 0 && !has(modes, /single player/i) && has(modes, /multiplayer|co-op/i);
+}
+
+// Not really games: playtests, betas, demos, test servers, tools.
+const NOT_A_GAME = /\b(play ?test|(open|closed|public|early access) beta|beta( version| test)?$|public test|test server|demo|dedicated server|sdk|soundtrack|benchmark)\b/i;
+const autoHidden = (g) => NOT_A_GAME.test(g.title) || (g.entries || []).some((e) => NOT_A_GAME.test(e.name || ""));
+
+// VR games: IGDB's "Virtual Reality" perspective on a game that only exists on PC and
+// VR headsets. Flat games with a VR mode (No Man's Sky) are on consoles too, so they stay.
+const VR_PLATFORM = /vr\d?\b|virtual reality|oculus|meta quest|rift|vive|mixed reality|daydream/i;
+function isVR(g) {
+  if (/\bVR\b/.test(g.title)) return true;
+  if (!(g.perspectives || []).some((x) => /virtual reality/i.test(x))) return false;
+  const plats = g.igdb_platforms || [];
+  return plats.some((x) => VR_PLATFORM.test(x)) && plats.every((x) => VR_PLATFORM.test(x) || /^pc\b|windows|linux|mac/i.test(x));
+}
+
+// XGP / PS+: what's included, new (first seen in the last 30 days) or leaving.
+const SUB_NAME = { gamepass: "XGP (Xbox PC Game Pass)", psplus: "PS+ (PlayStation Plus Extra)" };
+const SUB_SHORT = { gamepass: "XGP", psplus: "PS+" };
+const SUB_PLATFORM = { gamepass: "xbox", psplus: "playstation" };
+function subPill(g) {
+  const subs = g.subs || [];
+  const leaving = subs.find((x) => x.leaving), fresh = subs.find((x) => x.new);
+  if (leaving) return `<span class="sub-pill leaving" title="Leaving ${SUB_NAME[leaving.s]} soon">Leaving ${SUB_SHORT[leaving.s]}</span>`;
+  if (fresh) return `<span class="sub-pill new" title="Recently added to ${SUB_NAME[fresh.s]}">New on ${SUB_SHORT[fresh.s]}</span>`;
+  return "";
+}
+function subMatch(g, tags) {
+  const subs = g.subs || [];
+  return tags.some((t) => t === "leaving" ? subs.some((x) => x.leaving) : t === "new" ? subs.some((x) => x.new) : false);
+}
+
+// Two different games with the same name (Dead Space 2008 and its 2023 remake) get their
+// release year added, so they can be told apart everywhere.
+state.sameNames = new Set();
+function derive(g) {
+  if (g.base_title === undefined) g.base_title = g.title;
+  g.title = state.sameNames.has(g.base_title.toLowerCase()) && year(g.release_date) ? `${g.base_title} (${year(g.release_date)})` : g.base_title;
+  g.played_h = hours(g.playtime_min);
+  g.ttb = blendTtb(g);
+  g.critic = g.oc_score != null ? g.oc_score : null;
+  g.hiddenAuto = autoHidden(g);
+  g.vr = isVR(g);
+  g.isHidden = g.hidden === 1 ? true : g.hidden === 0 ? false : g.hiddenAuto;
+  g.endlessAuto = autoEndless(g);
+  g.isEndless = g.endless === 1 ? true : g.endless === 0 ? false : g.endlessAuto;
+  g.progress = g.status === "completed" ? 1 : g.isEndless ? null : g.ttb ? Math.min(g.played_h / g.ttb, 1) : null;
+  g.remaining = g.status || g.isEndless ? null : g.ttb ? Math.max(g.ttb - g.played_h, 0) : null;
+  g.isCatalog = !!g.catalog_only;  // not yours: you can play it through XGP or PS+
+  g.isWishOnly = !!g.wishlist_only;  // only on a wishlist: shown on the Wishlist page, not in the library
+  g.rel = g.wish ? wishRelease(g) : null;
+  // XGP counts as Xbox and PS+ as PlayStation: same icon, same platform filter.
+  // A wishlist-only game shows the stores whose wishlist it's on.
+  const plats = new Set(g.isWishOnly ? (g.wish.stores || []).map((x) => WISH_PLATFORM[x.store]) : g.platforms);
+  for (const x of g.subs || []) plats.add(SUB_PLATFORM[x.s]);
+  g.platforms = [...plats].filter(Boolean).sort();
+  // Never played: no time and no launch date anywhere. Xbox knows when you last played
+  // many older games but not for how long: those are played, with hours unknown.
+  g.neverPlayed = !(g.playtime_min > 0) && !g.last_played;
+  g.hoursUnknown = !(g.playtime_min > 0) && !!g.last_played;
+  g.covers = [g.cover_url, g.igdb_cover, g.psn_image].filter(Boolean);
+  g.heroes = [g.hero_url, g.igdb_artwork, ...(g.screenshots || [])].filter(Boolean);
+  g._search = `${g.title} ${(g.developers || []).join(" ")} ${(g.franchises || []).join(" ")}`.toLowerCase();
+  return g;
+}
+
+/* ------------------------------------------------------------ images with fallbacks */
+
+function img(urls, alt, cls = "") {
+  const list = urls.filter(Boolean);
+  if (!list.length) return "";
+  return `<img class="${cls}" src="${esc(list[0])}" data-fallbacks="${esc(list.slice(1).join("|"))}" alt="${esc(alt)}" loading="lazy" decoding="async">`;
+}
+function coverHTML(g) {
+  return `${img(g.covers, "")}<div class="fallback" style="--h:${hue(g.title)}" ${g.covers.length ? "hidden" : ""}>${esc(g.title)}</div>`;
+}
+// Re-render a container without the covers blinking: images that were already loaded are
+// moved into the new markup instead of being fetched and decoded again.
+function setHTML(container, html) {
+  const old = new Map();
+  for (const im of container.querySelectorAll("img")) {
+    if (!im.complete || !im.naturalWidth) continue;
+    const box = im.closest(".cover, .thumb, .hero-cover");
+    const list = old.get(im.getAttribute("src")) || [];
+    list.push({ im, wide: box && box.classList.contains("wide-art"), art: box && box.style.getPropertyValue("--art") });
+    old.set(im.getAttribute("src"), list);
+  }
+  container.innerHTML = html;
+  if (!old.size) return;
+  for (const im of container.querySelectorAll("img")) {
+    const prev = (old.get(im.getAttribute("src")) || []).shift();
+    if (!prev) continue;
+    prev.im.className = im.className;
+    im.replaceWith(prev.im);
+    const box = prev.im.closest(".cover, .thumb, .hero-cover");
+    if (box && prev.wide) { box.classList.add("wide-art"); if (prev.art) box.style.setProperty("--art", prev.art); }
+    const fb = box && box.querySelector(":scope > .fallback");
+    if (fb) fb.hidden = true;
+  }
+}
+
+document.addEventListener("load", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLImageElement)) return;
+  const box = el.closest(".cover, .thumb, .hero-cover");
+  if (!box || !el.naturalWidth) return;
+  const wide = el.naturalWidth / el.naturalHeight > 0.78;  // 2:3 is 0.67
+  box.classList.toggle("wide-art", wide);
+  if (wide) box.style.setProperty("--art", `url("${el.currentSrc.replace(/"/g, "%22")}")`);
+}, true);
+
+document.addEventListener("error", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLImageElement) || !el.dataset) return;
+  const rest = (el.dataset.fallbacks || "").split("|").filter(Boolean);
+  if (rest.length) {
+    el.dataset.fallbacks = rest.slice(1).join("|");
+    el.src = rest[0];
+  } else {
+    const fb = el.parentElement && el.parentElement.querySelector(":scope > .fallback");
+    if (fb) fb.hidden = false;
+    el.remove();
+  }
+}, true);
+
+/* ------------------------------------------------------------ filter + sort */
+
+function visibleGames() {
+  const p = state.prefs;
+  const q = state.q.trim().toLowerCase();
+  const hidden = new Set(p.hiddenPlatforms);
+  const statuses = new Set(p.status);
+  const keep = (g) => {
+    if (g.isHidden && !p.showHidden) return false;
+    if (q && !g._search.includes(q)) return false;
+    if (hidden.size && !g.platforms.some((x) => !hidden.has(x))) return false;
+    if (!statuses.has(g.status || "")) return false;
+    if (!p.played.includes(g.neverPlayed ? "never" : "played")) return false;
+    if (p.genres.length && !(g.genres || []).some((x) => p.genres.includes(x))) return false;
+    if (!p.vr && g.vr) return false;
+    if (p.subTags.length && !subMatch(g, p.subTags)) return false;
+    return true;
+  };
+  const list = state.games.filter(keep);
+  const key = p.sort;
+  const val = {
+    // Dated games by date; then games with hours but no date (Steam before 2009, Epic);
+    // never-played games last. Hours-only games sort among themselves by hours.
+    last_played: (g) => g.last_played ? g.last_played : g.playtime_min > 0 ? g.playtime_min / 1e7 : null,
+    playtime: (g) => g.playtime_min,
+    title: (g) => g.title.toLowerCase(),
+    release_date: (g) => g.release_date,
+    ttb_main: (g) => g.ttb,
+    remaining: (g) => g.remaining,
+    progress: (g) => g.progress,
+    critic_score: (g) => g.critic,
+    steam_review_pct: (g) => g.steam_review_pct,
+    added_at: (g) => g.added_at,
+    // Curator's score; games you've started get a small lead.
+    recommended: (g) => { const sc = recScore(g); return sc == null ? null : sc + (g.neverPlayed ? 0 : 5); },
+  }[key] || ((g) => g.title);
+  const dir = p.dir === "asc" ? 1 : -1;
+  list.sort((a, b) => {
+    const va = val(a), vb = val(b);
+    const na = va == null || va === "", nb = vb == null || vb === "";
+    if (na && nb) return a.title.localeCompare(b.title);
+    if (na) return 1;   // missing values always sink to the bottom
+    if (nb) return -1;
+    if (typeof va === "string") return dir * va.localeCompare(vb);
+    return dir * (va - vb) || a.title.localeCompare(b.title);
+  });
+  return list;
+}
+
+/* ------------------------------------------------------------ Curator (recommendations) */
+
+// A friendly pick, not a to-do list. Score out of 100:
+//   reviews 70% — Steam's rating leads (70/30 with OpenCritic), leaning on OpenCritic
+//                 when Steam has few reviews; no score at all counts as middling (60);
+//   time 30%    — fewer hours to the credits is more inviting (5 h or less is best);
+//   your say    — "More interested" +10, "Less interested" −10, "Not right now" leaves it out.
+// Completed, did-not-finish, hidden and open-ended games aren't suggested.
+const INTEREST = { more: "More interested", less: "Less interested", skip: "Not right now" };
+const INTEREST_NUDGE = { more: 10, less: -10 };
+
+// Not played for over a year: you'd start over, so the whole game counts, not what's left.
+const recRestart = (g) => !g.neverPlayed && !!g.last_played && Date.now() / 1000 - g.last_played > 365 * 86400;
+function recHoursLeft(g) {
+  if (!g.ttb) return null;
+  if (g.neverPlayed) return g.ttb;
+  if (recRestart(g)) return g.ttb_custom || g.ttb_extra || g.ttb_main || g.ttb;
+  // Played past its usual length: likely seen the credits or replaying, so no time bonus.
+  return g.remaining > 0.25 ? g.remaining : null;
+}
+
+const recEligible = (g) => !(g.isHidden || g.vr || g.status || g.isEndless || g.interest === "skip");
+
+// Reviews out of 100: Steam leads; few Steam reviews lean on OpenCritic, or towards a middling 65.
+function recReview(g) {
+  const steam = g.steam_review_pct, oc = g.oc_score;
+  if (steam != null) {
+    const trust = Math.min(1, (g.steam_review_count || 0) / 50);
+    return oc != null ? 0.7 * trust * steam + (1 - 0.7 * trust) * oc : trust * steam + (1 - trust) * 65;
+  }
+  return oc != null ? oc : null;
+}
+
+function recScore(g) {
+  if (!recEligible(g)) return null;
+  const review = recReview(g);
+  const left = recHoursLeft(g);
+  if (review == null && left == null) return null;  // nothing to go on
+  const time = left == null ? 50 : Math.max(10, Math.min(100, 100 - 21 * Math.log2(Math.max(left, 0.5) / 5)));
+  return 0.7 * (review ?? 60) + 0.3 * time + (INTEREST_NUDGE[g.interest] || 0);
+}
+
+function recReason(g) {
+  const bits = [];
+  const desc = g.steam_review_desc;
+  if (g.steam_review_pct != null && desc) bits.push(`${desc} on Steam`);
+  else if (g.oc_tier && g.oc_score != null) bits.push(`${g.oc_tier} on OpenCritic`);
+  else if (g.steam_review_pct != null) bits.push(`${Math.round(g.steam_review_pct)}% on Steam`);
+  else if (g.oc_score != null) bits.push(`${Math.round(g.oc_score)}% on OpenCritic`);
+  const left = recHoursLeft(g);
+  if (left != null) bits.push(g.neverPlayed ? `about ${fmtHours(left)} to beat`
+    : recRestart(g) ? `about ${fmtHours(left)} from the start` : `about ${fmtHours(left)} to the credits`);
+  if (g.interest === "more") bits.push("you're keen");
+  const t = bits.join(" · ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// Four lists. Quick wins: the score above, under COMMIT_HOURS to go (games untouched for over a
+// year count their full length, as a restart). Worthwhile commitments: COMMIT_HOURS or more,
+// ranked on reviews and your interest only, and only great ones (COMMIT_MIN). Each game lands
+// in one list at most.
+const COMMIT_HOURS = 20, COMMIT_MIN = 85;
+function recLists(n = 5) {
+  const quick = [], commit = [];
+  for (const g of state.games) {
+    if (!recEligible(g)) continue;
+    const left = recHoursLeft(g);
+    if (left != null && left >= COMMIT_HOURS) {
+      const r = recReview(g);
+      if (r != null && r >= COMMIT_MIN) commit.push([r + (INTEREST_NUDGE[g.interest] || 0), g]);
+    } else {
+      const sc = recScore(g);
+      if (sc != null) quick.push([sc, g]);
+    }
+  }
+  const order = (a, b) => b[0] - a[0] || a[1].title.localeCompare(b[1].title);
+  quick.sort(order); commit.sort(order);
+  // Started = real hours on record (Xbox's "launched once, hours unknown" doesn't count).
+  const started = (g) => g.playtime_min > 0;
+  const pick = (list, test) => list.filter(([, g]) => test(g)).slice(0, n).map(([, g]) => g);
+  return {
+    keepQuick: pick(quick, started),
+    keepCommit: pick(commit, started),
+    freshQuick: pick(quick, (g) => g.neverPlayed),
+    freshCommit: pick(commit, (g) => g.neverPlayed),
+  };
+}
+
+// The recommendations page. Its name lives here only: change CURATOR to rename it everywhere.
+const CURATOR = "Curator";
+
+function renderUpNext() {
+  const el = $("#upnext");
+  const L = recLists();
+  const card = (g, i) => `
+    <button class="rec" data-id="${g.id}" title="${esc(g.title)}: ${esc(recReason(g))}">
+      <div class="cover">${coverHTML(g)}<span class="rec-n">${i + 1}</span>${interestMark(g)}</div>
+      <div class="rec-title">${esc(g.title)}</div>
+      <div class="rec-why">${recShort(g)}</div>
+    </button>`;
+  const row = (title, hint, list, empty) => `
+    <div class="cur-sub">
+      <h3 class="cur-sh">${title}<span>${hint}</span></h3>
+      ${list.length ? `<div class="cur-row">${list.map(card).join("")}</div>` : `<p class="source-note">${empty}</p>`}
+    </div>`;
+  setHTML(el, `
+    <section class="cur-section">
+      <h2 class="cur-h">Keep playing</h2>
+      ${row("Quick wins", `under ${COMMIT_HOURS}h to the credits, or to replay from the start`, L.keepQuick, "Started games close to the credits show up here.")}
+      ${row("Worthwhile commitments", "long, and loved by players or critics", L.keepCommit, "Long, great games you've started show up here.")}
+    </section>
+    <section class="cur-section">
+      <h2 class="cur-h">Try something new</h2>
+      ${row("Quick wins", `under ${COMMIT_HOURS}h to beat`, L.freshQuick, "Short games you haven't played show up here.")}
+      ${row("Worthwhile commitments", "long, and loved by players or critics", L.freshCommit, "Long, great games you haven't played show up here.")}
+    </section>`);
+  renderWishRows();
+  renderRecent();
+}
+
+// The last games you played, as library covers, under the picks.
+function renderRecent() {
+  const list = state.games.filter((g) => !g.isHidden && !g.isCatalog && g.last_played)
+    .sort((a, b) => b.last_played - a.last_played).slice(0, 18);
+  setHTML($("#recent"), list.length
+    ? `<section class="cur-section"><h2 class="cur-h">Recently played</h2><div class="grid cur-recent">${renderGrid(list)}</div></section>` : "");
+}
+
+// Two pages: CURATOR (the default) and Library. The address remembers which (#library).
+function showPage(page, { push = true } = {}) {
+  if (!state.games.length && page === "curator") page = "library";  // nothing to recommend yet: setup lives there
+  state.page = page;
+  document.body.dataset.page = page;
+  $$(".page-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.page === page)));
+  $$(".page-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.page === page));
+  if (push) history.replaceState(null, "", page === "curator" ? location.pathname : "#" + page);
+  scrollTo({ top: 0 });
+}
+
+// The to-the-point version of recReason for Curator: "97% Steam · 4.3h to beat".
+function recShort(g) {
+  const bits = [];
+  if (g.steam_review_pct != null) bits.push(`<span class="score ${steamClass(g)}">${Math.round(g.steam_review_pct)}%</span> Steam`);
+  else if (g.oc_score != null) bits.push(`<span class="score ${criticClass(g)}">${Math.round(g.oc_score)}%</span> OpenCritic`);
+  const left = recHoursLeft(g);
+  if (left != null) bits.push(g.neverPlayed ? `${shortH(left)} to beat` : recRestart(g) ? `${shortH(left)} restart` : `${shortH(left)} left`);
+  return bits.join(" · ");
+}
+
+const interestMark = (g) => g.interest === "more" ? `<span class="imark more" title="More interested">▲</span>`
+  : g.interest === "less" ? `<span class="imark less" title="Less interested">▼</span>`
+  : g.interest === "skip" ? `<span class="imark skip" title="Not right now">zz</span>` : "";
+
+async function setInterest(id, v) {
+  const g0 = byId(id);
+  const next = g0 && g0.interest === v ? null : v;  // picking the same again clears it
+  try {
+    const g = await api(`/api/games/${id}`, { method: "PATCH", body: { interest: next } });
+    upsertLocal(g);
+    if (state.openId === id) renderDetail(derive(g));
+    toast(next ? `${INTEREST[next]}: ${g.title}` : `${CURATOR} treats ${g.title} normally again`);
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ------------------------------------------------------------ Wishlist */
+
+// Your Steam and PlayStation wishlists (GameShelf reads them; it can't change them).
+const WISH_PLATFORM = { steam: "steam", psn: "playstation" };
+const WISH_STORE = { steam: "Steam", psn: "PlayStation" };
+const WISH_DAYS = 60;  // Curator's "Recently released" and "Coming out soon" windows
+const nowS = () => Date.now() / 1000;
+
+// When it comes out: {state: out | soon | tba, ts, prec: day | month | quarter | year, text}.
+// The stores' own dates first (a console game coming to PC is "soon" on Steam), else IGDB's.
+function wishRelease(g) {
+  const w = g.wish || {}, igdb = g.release_date, now = nowS();
+  if (w.released === true) return { state: "out", ts: w.release_ts || igdb || null, prec: "day" };
+  if (w.release_ts) return { state: w.release_ts <= now && w.precision === "day" ? "out" : "soon", ts: w.release_ts, prec: w.precision || "day" };
+  if (igdb && (w.released == null || igdb > now)) return { state: igdb <= now ? "out" : "soon", ts: igdb, prec: "day" };
+  return { state: "tba", ts: null, prec: null, text: w.release_text || "No date yet" };
+}
+function fmtRelease(r) {
+  if (!r || !r.ts) return (r && r.text) || "No date yet";
+  const d = new Date(r.ts * 1000);
+  if (r.prec === "year") return String(d.getUTCFullYear());
+  if (r.prec === "quarter") return `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${d.getUTCFullYear()}`;
+  if (r.prec === "month") return d.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+}
+function inDays(ts) {
+  const days = Math.round((ts - nowS()) / 86400);
+  return days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
+}
+function wishWhen(g, { soonDays = false } = {}) {
+  const r = g.rel;
+  if (r.state === "out") return r.ts ? `Out ${fmtRelease(r)}` : "Out now";
+  if (r.state === "soon") return fmtRelease(r) + (soonDays && r.prec === "day" && r.ts - nowS() < 45 * 86400 ? ` · ${inDays(r.ts)}` : "");
+  return r.text || "No date yet";
+}
+// Already playable: on XGP / PS+, or yours on another store.
+function playableTags(g) {
+  return [...(g.subs || []).map((x) => `On ${SUB_SHORT[x.s]}`),
+    ...(g.wish?.owned_on || []).filter((p) => p !== "xbox").map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`)];  // see wishlist.by_game
+}
+function saleText(x) {
+  return `${x.discount_pct}% off${x.sale_note ? ` ${x.sale_note}` : ""}${x.sale_ends ? ` until ${fmtDate(x.sale_ends)}` : ""}: ${x.price_text}${x.base_text ? `, usually ${x.base_text}` : ""}`;
+}
+// The sale badge on the cover ("On XGP" and the like sit next to the price instead).
+function wishPills(g, { sale = true } = {}) {
+  const x = g.wish?.sale;
+  return sale && x ? `<div class="wpills"><span class="wpill sale" title="${esc(`${WISH_STORE[x.store]}: ${saleText(x)}`)}">-${x.discount_pct}%</span></div>` : "";
+}
+// The price to show: the sale if there is one, else the lowest listed price.
+// Followed by where you can already play it: "C$ 38.99 · On XGP".
+function wishPrice(g) {
+  const stores = (g.wish?.stores || []).filter((x) => x.price_text);
+  const tags = playableTags(g).map((t) => `<span class="wtag">${esc(t)}</span>`).join(" · ");
+  if (!stores.length) return tags;
+  const x = g.wish.sale || stores[0];
+  const where = stores.length > 1 || (g.wish.stores || []).length > 1 ? ` <em>${esc(WISH_STORE[x.store])}</em>` : "";
+  return `<span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}${where}${tags ? ` · ${tags}` : ""}`;
+}
+
+// Wishlist marker: a heart with the store's icon inside, so it never reads as a copy you own.
+function wishBadge(store) {
+  const p = WISH_PLATFORM[store], name = `On your ${WISH_STORE[store]} wishlist`;
+  return `<span class="wheart" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[p])}')"></i><b>${store === "psn" ? "PS" : "S"}</b></span>`;
+}
+// Bottom-left, like library covers: the platforms you can already play it on (owned, or on XGP / PS+).
+function playableBadges(g) {
+  const plats = new Set([...(g.wish?.owned_on || []).filter((p) => p !== "xbox"), ...(g.subs || []).map((x) => SUB_PLATFORM[x.s])]);
+  return plats.size ? `<div class="badges">${[...plats].filter(Boolean).sort().map(platformBadge).join("")}</div>` : "";
+}
+const wishBadges = (g) => `<div class="whearts">${(g.wish?.stores || []).map((x) => wishBadge(x.store)).join("")}</div>`;
+
+const allWish = () => [...state.games, ...state.wishGames].filter((g) => g.wish);
+
+function wishVisible() {
+  const p = state.prefs, q = state.q.trim().toLowerCase();
+  return allWish().filter((g) => (!g.isHidden || p.showHidden)
+    && (!q || g._search.includes(q))
+    && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))
+    && (!p.wishSale || g.wish.sale));
+}
+
+const PREC_RANK = { day: 0, month: 1, quarter: 2, year: 3 };
+function wishSorter(group) {
+  const key = state.prefs.wishSort;
+  const t = (a, b) => a.title.localeCompare(b.title);
+  // Coming soon is always soonest first, whatever the sort menu says.
+  if (group === "soon") return (a, b) => a.rel.ts - b.rel.ts || PREC_RANK[a.rel.prec] - PREC_RANK[b.rel.prec] || t(a, b);
+  if (key === "added") return (a, b) => (b.wish.added_at || 0) - (a.wish.added_at || 0) || t(a, b);
+  if (key === "title") return t;
+  if (key === "discount") return (a, b) => (b.wish.sale?.discount_pct || 0) - (a.wish.sale?.discount_pct || 0) || t(a, b);
+  if (key === "reviews") return (a, b) => (recReview(b) ?? -1) - (recReview(a) ?? -1) || t(a, b);
+  // Release date: newest first among games that are out, soonest first among upcoming ones.
+  if (group === "out") return (a, b) => (b.rel.ts || 0) - (a.rel.ts || 0) || t(a, b);
+  if (group === "soon") return (a, b) => a.rel.ts - b.rel.ts || PREC_RANK[a.rel.prec] - PREC_RANK[b.rel.prec] || t(a, b);
+  return (a, b) => (b.wish.added_at || 0) - (a.wish.added_at || 0) || t(a, b);
+}
+
+function wishCards(list) {
+  return list.map((g) => `
+    <button class="card wcard" data-id="${g.id}">
+      <div class="cover">
+        ${coverHTML(g)}
+        ${wishPills(g)}
+        ${g.isHidden ? `<span class="stamp hidden-stamp">Hidden</span>` : ""}
+        ${wishBadges(g)}
+        ${playableBadges(g)}
+      </div>
+      <div class="card-title">${esc(g.title)}</div>
+      ${g.rel.state === "out"  // already out: no date, just the review score (if any)
+        ? (recReview(g) != null ? `<div class="card-meta">${recScoreTag(g)} on ${g.steam_review_pct != null ? "Steam" : "OpenCritic"}</div>` : "")
+        : `<div class="card-meta">${esc(wishWhen(g, { soonDays: true }))}</div>`}
+      ${wishPrice(g) ? `<div class="wprice">${wishPrice(g)}</div>` : ""}
+    </button>`).join("");
+}
+// The review score in a card line: Steam's, else OpenCritic's.
+function recScoreTag(g) {
+  return g.steam_review_pct != null ? `<span class="score ${steamClass(g)}">${Math.round(g.steam_review_pct)}%</span>`
+    : g.oc_score != null ? `<span class="score ${criticClass(g)}">${Math.round(g.oc_score)}%</span>` : "";
+}
+
+function renderWishlist() {
+  const el = $("#wishlist");
+  if (!el) return;
+  const all = allWish().filter((g) => !g.isHidden || state.prefs.showHidden);
+  if (!all.length) {
+    el.innerHTML = `<div class="empty"><h2>${state.wishlistAt ? "Your wishlists are empty" : "Your wishlists will show up here"}</h2>
+      <p>${state.wishlistAt
+        ? "Nothing on your Steam or PlayStation wishlist right now. If that's not right, check that your Steam profile's game details are public."
+        : "The next sync reads your Steam wishlist (from your Steam profile; its game details need to be public) and your PlayStation wishlist (with your NPSSO token from Settings)."}</p>
+      <button class="btn" id="wish-sync">Sync now</button></div>`;
+    return;
+  }
+  const p = state.prefs;
+  const list = wishVisible();
+  const counts = { steam: all.filter((g) => g.wish.stores.some((x) => x.store === "steam")).length,
+    psn: all.filter((g) => g.wish.stores.some((x) => x.store === "psn")).length };
+  const onSale = all.filter((g) => g.wish.sale && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))).length;
+  const groups = [["out", "Out now"], ["soon", "Coming soon"], ["tba", "No date yet"]].map(([k, label]) => {
+    const gs = list.filter((g) => g.rel.state === k).sort(wishSorter(k));
+    return gs.length ? `<section class="wish-group"><h2 class="wish-h">${label} <span>${gs.length}</span></h2><div class="grid">${wishCards(gs)}</div></section>` : "";
+  }).join("");
+  const seg = (v, label, n) => `<button data-wf="wishStore" data-v="${v}" class="${p.wishStore === v ? "on" : ""}" aria-pressed="${p.wishStore === v}">${label}${n != null ? ` <em>${n}</em>` : ""}</button>`;
+  setHTML(el, `
+    <div class="toolbar wish-toolbar">
+      <div class="result-count"><b>${list.length.toLocaleString()}</b> ${list.length === all.length ? `game${all.length === 1 ? "" : "s"} on your wishlists` : `of ${all.length.toLocaleString()} wishlist games`}${state.wishlistAt ? ` <span class="source-note">· checked ${esc(relDate(state.wishlistAt).toLowerCase())}</span>` : ""}</div>
+      <div class="toolbar-right">
+        ${counts.steam && counts.psn ? `<div class="segmented wish-stores" role="group" aria-label="Wishlist">${seg("all", "All")}${seg("steam", "Steam", counts.steam)}${seg("psn", "PlayStation", counts.psn)}</div>` : ""}
+        <button class="chip ${p.wishSale ? "on" : ""}" data-wf="sale" aria-pressed="${p.wishSale}">On sale <em>${onSale}</em></button>
+        <label class="sort"><span>Sort by</span>
+          <select id="wish-sort">
+            ${[["release", "Release date"], ["added", "Date added"], ["discount", "Biggest discount"], ["reviews", "Reviews"], ["title", "Title"]]
+              .map(([k, l]) => `<option value="${k}" ${p.wishSort === k ? "selected" : ""}>${l}</option>`).join("")}
+          </select></label>
+      </div>
+    </div>
+    ${groups || `<div class="empty"><h2>Nothing matches</h2><p>No wishlist games fit ${p.wishSale ? "“On sale”" : "these choices"}${state.q ? ` and the search “${esc(state.q)}”` : ""}.</p></div>`}`);
+}
+
+// Curator: what's new or close from your wishlists, and what's on sale.
+function renderWishRows() {
+  const el = $("#wishrows");
+  const gs = allWish().filter((g) => !g.isHidden);
+  if (!gs.length) { el.innerHTML = ""; return; }
+  const now = nowS(), win = WISH_DAYS * 86400;
+  const recent = gs.filter((g) => g.rel.state === "out" && g.rel.ts && now - g.rel.ts <= win && g.rel.ts <= now)
+    .sort((a, b) => b.rel.ts - a.rel.ts || a.title.localeCompare(b.title));
+  const soon = gs.filter((g) => g.rel.state === "soon" && g.rel.prec === "day" && g.rel.ts - now <= win && g.rel.ts > now - 86400)
+    .sort((a, b) => a.rel.ts - b.rel.ts || a.title.localeCompare(b.title));
+  const sale = gs.filter((g) => g.wish.sale)
+    .sort((a, b) => b.wish.sale.discount_pct - a.wish.sale.discount_pct || (recReview(b) ?? -1) - (recReview(a) ?? -1) || a.title.localeCompare(b.title));
+  const mini = (g, line, opts) => `
+    <button class="rec mini" data-id="${g.id}" title="${esc(g.title)}">
+      <div class="cover">${coverHTML(g)}${wishPills(g, opts)}${wishBadges(g)}${playableBadges(g)}</div>
+      <div class="rec-title">${esc(g.title)}</div>
+      <div class="rec-why">${line}</div>
+    </button>`;
+  const row = (title, hint, list, line, empty, opts = { sale: false }) => `
+    <div class="cur-sub">
+      <h3 class="cur-sh">${title}<span>${hint}</span></h3>
+      ${list.length ? `<div class="mini-row">${list.slice(0, 16).map((g) => mini(g, line(g), opts)).join("")}</div>` : `<p class="source-note">${empty}</p>`}
+    </div>`;
+  setHTML(el, `
+    <section class="cur-section">
+      <h2 class="cur-h">From your wishlist</h2>
+      <div class="cur-wish-split">
+        ${row("Recently released", `the last ${WISH_DAYS} days`, recent, (g) => `${esc(wishWhen(g))}${recReview(g) != null ? ` · ${recScoreTag(g)}` : ""}`,
+          `Nothing from your wishlist came out in the last ${WISH_DAYS} days.`)}
+        ${row("Coming out soon", `the next ${WISH_DAYS} days`, soon, (g) => esc(wishWhen(g, { soonDays: true })),
+          `Nothing on your wishlist has a release date in the next ${WISH_DAYS} days.`)}
+      </div>
+      ${row("On sale", "biggest discount first", sale, (g) => wishPrice(g), "Nothing on your wishlist is on sale right now.", { sale: true })}
+    </section>`);
+}
+
+// On a game's page: which wishlists it's on, when it comes out and what it costs.
+function wishBox(g) {
+  if (!g.wish) return "";
+  const tags = playableTags(g);
+  const when = (x) => {
+    if (x.released === 1 || g.rel.state === "out") return "";  // out already: the date doesn't matter
+    if (x.release_ts) return `Coming ${fmtRelease({ ts: x.release_ts, prec: x.precision || "day" })}`;
+    return x.release_text || (g.rel.state === "soon" ? `Coming ${fmtRelease(g.rel)}` : "");
+  };
+  return `<section class="wish-box">
+    <h2>On your wishlist</h2>
+    <ul>${(g.wish.stores || []).map((x) => `<li>
+      ${wishBadge(x.store)}<b>${esc(WISH_STORE[x.store])}</b>
+      ${x.store === "steam" && x.added_at ? `<span>added ${esc(fmtDate(x.added_at))}</span>` : ""}
+      ${when(x) ? `<span>${esc(when(x))}</span>` : ""}
+      ${x.price_text ? `<span>${esc(x.price_text)}${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}${x.discount_pct ? ` <i class="wpill sale">-${x.discount_pct}%</i>${x.sale_note ? ` ${esc(x.sale_note)}` : ""}${x.sale_ends ? ` until ${esc(fmtDate(x.sale_ends))}` : ""}` : ""}</span>` : ""}
+      ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">Store page</a>` : ""}
+    </li>`).join("")}</ul>
+    ${tags.length ? `<p class="source-note">You can already play it: ${esc(tags.join(" · "))}.</p>` : ""}
+  </section>`;
+}
+
+/* ------------------------------------------------------------ rendering: library */
+
+function spine(g, extra = "") {
+  if (g.status === "completed") return `<div class="spine completed ${extra}" title="Completed"><i style="width:100%"></i></div>`;
+  if (g.isEndless) return `<div class="spine endless ${extra}" title="Open-ended: no finish line"></div>`;
+  if (g.progress == null) return `<div class="spine unknown ${extra}" title="No time-to-beat data"></div>`;
+  const pct = Math.max(g.progress * 100, g.played_h > 0 ? 3 : 0);
+  const title = `${fmtHours(g.played_h, { empty: "0 h" })} of about ${fmtHours(g.ttb)}`;
+  return `<div class="spine ${g.status === "dnf" ? "dnf" : ""} ${extra}" title="${esc(title)}"><i style="width:${pct.toFixed(1)}%"></i></div>`;
+}
+
+// Compact hours for the ends of a progress bar: 45m, 3.5h, 12h.
+function shortH(h) {
+  if (h == null || isNaN(h)) return "";
+  if (h <= 0) return "0h";
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))}m`;
+  if (h < 10) return `${Math.round(h * 10) / 10}h`;
+  return `${Math.round(h).toLocaleString()}h`;
+}
+
+// Progress bar with hours played on the left and hours to go on the right.
+function meter(g) {
+  if (g.neverPlayed && !g.status) {
+    // Never played: the whole length ahead, drawn as a dashed line.
+    const len = g.isEndless ? `<span class="m-r inf">∞</span>` : g.ttb ? `<span class="m-r" title="About ${fmtHours(g.ttb)} to beat">${shortH(g.ttb)}</span>` : `<span class="m-r" title="No time-to-beat data yet">?</span>`;
+    return `<div class="meter fresh" title="Not played yet${g.ttb && !g.isEndless ? `, about ${fmtHours(g.ttb)} to beat` : ""}"><span class="m-l">Unplayed</span><div class="spine fresh"></div>${len}</div>`;
+  }
+  const played = g.hoursUnknown
+    ? `<span class="m-l" title="Launched, but the store doesn't say for how long">?h</span>`
+    : `<span class="m-l" title="Played">${shortH(g.played_h)}</span>`;
+  if (g.status === "completed") {
+    return `<div class="meter">${played}${spine(g)}<span class="m-r done" title="Completed">✓</span></div>`;
+  }
+  if (g.isEndless) {
+    return `<div class="meter endless" title="Open-ended: no finish line">${played}<div class="inf-line"></div><span class="m-r inf">∞</span></div>`;
+  }
+  if (g.progress == null) {
+    return `<div class="meter">${played}${spine(g)}<span class="m-r" title="No time-to-beat data yet">?</span></div>`;
+  }
+  if (g.status === "dnf") return `<div class="meter">${played}${spine(g)}<span class="m-r"></span></div>`;
+  const left = g.remaining > 0.25
+    ? `<span class="m-r" title="About ${fmtHours(g.remaining)} to the credits">${shortH(g.remaining)}<em> left</em></span>`
+    : `<span class="m-r" title="Past the expected length">almost</span>`;
+  return `<div class="meter">${played}${spine(g)}${left}</div>`;
+}
+
+function cardMeta(g) {
+  switch (state.prefs.sort) {
+    case "playtime": return g.hoursUnknown ? "Hours unknown" : fmtHours(g.played_h, { empty: "Not played" });
+    case "release_date": return year(g.release_date) || "Release date unknown";
+    case "ttb_main": return g.isEndless ? "Open-ended" : g.ttb ? `About ${fmtHours(g.ttb)} to beat` : "Time to beat unknown";
+    case "remaining": return g.status === "completed" ? "Completed" : g.isEndless ? "Open-ended" : g.remaining != null ? (g.remaining > 0 ? `About ${fmtHours(g.remaining)} to the credits` : "Credits are close") : "Time to beat unknown";
+    case "progress": return g.isEndless ? "Open-ended" : g.progress != null ? `${Math.round(g.progress * 100)}% through` : "Time to beat unknown";
+    case "critic_score": return g.critic ? `OpenCritic ${Math.round(g.critic)}%` : "No OpenCritic score";
+    case "steam_review_pct": return g.steam_review_pct != null ? `${Math.round(g.steam_review_pct)}% positive on Steam` : "No Steam reviews";
+    case "added_at": return `Added ${relDate(g.added_at).toLowerCase()}`;
+    case "recommended": return recScore(g) != null ? recReason(g) : g.interest === "skip" ? "Not right now" : "Not suggested";
+    default: return g.last_played ? relDate(g.last_played) : (g.playtime_min ? `${fmtHours(g.played_h)}, date unknown` : "Not played");
+  }
+}
+// Review scores on a green-to-red scale. OpenCritic's tier and Steam's own wording
+// decide the colour when there is one; the number decides otherwise.
+function scoreClass(v) {
+  if (v == null) return "";
+  return v >= 85 ? "s-great" : v >= 75 ? "s-good" : v >= 60 ? "s-mixed" : v >= 45 ? "s-meh" : "s-poor";
+}
+const OC_TIER = { mighty: "s-great", strong: "s-good", fair: "s-mixed", weak: "s-poor" };
+const STEAM_DESC = {
+  "overwhelmingly positive": "s-great", "very positive": "s-good", "positive": "s-good",
+  "mostly positive": "s-mixed", "mixed": "s-meh", "mostly negative": "s-poor",
+  "negative": "s-poor", "very negative": "s-poor", "overwhelmingly negative": "s-poor",
+};
+const criticClass = (g) => OC_TIER[(g.oc_tier || "").toLowerCase()] || scoreClass(g.oc_score);
+const steamClass = (g) => STEAM_DESC[(g.steam_review_desc || "").toLowerCase()] || scoreClass(g.steam_review_pct);
+function scoreHTML(v, empty = "—", cls = null) {
+  return v == null || v === 0 ? empty : `<span class="score ${cls || scoreClass(v)}">${Math.round(v)}%</span>`;
+}
+const statusLabel = (s) => ({ completed: "Completed", dnf: "Did not finish" }[s] || "Not marked");
+
+const badgesHTML = (g) => g.platforms.map(platformBadge).join("") + interestMark(g);
+
+function renderGrid(list) {
+  return list.map((g) => `
+    <button class="card ${g.status === "dnf" ? "is-dnf" : ""}" data-id="${g.id}">
+      <div class="cover">
+        ${coverHTML(g)}
+        ${g.isHidden ? `<span class="stamp hidden-stamp">Hidden</span>` : ""}
+        ${subPill(g)}
+        ${g.status === "completed" ? `<span class="stamp completed check" title="Completed" aria-label="Completed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>` : g.status === "dnf" ? `<span class="stamp dnf" title="Did not finish">DNF</span>` : ""}
+        <div class="badges">${badgesHTML(g)}</div>
+      </div>
+      ${meter(g)}
+      <div class="card-title">${esc(g.title)}</div>
+      <div class="card-meta">${esc(cardMeta(g))}</div>
+    </button>`).join("");
+}
+
+const LIST_COLS = [
+  { key: "title", label: "Game" },
+  { key: null, label: "Platforms", cls: "hide-sm" },
+  { key: "playtime", label: "Played", num: true },
+  { key: "last_played", label: "Last played", cls: "hide-sm" },
+  { key: "ttb_main", label: "To beat", num: true },
+  { key: "progress", label: "Progress", cls: "hide-sm" },
+  { key: "critic_score", label: "Critics", num: true, cls: "hide-sm" },
+  { key: "steam_review_pct", label: "Steam", num: true, cls: "hide-sm" },
+  { key: "release_date", label: "Released", num: true, cls: "hide-sm" },
+  { key: null, label: "Status" },
+];
+
+function renderList(list) {
+  const head = LIST_COLS.map((c) => `<th class="${c.num ? "num" : ""} ${c.cls || ""} ${c.key === state.prefs.sort ? "sorted" : ""}" ${c.key ? `data-sort="${c.key}"` : ""}>${c.label}${c.key === state.prefs.sort ? (state.prefs.dir === "asc" ? " ↑" : " ↓") : ""}</th>`).join("");
+  const rows = list.map((g) => `
+    <tr data-id="${g.id}">
+      <td><div style="display:flex;gap:12px;align-items:center"><div class="thumb">${coverHTML(g)}</div><span class="t-title">${esc(g.title)}</span></div></td>
+      <td class="hide-sm">${g.platforms.map((p) => esc(PLATFORM_SHORT[p] || p)).join(", ")}</td>
+      <td class="num">${g.hoursUnknown ? `<span title="Launched, but the store doesn't say for how long">?</span>` : fmtHours(g.played_h)}</td>
+      <td class="hide-sm">${g.last_played ? esc(relDate(g.last_played)) : "—"}</td>
+      <td class="num">${g.isEndless ? "∞" : fmtHours(g.ttb)}</td>
+      <td class="hide-sm">${g.isEndless ? `<span class="inf small" title="Open-ended">∞</span>` : spine(g, "mini-spine")}</td>
+      <td class="num hide-sm">${scoreHTML(g.critic, "—", criticClass(g))}</td>
+      <td class="num hide-sm">${scoreHTML(g.steam_review_pct, "—", steamClass(g))}</td>
+      <td class="num hide-sm">${year(g.release_date) || "—"}</td>
+      <td>${g.status ? `<span class="pill ${g.status}">${statusLabel(g.status)}</span>` : ""}</td>
+    </tr>`).join("");
+  return `<table class="list"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderStats() {
+  const gs = state.games.filter((g) => !g.isHidden);
+  if (!gs.length) { $("#stats").innerHTML = ""; return; }
+  const year = new Date().getFullYear();
+  const yearStart = new Date(year, 0, 1).getTime() / 1000;
+  const playedThisYear = gs.filter((g) => g.last_played && g.last_played >= yearStart).length;
+  const extra = gs.filter((g) => g.isCatalog).length;
+  $("#stats").innerHTML = `
+    <div class="stat"><b>${(gs.length - extra).toLocaleString()}</b><span>games you own</span></div>
+    ${extra ? `<div class="stat"><b>${extra.toLocaleString()}</b><span>more on XGP and PS+</span></div>` : ""}
+    <div class="stat"><b>${playedThisYear.toLocaleString()}</b><span>played in ${year}</span></div>
+`;
+}
+
+function renderFilters() {
+  const counts = {};
+  for (const g of state.games) {
+    for (const p of g.platforms) counts[p] = (counts[p] || 0) + 1;
+    counts["status:" + (g.status || "")] = (counts["status:" + (g.status || "")] || 0) + 1;
+  }
+  const present = Object.keys(state.platforms).filter((p) => counts[p]);
+  $("#f-platforms").innerHTML = present.length
+    ? present.map((p) => `<label><input type="checkbox" value="${p}" ${state.prefs.hiddenPlatforms.includes(p) ? "" : "checked"}><span>${esc(state.platforms[p])}</span><em>${counts[p]}</em></label>`).join("")
+    : `<span class="source-note">Sync a library to see platforms.</span>`;
+  $$("#f-status em").forEach((em) => { em.textContent = counts[em.dataset.count] || 0; });
+  $$("#f-status input").forEach((i) => { i.checked = state.prefs.status.includes(i.value); });
+  $$("#f-played input").forEach((i) => {
+    i.checked = state.prefs.played.includes(i.value);
+    i.parentElement.querySelector("em").textContent = state.games.filter((g) => !g.isHidden && (g.neverPlayed ? "never" : "played") === i.value).length;
+  });
+  const gcount = {};
+  for (const g of state.games) if (!g.isHidden) for (const x of g.genres || []) gcount[x] = (gcount[x] || 0) + 1;
+  const genres = Object.keys(gcount).sort();
+  $("#f-genres").innerHTML = genres.length
+    ? genres.map((x) => `<label><input type="checkbox" value="${esc(x)}" ${state.prefs.genres.includes(x) ? "checked" : ""}><span>${esc(x)}</span><em>${gcount[x]}</em></label>`).join("")
+    : `<span class="source-note">Genres appear once game details are in.</span>`;
+  $("#f-genre-clear").hidden = !state.prefs.genres.length;
+  $("#f-genre-any").textContent = state.prefs.genres.length > 1 ? "Showing games in any of these" : "";
+  const vrCount = state.games.filter((g) => g.vr && !g.isHidden).length;
+  $("#f-vr-wrap").hidden = !vrCount;
+  $("#f-vr").checked = state.prefs.vr;
+  $("#f-vr-count").textContent = vrCount;
+  const sc = { leaving: 0, new: 0 };
+  for (const g of state.games.filter((x) => !x.isHidden)) {
+    for (const t of Object.keys(sc)) if (subMatch(g, [t])) sc[t]++;
+  }
+  $$("#f-subtags input").forEach((i) => {
+    i.checked = state.prefs.subTags.includes(i.value);
+    const em = i.parentElement.querySelector("em"); if (em) em.textContent = sc[i.value] ?? "";
+  });
+  const hiddenCount = state.games.filter((g) => g.isHidden).length;
+  $("#f-hidden-wrap").hidden = !hiddenCount;
+  $("#f-hidden").checked = state.prefs.showHidden;
+  $("#f-hidden-count").textContent = hiddenCount;
+}
+
+function render() {
+  document.documentElement.style.setProperty("--cover", state.prefs.size + "px");
+  $("#sort-key").value = state.prefs.sort;
+  $("#sort-dir").classList.toggle("asc", state.prefs.dir === "asc");
+  $$(".view-toggle button").forEach((b) => b.classList.toggle("on", b.dataset.view === state.prefs.view));
+  $("#size").value = state.prefs.size;
+
+  const lib = $("#library");
+  const empty = $("#empty");
+  if (!state.games.length) {
+    lib.innerHTML = "";
+    $("#result-count").innerHTML = "";
+    renderEmpty();
+    return;
+  }
+  const list = visibleGames();
+  const shown = state.games.filter((g) => !g.isHidden || state.prefs.showHidden).length;
+  $("#result-count").innerHTML = list.length === shown
+    ? `<b>${list.length.toLocaleString()}</b> games`
+    : `<b>${list.length.toLocaleString()}</b> of ${shown.toLocaleString()} games`;
+  if (!list.length) {
+    lib.innerHTML = "";
+    empty.hidden = false;
+    empty.innerHTML = `<h2>Nothing matches</h2><p>No games fit these filters${state.q ? ` and the search “${esc(state.q)}”` : ""}.</p><button class="btn quiet" id="empty-reset">Reset filters</button>`;
+    return;
+  }
+  empty.hidden = true;
+  lib.className = state.prefs.view === "list" ? "" : "grid";
+  setHTML(lib, state.prefs.view === "list" ? renderList(list) : renderGrid(list));
+}
+
+function renderEmpty() {
+  const s = state.settings?.settings || {};
+  const metaOk = s.igdb_client_id && s.igdb_client_secret?.set;
+  const libOk = (s.steam_api_key?.set && s.steam_id) || s.psn_npsso?.set;
+  const empty = $("#empty");
+  empty.hidden = false;
+  empty.innerHTML = `
+    <h2>Your shelf is empty</h2>
+    <p>Connect your stores once and GameShelf brings every game together with its art, details and your playtime.</p>
+    <ol class="steps">
+      <li class="${metaOk ? "ok" : ""}"><div><b>Connect game info (IGDB)</b><span>Free. Supplies descriptions, genres, covers and time to beat.</span></div></li>
+      <li class="${libOk ? "ok" : ""}"><div><b>Connect Steam and PlayStation</b><span>Imports what you own and how long you've played.</span></div></li>
+      <li><div><b>Sync</b><span>The first sync takes a few minutes; covers appear as it goes.</span></div></li>
+    </ol>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${metaOk && libOk ? `<button class="btn" id="empty-sync">Sync now</button>` : `<button class="btn" id="empty-settings">Open settings</button>`}
+      <button class="btn ghost" id="empty-add">Add a game by hand</button>
+    </div>`;
+}
+
+function renderAll() {
+  renderStats();
+  renderUpNext();
+  renderWishlist();
+  renderFilters();
+  render();
+}
+
+/* ------------------------------------------------------------ detail panel */
+
+const byId = (id) => state.games.find((g) => g.id === id) || state.wishGames.find((g) => g.id === id);
+
+async function openGame(id) {
+  state.openId = id;
+  const wrap = $("#detail-wrap");
+  const cached = byId(id);
+  if (cached) { renderDetail(cached); }
+  wrap.hidden = false;
+  document.body.style.overflow = "hidden";
+  try {
+    const g = derive(await api(`/api/games/${id}`));
+    if (state.openId === id) renderDetail(g);
+  } catch (e) { toast(e.message, true); }
+}
+
+function closeGame() {
+  state.openId = null;
+  $("#detail-wrap").hidden = true;
+  document.body.style.overflow = "";
+}
+
+function fact(label, value, small = "", extra = "") {
+  return `<div class="fact"><span>${label}</span><b>${value}</b>${small ? `<small>${small}</small>` : ""}${extra}</div>`;
+}
+
+// Day-by-day play (from Nintendo's Play Activity).
+function playHistory(g) {
+  const days = g.play_days || [];
+  if (!days.length) return "";
+  const counted = Math.max(...(g.entries || []).map((e) => e.excluded ? 0 : e.days_played || 0), days.length);
+  const fmtDay = (d) => new Date(d + "T12:00:00").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const fmtMin = (m) => m <= 5 ? "A few min" : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+  return `<section class="section"><h2>Play history</h2>
+    <p class="source-note">Played on ${counted} day${counted === 1 ? "" : "s"}. Most recent sessions from Nintendo's Play Activity:</p>
+    <div class="play-days">${days.slice(0, 12).map((d) => `<div><span>${esc(fmtDay(d.day))}</span><b>${fmtMin(d.minutes)}</b></div>`).join("")}</div>
+  </section>`;
+}
+
+// Slide between Main and 100% to say how you play this one.
+function ttbSlider(g) {
+  const lo = g.ttb_main || g.ttb_extra, hi = g.ttb_complete;
+  if (g.isEndless || !lo || !hi || hi <= lo * 1.05) return "";
+  const pos = (h) => ((Math.min(Math.max(h, lo), hi) - lo) / (hi - lo) * 100).toFixed(1);
+  const step = hi - lo > 40 ? 1 : 0.5;
+  const min = step === 1 ? Math.floor(lo) : Math.floor(lo * 2) / 2;
+  const val = Math.min(Math.max(g.ttb || lo, lo), hi);
+  return `<div class="ttb-slider">
+    <input type="range" id="ttb-range" min="${min}" max="${hi}" step="${step}" value="${val}" aria-label="Time to beat for how you play">
+    <div class="ttb-ticks">
+      <i style="left:0%"></i>${g.ttb_extra && g.ttb_main && g.ttb_extra > lo && g.ttb_extra < hi ? `<i style="left:${pos(g.ttb_extra)}%" title="Main + Extras"></i>` : ""}<i style="left:100%"></i>
+    </div>
+    <div class="ttb-slider-row"><span>How you play it: <strong id="ttb-val">${fmtHours(val)}</strong></span>
+      ${g.ttb_custom ? `<button class="link" data-act="ttb-reset">Back to automatic</button>` : ""}</div>
+  </div>`;
+}
+
+function renderDetail(g) {
+  const heroImg = img(g.heroes, "", "");
+  const logo = g.logo_url ? `<img class="hero-logo" src="${esc(g.logo_url)}" alt="" data-fallbacks="">` : "";
+  const devs = (g.developers || []).slice(0, 2).join(", ");
+  const entries = (g.entries || []).filter((e) => e.ownership !== "catalog" && e.ownership !== "wishlist");
+  const storeLinks = g.store_links || [];
+  const storeLink = (s) => { const l = storeLinks.find((x) => x.s === s); return l ? ` <a href="${esc(l.url)}" target="_blank" rel="noopener">Store page</a>` : ""; };
+  const normT = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const showNames = entries.length > 1 || entries.some((e) => normT(e.name) !== normT(g.title));
+  const versionCell = (e, extra = "") => {
+    const store = e.platform === "steam" && /^\d+$/.test(e.external_id || "")
+      ? ` <a class="copy-link" href="https://store.steampowered.com/app/${esc(e.external_id)}" target="_blank" rel="noopener">Store page</a>` : "";
+    return `<td><div class="copy-plat">${esc(state.platforms[e.platform] || e.platform)}${extra}</div>${showNames && e.name ? `<div class="copy-name">${esc(e.name)}${store}</div>` : ""}</td>`;
+  };
+
+  const notOut = g.rel && g.rel.state !== "out";  // a wishlist game that isn't released yet
+  const ext = (url, text) => url ? `<a class="fact-link" href="${esc(url)}" target="_blank" rel="noopener">${text}</a>` : text;
+  const steamLabel = `${ext(g.steam_appid ? `https://store.steampowered.com/app/${g.steam_appid}` : null, "Steam")} user reviews`;
+  const ttbLink = g.ttb_source === "HowLongToBeat"
+    ? ext(g.hltb_id ? `https://howlongtobeat.com/game/${g.hltb_id}` : `https://howlongtobeat.com/?q=${encodeURIComponent(g.title)}`, "HowLongToBeat")
+    : g.ttb_source === "IGDB" ? ext(g.igdb_url, "IGDB") : "";
+  const reviews = g.steam_review_pct != null
+    ? fact(steamLabel, scoreHTML(g.steam_review_pct, "—", steamClass(g)), `${esc(g.steam_review_desc || "")}, ${g.steam_review_count.toLocaleString()} reviews`)
+    : fact(steamLabel, "—", g.steam_appid ? "No reviews yet" : g.steam_checked_at ? "Not found on Steam" : "Not checked yet. Use Refresh assets.");
+  const ttb = g.ttb_main || g.ttb_extra || g.ttb_complete
+    ? `<div class="fact"><span>Time to beat${ttbLink ? ` · ${ttbLink}` : ""}</span>
+        <div class="ttb-row">
+          <div><b>${fmtHours(g.ttb_main)}</b><small>Main</small></div>
+          <div><b>${fmtHours(g.ttb_extra)}</b><small>+ Extras</small></div>
+          <div><b>${fmtHours(g.ttb_complete)}</b><small>100%</small></div>
+        </div>${ttbSlider(g)}</div>`
+    : fact("Time to beat", "—", notOut ? "Not out yet" : "No data yet");
+
+  const progressText = g.status === "completed" ? "Completed" : g.isEndless ? "Open-ended" : g.progress == null ? "—" : `${Math.round(g.progress * 100)}%`;
+  const progressSmall = g.status === "completed" ? (g.status_at ? `Marked ${relDate(g.status_at).toLowerCase()}` : "")
+    : g.isEndless ? "No finish line, play it whenever"
+    : g.status === "dnf" ? "Set aside"
+    : g.remaining ? `About ${fmtHours(g.remaining)} to the credits` : g.progress === 1 ? "Credits could be close" : "";
+  const endlessToggle = g.status === "completed" ? "" : `<button class="link endless-toggle" data-act="endless" data-v="${g.isEndless ? 0 : 1}">${g.isEndless ? "This game has an ending" : "This game doesn't really end"}</button>${g.endless != null ? ` <button class="link endless-toggle" data-act="endless" data-v="auto">Reset</button>` : ""}`;
+
+  const meta = [
+    ["Genres", g.genres], ["Themes", g.themes], ["Modes", g.modes], ["Perspective", g.perspectives],
+    ["Developer", g.developers], ["Publisher", g.publishers], ["Series", g.franchises],
+    ["Platforms", g.igdb_platforms],
+  ].filter(([, v]) => v && v.length);
+
+  $("#detail").innerHTML = `
+    <div class="hero">
+      ${heroImg}
+      <button class="btn icon hero-close" data-close aria-label="Close">✕</button>
+      <div class="hero-body">
+        <div class="hero-cover">${coverHTML(g)}</div>
+        <div class="hero-text">
+          ${logo}
+          <h1 class="hero-title ${logo ? "sr" : ""}" id="detail-title">${esc(g.title)}</h1>
+          <div class="hero-sub">
+            ${g.isWishOnly ? (g.wish?.stores || []).map((x) => wishBadge(x.store)).join("")
+              : g.platforms.map((p) => `<span class="badge">${esc(state.platforms[p] || p)}</span>`).join("")}
+            ${year(g.release_date) ? `<span>${year(g.release_date)}</span>` : ""}
+            ${devs ? `<span>${esc(devs)}</span>` : ""}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="detail-body">
+      ${g.isHidden ? `<p class="notice">${g.hidden === 1 ? "You hid this game." : "Hidden automatically: it looks like a playtest, beta, demo or tool rather than a game."} ${g.isWishOnly ? "It doesn't appear on the Wishlist page." : "It doesn't appear in your library or stats."}</p>` : ""}
+      <div class="actions">
+        ${g.isWishOnly ? "" : `<div class="status-picker" role="radiogroup" aria-label="Status">
+          ${["", "completed", "dnf"].map((s) => `<button data-s="${s}" class="${(g.status || "") === s ? "on" : ""}" role="radio" aria-checked="${(g.status || "") === s}">${statusLabel(s)}</button>`).join("")}
+        </div>`}
+        <span class="spacer"></span>
+        <button class="btn ghost small" data-act="fix">${g.match_state === "none" ? "Identify game" : "Fix match"}</button>
+        <button class="btn ghost small" data-act="hide" data-v="${g.isHidden ? 0 : 1}">${g.isHidden ? "Unhide" : "Hide"}</button>
+        <button class="btn ghost small" data-act="art">Change art</button>
+        <button class="btn ghost small" data-act="refresh" title="Re-fetch this game's details, art, reviews and time to beat">Refresh assets</button>
+      </div>
+
+      ${g.isWishOnly ? "" : `<div class="interest-row" role="group" aria-label="${CURATOR}">
+        <span>${CURATOR}</span>
+        ${Object.entries(INTEREST).map(([k, label]) => `<button class="chip ${g.interest === k ? "on" : ""}" data-act="interest" data-v="${k}" aria-pressed="${g.interest === k}">${k === "more" ? "▲ " : k === "less" ? "▼ " : ""}${label}</button>`).join("")}
+        ${g.status || g.isEndless ? `<small class="source-note">${g.status ? "Finished or set-aside games aren't suggested." : "Open-ended games aren't suggested."}</small>` : ""}
+      </div>`}
+      ${(g.subs || []).length ? `<p class="sub-note">${g.isCatalog ? "Not in your library. " : ""}${g.subs.map((x) => `${x.leaving ? "Leaving" : "Included with"} ${SUB_NAME[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}.${storeLink(x.s)}`).join(" ")}</p>` : ""}
+      ${wishBox(g)}
+      ${g.status === "completed" && g.status_auto ? `<p class="auto-note">✓ Marked completed automatically: ${esc(g.status_auto)}${g.status_at ? `, ${esc(fmtDate(g.status_at))}` : ""}. Not right? Pick another status above.</p>` : ""}
+      <div class="facts">
+        ${g.isWishOnly ? "" : fact("You've played", g.hoursUnknown ? "?" : fmtHours(g.played_h, { empty: "0 h" }), g.last_played ? `Last played ${esc(relDate(g.last_played).toLowerCase())}${g.hoursUnknown ? ". The store doesn't say for how long" : ""}` : g.playtime_min ? "Date unknown" : "Not played yet")}
+        ${g.isWishOnly ? "" : fact("Progress", progressText, progressSmall, `<div class="bar">${meter(g)}</div><div class="endless-row">${endlessToggle}</div>`)}
+        ${ttb}
+        ${g.oc_score != null
+          ? fact(`${ext(g.oc_url, "OpenCritic")} score${g.oc_tier ? ` <i class="tier tier-${esc(g.oc_tier.toLowerCase())}">${esc(g.oc_tier)}</i>` : ""}`, scoreHTML(g.oc_score, "—", criticClass(g)),
+              `${g.oc_recommend != null ? `${Math.round(g.oc_recommend)}% of critics recommend it` : "Top critic average"}${g.oc_count ? `, ${g.oc_count} reviews` : ""}`)
+          : fact("OpenCritic score", "—", notOut ? "Not out yet" : "No score yet")}
+        ${reviews}
+      </div>
+
+      ${entries.length ? `<section class="section">
+        <h2>Your copies</h2>
+        ${entries.length > 1 && new Set(entries.map((e) => normT(e.name))).size > 1 ? `<p class="source-note">${entries.length} versions combined into one game. Each one's own name, playtime and dates are below.</p>` : ""}
+        <div class="copies-wrap"><table class="copies">
+          <thead><tr><th>Platform</th><th>Played</th><th title="Hours that shouldn't count: someone else playing on your account, or earlier playthroughs you'd rather leave out (to show only your latest or longest one)">Don't count</th><th>Last played</th><th>First played</th><th title="Untick to leave this copy out of the game's playtime">Counts</th><th></th></tr></thead>
+          <tbody>${entries.map((e) => {
+            const counts = `<td><input type="checkbox" data-field="counts" ${e.excluded ? "" : "checked"} aria-label="Count this copy"></td>`;
+            if (e.manual) return `
+            <tr data-entry="${e.id}" class="${e.excluded ? "excluded" : ""}">
+              ${versionCell(e, ` <span class="source-note">${String(e.external_id || "").startsWith("nsw:") ? "from Play Activity" : "added by hand"}</span>`)}
+              <td><input type="number" min="0" step="0.5" value="${Math.round(hours(e.playtime_min) * 10) / 10}" data-field="hours" aria-label="Hours played"> h</td>
+              <td class="source-note">All yours</td>
+              <td><input type="date" value="${e.last_played ? new Date(e.last_played * 1000).toISOString().slice(0, 10) : ""}" data-field="last_played" aria-label="Last played"></td>
+              <td>${fmtDate(e.first_played)}</td>
+              ${counts}
+              <td><button class="btn danger small" data-act="remove-entry">Remove</button></td>
+            </tr>`;
+            const mine = Math.max(e.playtime_min - (e.adjust_min || 0), 0);
+            return `
+            <tr data-entry="${e.id}" class="${e.excluded ? "excluded" : ""}">
+              ${versionCell(e, e.ownership === "ps_plus" ? ` <span class="source-note">via PS+</span>` : "")}
+              <td>${fmtHours(hours(e.playtime_min), { empty: "0 h" })}</td>
+              <td><input type="number" min="0" step="0.5" value="${Math.round(hours(e.adjust_min || 0) * 10) / 10}" data-field="not_mine_hours" aria-label="Hours that shouldn't count"> h${e.adjust_min ? ` <span class="source-note">${fmtHours(hours(mine), { empty: "0 h" })} counted</span>` : ""}</td>
+              <td>${fmtDate(e.last_played)}</td>
+              <td>${fmtDate(e.first_played)}</td>
+              ${counts}
+              <td></td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </section>` : ""}
+
+      ${g.summary ? `<section class="section"><h2>About</h2><p class="summary clamp" id="summary">${esc(g.summary)}${g.storyline ? "\n\n" + esc(g.storyline) : ""}</p><button class="link" id="more">Read more</button></section>` : ""}
+
+      ${playHistory(g)}
+
+      ${meta.length ? `<section class="section"><h2>Details</h2><dl class="meta-grid">
+        ${meta.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v.join(", "))}</dd>`).join("")}
+        ${g.release_date ? `<dt>Released</dt><dd>${fmtDate(g.release_date)}</dd>` : ""}
+        ${g.igdb_url ? `<dt>More</dt><dd><a href="${esc(g.igdb_url)}" target="_blank" rel="noopener">IGDB page</a>${g.steam_appid ? ` and <a href="https://store.steampowered.com/app/${g.steam_appid}" target="_blank" rel="noopener">Steam store page</a>` : ""}</dd>` : ""}
+      </dl></section>` : ""}
+
+      ${(g.screenshots || []).length ? `<section class="section"><h2>Screenshots</h2><div class="shots">${g.screenshots.map((s) => `<img src="${esc(s)}" alt="" loading="lazy" data-fallbacks="">`).join("")}</div></section>` : ""}
+
+      <section class="section">
+        <h2>Notes</h2>
+        <textarea id="notes" placeholder="Anything to remember about this one">${esc(g.notes || "")}</textarea>
+      </section>
+    </div>`;
+
+  const more = $("#more");
+  if (more) {
+    const s = $("#summary");
+    requestAnimationFrame(() => { if (s.scrollHeight <= s.clientHeight + 2) more.remove(); });
+    more.onclick = () => { s.classList.toggle("clamp"); more.textContent = s.classList.contains("clamp") ? "Read more" : "Show less"; };
+  }
+  $("#detail").focus?.();
+}
+
+function upsertLocal(g) {
+  derive(g);
+  const into = g.isWishOnly ? state.wishGames : state.games;
+  const other = g.isWishOnly ? state.games : state.wishGames;
+  const j = other.findIndex((x) => x.id === g.id);
+  if (j >= 0) other.splice(j, 1);
+  const i = into.findIndex((x) => x.id === g.id);
+  if (i >= 0) into[i] = { ...into[i], ...g };
+  else into.push(g);
+  renderAll();
+  return g;
+}
+
+async function setHidden(id, v) {
+  try {
+    const g = await api(`/api/games/${id}`, { method: "PATCH", body: { hidden: v } });
+    upsertLocal(g);
+    if (state.openId === id) renderDetail(derive(g));
+    const wishOnly = byId(id)?.isWishOnly;
+    toast(v ? (wishOnly ? "Hidden from your wishlist here" : "Hidden. Turn on “Show hidden games” in the filters to find it.")
+      : (wishOnly ? "Back on your wishlist" : "Back in your library"));
+  } catch (err) { toast(err.message, true); }
+}
+
+async function setTtb(id, hours) {
+  try {
+    const g = await api(`/api/games/${id}`, { method: "PATCH", body: { ttb_custom: hours } });
+    upsertLocal(g);
+    if (state.openId === id) renderDetail(derive(g));
+    toast(hours == null ? "Time to beat is automatic again" : `Time to beat set to about ${fmtHours(hours)}`);
+  } catch (err) { toast(err.message, true); }
+}
+
+async function setStatus(id, status) {
+  try {
+    const g = await api(`/api/games/${id}`, { method: "PATCH", body: { status } });
+    upsertLocal(g);
+    if (state.openId === id) renderDetail(g);
+    toast(status === "completed" ? "Marked completed" : status === "dnf" ? "Marked as did not finish" : "Status cleared");
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ------------------------------------------------------------ add game / fix match */
+
+function igdbReady() {
+  const s = state.settings?.settings || {};
+  return Boolean(s.igdb_client_id && s.igdb_client_secret?.set);
+}
+
+function searchBox(onPick, initial = "") {
+  let timer, picked = null;
+  const box = document.createElement("div");
+  box.innerHTML = `
+    <label class="field"><span>Search IGDB</span><input type="search" class="igdb-q" value="${esc(initial)}" placeholder="Type a game title"></label>
+    <div class="results" role="listbox"></div>`;
+  const input = $(".igdb-q", box), results = $(".results", box);
+  async function run() {
+    const q = input.value.trim();
+    if (q.length < 2) { results.innerHTML = ""; return; }
+    results.innerHTML = `<span class="source-note">Searching…</span>`;
+    try {
+      const data = await api(`/api/igdb/search?q=${encodeURIComponent(q)}`);
+      results.innerHTML = data.results.length ? data.results.map((r) => `
+        <button type="button" class="result" data-id="${r.id}" data-name="${esc(r.name)}">
+          ${r.cover ? `<img src="${esc(r.cover)}" alt="" data-fallbacks="">` : `<span class="noimg"></span>`}
+          <span><b>${esc(r.name)}</b><small>${r.year || "Year unknown"}${r.is_edition ? ", edition or DLC" : ""}</small></span>
+        </button>`).join("") : `<span class="source-note">No matches. Try a shorter title.</span>`;
+    } catch (e) { results.innerHTML = `<span class="test-result err">${esc(e.message)}</span>`; }
+  }
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 300); });
+  results.addEventListener("click", (e) => {
+    const b = e.target.closest(".result");
+    if (!b) return;
+    $$(".result", results).forEach((x) => x.classList.toggle("on", x === b));
+    picked = { id: Number(b.dataset.id), name: b.dataset.name };
+    onPick(picked);
+  });
+  if (initial) setTimeout(run, 0);
+  return box;
+}
+
+function openAdd() {
+  const dlg = $("#add-dialog");
+  $("#add-title").textContent = "Add a game";
+  const body = $("#add-body");
+  let picked = null;
+  const options = Object.entries(state.platforms).filter(([k]) => k !== "steam" && k !== "playstation")
+    .map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
+  body.innerHTML = `
+    <p class="lede">For Switch 2 and anywhere GameShelf can't import from yet. Art and details fill in automatically.</p>
+    <button class="btn quiet small shots-link" data-open-shots>Import Nintendo Switch games from a screen recording instead</button>
+    <div id="add-search"></div>
+    <label class="field"><span>Title</span><input type="text" id="add-name" placeholder="Game title"></label>
+    <div class="row">
+      <label class="field"><span>Platform</span><select id="add-platform">${options}<option value="playstation">PlayStation (not played yet)</option><option value="steam">Steam</option></select></label>
+      <label class="field"><span>Hours played</span><input type="number" id="add-hours" min="0" step="0.5" placeholder="0"></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Last played</span><input type="date" id="add-last"></label>
+      <label class="field"><span>Status</span><select id="add-status"><option value="">Not marked</option><option value="completed">Completed</option><option value="dnf">Did not finish</option></select></label>
+    </div>
+    <div class="dialog-actions"><button class="btn ghost" data-close-dialog>Cancel</button><button class="btn" id="add-save">Add to library</button></div>`;
+  if (igdbReady()) {
+    $("#add-search").append(searchBox((p) => { picked = p; $("#add-name").value = p.name; }));
+  } else {
+    $("#add-search").innerHTML = `<p class="source-note">Connect IGDB in Settings to search for games and fill in art automatically.</p>`;
+  }
+  $("#add-name").addEventListener("input", () => { picked = picked && $("#add-name").value === picked.name ? picked : null; });
+  $("#add-save").onclick = async () => {
+    const title = $("#add-name").value.trim();
+    if (!title) { toast("Enter a title first", true); return; }
+    const last = $("#add-last").value;
+    try {
+      const g = await api("/api/manual", {
+        method: "POST",
+        body: {
+          title, igdb_id: picked?.id || null, platform: $("#add-platform").value,
+          hours: Number($("#add-hours").value || 0),
+          last_played: last ? Math.floor(new Date(last + "T12:00:00").getTime() / 1000) : null,
+          status: $("#add-status").value,
+        },
+      });
+      upsertLocal(g);
+      dlg.close();
+      toast(`Added ${g.title}. Fetching art and details…`);
+      setTimeout(reloadLibrary, 6000);
+      setTimeout(reloadLibrary, 15000);
+    } catch (e) { toast(e.message, true); }
+  };
+  dlg.showModal();
+  setTimeout(() => (igdbReady() ? $(".igdb-q", body) : $("#add-name")).focus(), 30);
+}
+
+function openFixMatch(g) {
+  if (!igdbReady()) { toast("Connect IGDB in Settings first", true); return; }
+  const dlg = $("#add-dialog");
+  $("#add-title").textContent = "Fix match";
+  const body = $("#add-body");
+  body.innerHTML = `<p class="lede">Pick the right game for “${esc(g.title)}”. Your playtime and status stay as they are.</p><div id="fix-search"></div>
+    <div class="dialog-actions"><button class="btn ghost" data-close-dialog>Cancel</button><button class="btn" id="fix-save" disabled>Use this game</button></div>`;
+  let picked = null;
+  $("#fix-search").append(searchBox((p) => { picked = p; $("#fix-save").disabled = false; }, g.title));
+  $("#fix-save").onclick = async () => {
+    if (!picked) return;
+    $("#fix-save").disabled = true;
+    $("#fix-save").textContent = "Updating…";
+    try {
+      const updated = await api(`/api/games/${g.id}/match`, { method: "POST", body: { igdb_id: picked.id } });
+      dlg.close();
+      await reloadLibrary();
+      openGame(updated.id);
+      toast("Match updated");
+    } catch (e) { toast(e.message, true); $("#fix-save").disabled = false; $("#fix-save").textContent = "Use this game"; }
+  };
+  dlg.showModal();
+}
+
+/* ------------------------------------------------------------ Nintendo Switch from a screen recording or screenshots */
+
+const shots = { files: [], items: null, problems: [], video: null, poll: null };
+
+function openShots() {
+  document.querySelectorAll("dialog[open]").forEach((d) => d.close());
+  clearInterval(shots.poll);
+  shots.files = []; shots.items = null; shots.problems = []; shots.video = null;
+  renderShots();
+  $("#shots-dialog").showModal();
+  // A recording may still be being read from before the window was closed.
+  api("/api/switch/video").then((st) => {
+    if (["starting", "setup", "scanning", "reading"].includes(st.state)) watchVideo();
+    // Finished while the window was closed: pick up where it left off.
+    else if (st.state === "done" && !st.applied && (st.items || []).length && Date.now() / 1000 - st.started < 3600) watchVideo(st);
+  }).catch(() => {});
+}
+
+const PLAT_LABEL = { switch2: "Switch 2", switch: "Switch" };
+
+function videoStageHTML() {
+  const v = shots.video || {};
+  if (v.uploading != null) {
+    return `<p class="lede">Sending ${esc(v.name || "the recording")} to GameShelf…</p><div class="progress"><i style="width:${Math.round(v.uploading * 100)}%"></i></div>`;
+  }
+  const st = v.status || {};
+  const label = {
+    starting: "Getting started…",
+    setup: "Getting the video reader ready. This happens once and takes a minute or two.",
+    scanning: "Finding each game in the recording…",
+    reading: st.total ? `Reading game cards: ${st.done} of ${st.total}` : "Reading game cards…",
+  }[st.state] || "Working…";
+  const pct = st.state === "reading" && st.total ? Math.round(100 * st.done / st.total) : null;
+  return `<p class="lede">${esc(label)}</p><div class="progress ${pct == null ? "indeterminate" : ""}"><i style="width:${pct ?? 30}%"></i></div>
+    <p class="source-note">You can keep this window open or come back to it; the recording keeps being read.</p>`;
+}
+
+function renderShots(stage = "pick") {
+  const body = $("#shots-body");
+  if (stage === "reading") {
+    body.innerHTML = `<p class="lede">Reading ${shots.files.length} screenshot${shots.files.length > 1 ? "s" : ""}…</p><div class="progress indeterminate"><i></i></div>`;
+    return;
+  }
+  if (shots.video && !shots.items) { body.innerHTML = videoStageHTML(); return; }
+  if (shots.items) {
+    const items = shots.items;
+    const ticked = items.filter((x) => x.on).length;
+    const rich = items.some((x) => x.first_played || x.last_played);
+    const statusText = (x) => x.status === "update"
+      ? (x.hours > x.current_hours + 0.05 ? `In your library: ${fmtHours(x.current_hours, { empty: "0 h" })} → ${fmtHours(x.hours)}` : "In your library, dates and history updated")
+      : x.status === "join" ? `Joins ${esc(x.game_title)} from your other stores`
+      : x.system ? "Nintendo app, not a game" : x.demo ? "Demo" : "New";
+    body.innerHTML = `
+      <p class="lede">Here's what GameShelf found. Untick anything that isn't right; you can fix titles, hours and the console too.${rich ? "" : ` Nintendo shows hours as "or more", so these are minimums.`}</p>
+      ${shots.problems.map((p) => `<p class="test-result err">${esc(p)}</p>`).join("")}
+      ${items.length ? `<div class="shots-list ${rich ? "rich" : ""}">
+        ${items.map((x, i) => `<div class="shots-item ${x.on ? "" : "off"}" data-i="${i}">
+          <input type="checkbox" ${x.on ? "checked" : ""} data-f="on" aria-label="Include">
+          <span class="shots-title"><input type="text" value="${esc(x.title)}" data-f="title" aria-label="Title" spellcheck="false">
+            ${rich ? `<small>${[x.last_played ? `Last played ${esc(fmtDate(x.last_played))}` : "", x.days ? `${x.days} day${x.days === 1 ? "" : "s"} played` : ""].filter(Boolean).join(" · ")}</small>` : ""}</span>
+          <select data-f="platform" aria-label="Console">${["switch2", "switch"].map((p) => `<option value="${p}" ${x.platform === p ? "selected" : ""}>${PLAT_LABEL[p]}</option>`).join("")}</select>
+          <span class="shots-hours"><input type="number" min="0" step="0.5" value="${Math.round(x.hours * 10) / 10}" data-f="hours" aria-label="Hours"> h${x.little ? `<small>a little while</small>` : ""}</span>
+          <span class="shots-status ${x.status}">${statusText(x)}</span>
+        </div>`).join("")}
+      </div>` : `<p class="lede">No games found.</p>`}
+      <div class="dialog-actions"><button class="btn ghost" data-shots-back>Start over</button>
+        <button class="btn" data-shots-apply ${ticked ? "" : "disabled"}>Add ${ticked} game${ticked === 1 ? "" : "s"}</button></div>`;
+    return;
+  }
+  body.innerHTML = `
+    <p class="lede">Record your screen in the Nintendo Switch app and drop the video here. GameShelf reads every game's playtime, first and last played dates and day-by-day history.</p>
+    <ol class="shots-how">
+      <li>In the <b>Nintendo Switch app</b>, open your user page › <b>Play Activity</b>, and tap your most recent game.</li>
+      <li>Start a screen recording, then swipe through the games one by one. A short pause on each card is plenty.</li>
+      <li>Send the recording to this PC (AirDrop, email or a cloud folder) and drop it below.</li>
+    </ol>
+    <label class="dropzone" id="shots-drop" tabindex="0">
+      <input type="file" id="shots-input" accept="video/*,image/*" multiple hidden>
+      <b>Drop the screen recording here</b><span>or click to choose it. Screenshots of the Play Activity list work too (Ctrl+V to paste).</span>
+    </label>
+    ${shots.files.length ? `<div class="shots-thumbs">${shots.files.map((f, i) => `<figure><img src="${f.url}" alt=""><button class="btn icon ghost" data-shots-remove="${i}" aria-label="Remove">✕</button></figure>`).join("")}</div>` : ""}
+    <div class="dialog-actions"><button class="btn ghost" data-close-dialog>Cancel</button>
+      ${shots.files.length ? `<button class="btn" data-shots-read>Read ${shots.files.length} screenshot${shots.files.length === 1 ? "" : "s"}</button>` : ""}</div>`;
+}
+
+function addShotFiles(fileList) {
+  const all = [...fileList];
+  const video = all.find((f) => f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name));
+  if (video) { uploadVideo(video); return; }
+  const files = all.filter((f) => f.type.startsWith("image/"));
+  let pending = files.length;
+  if (!pending) { toast("Choose a screen recording or screenshots", true); return; }
+  for (const f of files) {
+    const r = new FileReader();
+    r.onload = () => { shots.files.push({ name: f.name, url: r.result }); if (--pending === 0) renderShots(); };
+    r.readAsDataURL(f);
+  }
+}
+
+function uploadVideo(file) {
+  shots.video = { name: file.name, uploading: 0 };
+  renderShots();
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/switch/video");
+  xhr.setRequestHeader("X-GameShelf", "1");
+  xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
+  xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable && shots.video) { shots.video.uploading = e.loaded / e.total; renderShots(); }
+  };
+  xhr.onload = () => {
+    let data = {};
+    try { data = JSON.parse(xhr.responseText); } catch { /* empty */ }
+    if (xhr.status !== 200) { shots.video = null; renderShots(); toast(data.error || "Couldn't send the video", true); return; }
+    watchVideo(data);
+  };
+  xhr.onerror = () => { shots.video = null; renderShots(); toast("Couldn't send the video to GameShelf", true); };
+  xhr.send(file);
+}
+
+function watchVideo(first) {
+  shots.video = { ...(shots.video || {}), uploading: null, status: first || { state: "starting" } };
+  renderShots();
+  clearInterval(shots.poll);
+  shots.poll = setInterval(async () => {
+    let st;
+    try { st = await api("/api/switch/video"); } catch { return; }
+    if (!$("#shots-dialog").open) return;
+    shots.video.status = st;
+    if (st.state === "done") {
+      clearInterval(shots.poll);
+      shots.problems = st.problems || [];
+      shots.items = (st.items || []).map((x) => ({ ...x, on: !x.system && !x.demo }));
+      renderShots();
+    } else if (st.state === "error") {
+      clearInterval(shots.poll);
+      shots.video = null;
+      renderShots();
+      shots.problems = [];
+      toast(st.error || "Couldn't read the video", true);
+    } else renderShots();
+  }, 1000);
+}
+
+async function readShots() {
+  renderShots("reading");
+  try {
+    const res = await api("/api/switch/preview", { method: "POST", body: { images: shots.files.map((f) => f.url) } });
+    shots.problems = res.problems || [];
+    shots.items = (res.items || []).map((x) => ({ ...x, on: !x.system && !x.demo && !(x.status === "update" && x.hours <= x.current_hours) }));
+  } catch (e) {
+    shots.problems = [e.message]; shots.items = [];
+  }
+  renderShots();
+}
+
+async function applyShots() {
+  const items = shots.items.filter((x) => x.on).map((x) => ({
+    title: x.title, hours: Number(x.hours) || 0, platform: x.platform,
+    first_played: x.first_played || null, last_played: x.last_played || null,
+    days: x.days || null, sessions: x.sessions || [],
+  }));
+  try {
+    const res = await api("/api/switch/import", { method: "POST", body: { items, from_video: Boolean(shots.video) } });
+    $("#shots-dialog").close();
+    await reloadLibrary();
+    const bits = [];
+    if (res.added) bits.push(`added ${res.added} game${res.added > 1 ? "s" : ""}`);
+    if (res.updated) bits.push(`updated ${res.updated}`);
+    toast(bits.length ? `Nintendo Switch: ${bits.join(", ")}. Art and details are on their way.` : "Nothing new to add");
+    setTimeout(reloadLibrary, 8000); setTimeout(reloadLibrary, 25000);
+  } catch (e) { toast(e.message, true); }
+}
+
+document.addEventListener("click", (e) => { if (e.target.closest("[data-open-shots]")) openShots(); });
+$("#shots-body").addEventListener("click", (e) => {
+  if (e.target.closest("[data-shots-read]")) readShots();
+  else if (e.target.closest("[data-shots-apply]")) applyShots();
+  else if (e.target.closest("[data-shots-back]")) { shots.items = null; shots.problems = []; shots.video = null; shots.files = []; renderShots(); }
+  else if (e.target.closest("[data-shots-remove]")) { shots.files.splice(Number(e.target.closest("[data-shots-remove]").dataset.shotsRemove), 1); renderShots(); }
+});
+$("#shots-body").addEventListener("change", (e) => {
+  if (e.target.id === "shots-input") { addShotFiles(e.target.files); return; }
+  const row = e.target.closest("[data-i]");
+  if (!row || !shots.items) return;
+  const x = shots.items[Number(row.dataset.i)], f = e.target.dataset.f;
+  if (f === "on") { x.on = e.target.checked; renderShots(); }
+  else if (f === "title") x.title = e.target.value;
+  else if (f === "hours") x.hours = e.target.value;
+  else if (f === "platform") x.platform = e.target.value;
+});
+$("#shots-body").addEventListener("dragover", (e) => { if (e.target.closest("#shots-drop")) { e.preventDefault(); e.target.closest("#shots-drop").classList.add("over"); } });
+$("#shots-body").addEventListener("dragleave", (e) => { e.target.closest("#shots-drop")?.classList.remove("over"); });
+$("#shots-body").addEventListener("drop", (e) => { if (e.target.closest("#shots-drop")) { e.preventDefault(); addShotFiles(e.dataTransfer.files); } });
+document.addEventListener("paste", (e) => {
+  if (!$("#shots-dialog").open || shots.items || shots.video) return;
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); addShotFiles(files); }
+});
+
+/* ------------------------------------------------------------ art picker */
+
+const ART_SLOTS = [
+  { id: "cover", label: "Cover" },
+  { id: "hero", label: "Banner" },
+  { id: "logo", label: "Logo" },
+];
+
+async function openArt(id, slot = "cover") {
+  const dlg = $("#art-dialog");
+  const g = byId(id);
+  $("#art-title").textContent = `Change art${g ? ` for ${g.title}` : ""}`;
+  const body = $("#art-body");
+  body.innerHTML = `<p class="lede">Looking for artwork…</p><div class="progress indeterminate"><i></i></div>`;
+  if (!dlg.open) dlg.showModal();
+  let data;
+  try { data = await api(`/api/games/${id}/art`); }
+  catch (e) { body.innerHTML = `<p class="test-result err">${esc(e.message)}</p>`; return; }
+  state.art = { id, data, slot, preview: null };
+  renderArt();
+}
+
+function renderArt() {
+  const { data, slot } = state.art;
+  if (state.art.preview) {
+    const p = state.art.preview;
+    const isCurrent = p.url === data.current[slot];
+    $("#art-body").innerHTML = `
+      <div class="art-preview art-${slot}"><img src="${esc(p.url)}" alt="" data-fallbacks=""></div>
+      <p class="source-note">${esc(p.source || "")}${p.size ? `, ${esc(p.size)}` : ""}</p>
+      <div class="dialog-actions"><button class="btn ghost" data-art-back>Back to all ${slot === "hero" ? "banners" : slot + "s"}</button>
+        <button class="btn" data-art-use ${isCurrent ? "disabled" : ""}>${isCurrent ? "In use" : `Use this ${slot === "hero" ? "banner" : slot}`}</button></div>`;
+    return;
+  }
+  const opts = data.options[slot] || [];
+  const current = data.current[slot];
+  const locked = data.locks.includes(slot);
+  $("#art-body").innerHTML = `
+    <div class="segmented art-tabs" role="tablist">
+      ${ART_SLOTS.map((t) => `<button data-slot="${t.id}" class="${t.id === slot ? "on" : ""}" role="tab">${t.label} <em>${(data.options[t.id] || []).length}</em></button>`).join("")}
+    </div>
+    <p class="source-note art-state">${locked ? "You picked this one. It stays even when you refresh assets." : "Chosen automatically."}
+      ${locked ? `<button class="link" data-art-reset>Go back to automatic</button>` : ""}</p>
+    ${opts.length ? `<div class="art-grid art-${slot}">
+      ${opts.map((o) => `<button class="art-opt ${o.url === current ? "on" : ""}" data-url="${esc(o.url)}" data-source="${esc(o.source)}" data-size="${o.w ? `${o.w}×${o.h}` : ""}" title="Click for a closer look">
+        <img src="${esc(o.thumb || o.url)}" alt="" loading="lazy" data-fallbacks=""><span>${esc(o.source)}</span></button>`).join("")}
+    </div>` : `<p class="lede">No ${slot === "hero" ? "banners" : slot + "s"} found for this game.</p>`}
+    ${data.notes.map((n) => `<p class="source-note">${esc(n)}</p>`).join("")}
+    <div class="art-url">
+      <label class="field"><span>Or paste an image link</span><input type="text" id="art-url" placeholder="https://…" spellcheck="false"></label>
+      <button class="btn quiet small" data-art-paste>Use this image</button>
+    </div>`;
+}
+
+async function chooseArt(url) {
+  const { id, slot } = state.art;
+  try {
+    const g = await api(`/api/games/${id}/art`, { method: "POST", body: { slot, url } });
+    upsertLocal(g);
+    if (state.openId === id) renderDetail(derive(g));
+    state.art.data.current = { cover: g.cover_url, hero: g.hero_url, logo: g.logo_url };
+    state.art.data.locks = (g.art_locks || "").split(",").filter(Boolean);
+    renderArt();
+    toast(url ? "Art updated" : "Back to automatic art");
+  } catch (e) { toast(e.message, true); }
+}
+
+$("#art-body").addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-slot]");
+  if (tab) { state.art.slot = tab.dataset.slot; state.art.preview = null; renderArt(); return; }
+  const opt = e.target.closest(".art-opt");
+  if (opt) { state.art.preview = { url: opt.dataset.url, source: opt.dataset.source, size: opt.dataset.size }; renderArt(); return; }
+  if (e.target.closest("[data-art-use]")) { const u = state.art.preview.url; state.art.preview = null; chooseArt(u); return; }
+  if (e.target.closest("[data-art-back]")) { state.art.preview = null; renderArt(); return; }
+  if (e.target.closest("[data-art-reset]")) { chooseArt(null); return; }
+  if (e.target.closest("[data-art-paste]")) {
+    const url = $("#art-url").value.trim();
+    if (!url) { toast("Paste an image link first", true); return; }
+    chooseArt(url);
+  }
+});
+
+/* ------------------------------------------------------------ settings */
+
+const SERVICES = [
+  {
+    id: "igdb", name: "Game info: IGDB", blurb: "Descriptions, genres, covers, time to beat",
+    ready: (s) => s.igdb_client_id && s.igdb_client_secret.set,
+    steps: [
+      `Sign in at <a href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener">dev.twitch.tv/console/apps</a> (a free Twitch account with two-factor sign-in turned on).`,
+      `Choose <b>Register Your Application</b>. Name: anything. OAuth Redirect URL: <code>http://localhost</code>. Category: Application Integration. Client type: Confidential.`,
+      `Open the app, copy the <b>Client ID</b>, then choose <b>New Secret</b> and copy the secret.`,
+    ],
+    fields: [["igdb_client_id", "Client ID", false], ["igdb_client_secret", "Client Secret", true]],
+  },
+  {
+    id: "steam", name: "Steam", blurb: "Owned games, playtime, last played",
+    ready: (s) => s.steam_api_key.set && s.steam_id,
+    steps: [
+      `Get a key at <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>. For the domain, type <code>localhost</code>.`,
+      `Paste your profile URL (Steam › your name › Profile, then copy the address).`,
+      `In Steam, set <b>Edit Profile › Privacy Settings › Game details</b> to Public.`,
+    ],
+    fields: [["steam_api_key", "Web API key", true], ["steam_id", "Profile URL or SteamID", false]],
+  },
+  {
+    id: "playstation", name: "PlayStation", blurb: "PS4 and PS5 games you've played, playtime, last played",
+    ready: (s) => s.psn_npsso.set,
+    steps: [
+      `Sign in at <a href="https://www.playstation.com" target="_blank" rel="noopener">playstation.com</a> in your browser.`,
+      `In the same browser, open <a href="https://ca.account.sony.com/api/v1/ssocookie" target="_blank" rel="noopener">ca.account.sony.com/api/v1/ssocookie</a>. You'll see a short line of text.`,
+      `Copy the long value after <code>"npsso":</code> (or the whole line) and paste it below. It lasts about two months.`,
+    ],
+    fields: [["psn_npsso", "NPSSO token", true]],
+  },
+  {
+    id: "sgdb", name: "Artwork: SteamGridDB", blurb: "Optional. Better covers, banners and logos for console games",
+    ready: (s) => s.sgdb_api_key.set,
+    steps: [
+      `Sign in at <a href="https://www.steamgriddb.com" target="_blank" rel="noopener">steamgriddb.com</a> (via Steam).`,
+      `Open <a href="https://www.steamgriddb.com/profile/preferences/api" target="_blank" rel="noopener">Preferences › API</a> and generate a key.`,
+    ],
+    fields: [["sgdb_api_key", "API key", true]],
+  },
+];
+SERVICES.push({
+  id: "epic", name: "Epic Games Store", blurb: "Games you own (giveaways too) and playtime",
+  ready: (s) => s.epic_refresh.set,
+  steps: [
+    `Sign in at <a href="https://www.epicgames.com" target="_blank" rel="noopener">epicgames.com</a> in your browser.`,
+    `In the same browser, open <a href="https://www.epicgames.com/id/login?redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Fapi%2Fredirect%3FclientId%3D34a02cf8f4414e29b15921876da36f9a%26responseType%3Dcode" target="_blank" rel="noopener">this Epic sign-in link</a>. You'll see a short line of text.`,
+    `Copy the value after <code>"authorizationCode":</code> (or the whole line), paste it below and choose Save and test straight away: the code only works once, for a few minutes. GameShelf stays signed in after that, as long as you sync every few weeks.`,
+  ],
+  fields: [["epic_code", "Sign-in code", true]],
+  clears: ["epic_refresh", "epic_code"],  // signing out forgets the saved session
+});
+SERVICES.push({
+  id: "xbox", name: "Xbox and XGP", blurb: "Games you've played on Xbox or PC, playtime, last played",
+  ready: (s) => s.xbl_key.set,
+  steps: [
+    `Go to <a href="https://xbl.io" target="_blank" rel="noopener">xbl.io</a> (OpenXBL, free) and choose <b>Login with Xbox Live</b>, using your Microsoft account.`,
+    `On your <a href="https://xbl.io/profile" target="_blank" rel="noopener">OpenXBL profile</a>, create an API key under <b>API Keys</b> and copy it.`,
+    `Paste it below. The XGP (Xbox PC Game Pass) and PS+ (PlayStation Plus Extra) lists (what's included, new and leaving soon) update on every sync and don't need anything set up.`,
+  ],
+  fields: [["xbl_key", "OpenXBL API key", true]],
+});
+// The "Send to GameShelf" bookmark for Ubisoft Connect. Ubisoft's sign-in only answers
+// real browsers now, so this runs on connect.ubisoft.com in your own browser, where you're
+// signed in: it reads your games and their stats cards there, then opens GameShelf with them.
+// Self-contained (it runs on Ubisoft's page, not here).
+function ubiBookmarklet() {
+  const GS = "__GS__", A = "b8fde481-327d-4031-85ce-7c10a202a700", U = "https://public-ubiservices.ubi.com";
+  const say = (t) => { let b = document.getElementById("gs-note"); if (!b) { b = document.createElement("div"); b.id = "gs-note";
+    b.style.cssText = "position:fixed;z-index:2147483647;left:50%;top:20px;transform:translateX(-50%);background:#1c1828;color:#fff;font:600 15px system-ui;padding:12px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);border:1px solid #ff5c9e";
+    document.body.appendChild(b); } b.textContent = t; };
+  (async () => {
+    const LOGIN = "https://connect.ubisoft.com/login?appId=" + A + "&lang=en-US";
+    if (!/(^|\.)ubisoft\.com$/.test(location.hostname)) {
+      if (confirm("This bookmark works on Ubisoft's website. Go there now? Once it has loaded (sign in if asked), click the bookmark again.")) location.assign(LOGIN);
+      return;
+    }
+    const info = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i); if (!/^PROD/.test(k)) continue;
+      try { const v = JSON.parse(localStorage.getItem(k)); if (v && typeof v === "object")
+        for (const f of ["ticket", "rememberMeTicket", "sessionId", "userId", "profileId", "nameOnPlatform", "username", "expiration"]) if (v[f] && !info[f]) info[f] = v[f]; } catch (e) { /* not JSON */ }
+    }
+    if (!info.ticket && !info.rememberMeTicket) {
+      if (confirm("GameShelf couldn't find your Ubisoft sign-in on this page. Open Ubisoft Connect's sign-in page? Sign in there, then click the bookmark again.")) location.assign(LOGIN);
+      return;
+    }
+    say("GameShelf: reading your Ubisoft games…");
+    // A sign-in pass belongs to the Ubisoft site that issued it, so try this site's app id first.
+    const ids = [];
+    const html = document.documentElement.outerHTML;
+    for (const m of html.matchAll(/appId=([0-9a-f-]{36})/g)) ids.push(m[1]);
+    ids.push("aa88e512-9395-457d-bcb9-8d59c23f88c9", A, "314d4fef-e568-454a-ae06-43e3bece12a6");
+    const q = "query AllGames { viewer { id ...ownedGamesList } } fragment gameProps on Game { id spaceId name } fragment ownedGameProps on Game { ...gameProps viewer { meta { id ownedPlatformGroups { id name type } } } } fragment ownedGamesList on User { ownedGames: games(filterBy: {isOwned: true}) { totalCount nodes { ...ownedGameProps } } }";
+    let s = null, AH = null, app = null, nodes = null;
+    const tried = [];
+    for (const id of [...new Set(ids)]) {
+      const H = { "Ubi-AppId": id, "Content-Type": "application/json" };
+      let ss = info;
+      if (info.rememberMeTicket) {
+        try {
+          const r = await fetch(U + "/v3/profiles/sessions", { method: "POST", headers: { ...H, Authorization: "rm_v1 t=" + info.rememberMeTicket }, body: JSON.stringify({ rememberMe: true }) });
+          if (r.ok) ss = { ...info, ...(await r.json()) };
+        } catch (e) { /* keep the page's own pass */ }
+      }
+      if (!ss.ticket) continue;
+      const h = { ...H, Authorization: "Ubi_v1 t=" + ss.ticket, "Ubi-SessionId": ss.sessionId };
+      const gr = await fetch(U + "/v1/profiles/me/uplay/graphql", { method: "POST", headers: h, body: JSON.stringify({ operationName: "AllGames", variables: { owned: true }, query: q }) });
+      tried.push(gr.status);
+      if (!gr.ok) continue;
+      const j = await gr.json();
+      const n = j?.data?.viewer?.ownedGames?.nodes;
+      if (!n) { tried.push("no list"); continue; }
+      s = { ...ss, userId: ss.userId || j.data.viewer.id || info.profileId }; AH = h; app = id; nodes = n; break;
+    }
+    if (!nodes) { say(""); alert("Ubisoft didn't share your games (" + tried.join(", ") + "). Tell Claude these numbers."); return; }
+    const games = nodes.map((n) => ({ id: n.id, spaceId: n.spaceId, name: n.name,
+      types: (n.viewer?.meta?.ownedPlatformGroups || []).flat().map((p) => p && p.type).filter(Boolean), cards: [] }));
+    let done = 0;
+    for (let i = 0; i < games.length; i += 4) {
+      await Promise.all(games.slice(i, i + 4).map(async (g) => {
+        if (!g.spaceId) return;
+        try {
+          const r = await fetch(U + "/v1/profiles/" + s.userId + "/statscard?spaceId=" + g.spaceId, { headers: { ...AH, "Ubi-RequestedPlatformType": "uplay", "Ubi-LocaleCode": "en-US" } });
+          if (r.ok) g.cards = ((await r.json()).Statscards || []).filter((c) => c.format === "LongTimespan" || c.lastModified)
+            .map((c) => ({ statName: c.statName, displayName: c.displayName, format: c.format, unit: c.unit, value: c.value, lastModified: c.lastModified }));
+        } catch (e) { /* no stats for this one */ }
+        say("GameShelf: reading your Ubisoft games… " + (++done) + " of " + games.length);
+      }));
+    }
+    const out = { v: 1, app, user: s.userId, name: s.nameOnPlatform || info.nameOnPlatform || info.username, ticket: s.ticket, session: s.sessionId,
+      remember: s.rememberMeTicket || info.rememberMeTicket, expiration: s.expiration, games };
+    say("GameShelf: opening GameShelf…");
+    location.assign(GS + "/#ubisoft=" + encodeURIComponent(JSON.stringify(out)));
+  })().catch((e) => { say(""); alert("Something went wrong: " + e.message); });
+}
+const ubiBookmarkHref = () => "javascript:" + encodeURIComponent("(" + ubiBookmarklet.toString().replace("__GS__", location.origin) + ")()");
+
+SERVICES.push({
+  id: "ubisoft", name: "Ubisoft Connect", blurb: "PC games you own, playtime and last played",
+  ready: (s) => !!s.ubi_user,
+  steps: [
+    `Drag this button to your browser's bookmarks bar (drag it, don't click it): <a class="btn small bookmarklet" href="__UBI_BOOKMARK__" onclick="event.preventDefault(); toast('Drag the button to your bookmarks bar instead of clicking it')">Send to GameShelf</a>`,
+    `Open <a href="https://connect.ubisoft.com/login?appId=b8fde481-327d-4031-85ce-7c10a202a700&lang=en-US" target="_blank" rel="noopener">connect.ubisoft.com</a> and sign in as usual (two-step codes work there like always). Ubisoft only lets a real browser sign in, so GameShelf can't do this part itself.`,
+    `Once you're signed in, click the <b>Send to GameShelf</b> bookmark while you're on a connect.ubisoft.com page. If Ubisoft sent you to an error page or another site after signing in, open that link again first (you'll stay signed in), then click the bookmark. It reads your games and hours, then opens GameShelf, which adds them.`,
+    `Later syncs try to update Ubisoft by themselves; if Ubisoft says no, GameShelf keeps the last list and tells you to click the bookmark again for fresh hours. Last-played dates also come from the Ubisoft Connect app on this PC.`,
+  ],
+  fields: [],
+  clears: ["ubi_remember", "ubi_ticket", "ubi_session", "ubi_user"],
+});
+SERVICES.push({
+  id: "battlenet", name: "Battle.net", blurb: "Blizzard and Activision games you own, last played on this PC (no playtime: Blizzard doesn't share it)",
+  ready: (s) => s.bnet_games.set,
+  steps: [
+    `Sign in at <a href="https://account.battle.net" target="_blank" rel="noopener">account.battle.net</a> in your browser.`,
+    `In the same browser, open <a href="https://account.battle.net/api/games-and-subs" target="_blank" rel="noopener">account.battle.net/api/games-and-subs</a>. You'll see a block of text starting with <code>{</code>. Select all of it (Ctrl+A), copy it and paste it below.`,
+    `Optional, for older games like Diablo II or Warcraft III: also open <a href="https://account.battle.net/api/classic-games" target="_blank" rel="noopener">account.battle.net/api/classic-games</a> and paste its text after the first one, in the same box.`,
+    `Paste again whenever you get a new Blizzard game. Last-played dates come from the Battle.net app on this PC, by themselves.`,
+  ],
+  fields: [["bnet_games", "Games list (pasted)", true]],
+});
+SERVICES.push({
+  id: "opencritic", name: "Critic scores: OpenCritic", blurb: "Optional. Top critic average, % recommended and tier",
+  ready: (s) => s.opencritic_key.set,
+  steps: [
+    `Create a free account at <a href="https://rapidapi.com" target="_blank" rel="noopener">rapidapi.com</a>.`,
+    `Open the <a href="https://rapidapi.com/opencritic-opencritic-default/api/opencritic-api/pricing" target="_blank" rel="noopener">OpenCritic API</a> and subscribe to the free <b>Basic</b> plan.`,
+    `Copy your <b>X-RapidAPI-Key</b> from the API's page and paste it below. GameShelf stays well inside the free plan: at most 140 lookups a day, and it stops early if RapidAPI reports that less than a quarter of your allowance is left. A big library fills in over a few days.`,
+  ],
+  fields: [["opencritic_key", "RapidAPI key", true]],
+});
+
+const LATER = [
+  ["Nintendo Switch and Switch 2", "Import from a screen recording (Sync › Nintendo Switch)"],
+];
+
+async function loadSettings() {
+  state.settings = await api("/api/settings");
+  return state.settings;
+}
+
+// One service's steps, fields and Save and test (Settings and the first-run setup share it).
+function serviceBody(svc) {
+  const s = state.settings.settings;
+  return `<div class="body">
+        <ol>${svc.steps.map((x) => `<li>${x.replace("__UBI_BOOKMARK__", esc(ubiBookmarkHref()))}</li>`).join("")}</ol>
+        ${svc.fields.map(([key, label, secret]) => `
+          <label class="field"><span>${label}</span>
+            <input type="text" class="${secret ? "secret" : ""}" name="${key}" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore
+              value="${secret ? "" : esc(s[key] || "")}" placeholder="${secret && s[key].set ? `Saved (${esc(s[key].hint)}). Paste a new one to replace it.` : ""}">
+          </label>`).join("")}
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn small" data-save="${svc.id}">Save and test</button>
+          ${(svc.clears || []).some((k) => s[k]?.set) ? `<button class="link" data-clear="${svc.id}">Sign out</button>`
+            : svc.fields.some(([k, , sec]) => sec && s[k].set) ? `<button class="link" data-clear="${svc.id}">${svc.id === "battlenet" ? "Remove saved list" : "Remove saved key"}</button>` : ""}
+          <span class="test-result" data-result="${svc.id}"></span>
+        </div>
+      </div>`;
+}
+
+function renderSettings(openId) {
+  const s = state.settings.settings;
+  const body = $("#settings-body");
+  body.innerHTML = SERVICES.map((svc) => {
+    const ok = svc.ready(s);
+    return `<details class="service" data-svc="${svc.id}" ${openId === svc.id || (!openId && !ok && svc.id !== "sgdb" && !body.dataset.seen) ? "open" : ""}>
+      <summary><div><h3>${svc.name}</h3><p>${svc.blurb}</p></div><span class="state ${ok ? "ok" : "todo"}">${ok ? "Connected" : "Not set up"}</span></summary>
+      ${serviceBody(svc)}
+    </details>`;
+  }).join("") + thisPcSection(openId) + `
+    <details class="service" ${openId === "hltb" ? "open" : ""}>
+      <summary><div><h3>Time to beat: HowLongToBeat</h3><p>Used first when available, otherwise IGDB's numbers</p></div>
+      <span class="state ${state.settings.hltb_installed ? "ok" : "later"}">${state.settings.hltb_installed ? "Available" : "Not installed"}</span></summary>
+      <div class="body">
+        ${state.settings.hltb_installed
+          ? `<label class="switch"><input type="checkbox" id="hltb-toggle" ${s.hltb_enabled !== false ? "checked" : ""}><span>Use HowLongToBeat for time-to-beat numbers</span></label>`
+          : `<p class="source-note">The launcher installs it automatically when it can. If it couldn't (for example without internet on first start), restart GameShelf to try again. Until then, IGDB's time-to-beat data is used.</p>`}
+      </div>
+    </details>
+    <details class="service" ${openId === "phone" ? "open" : ""}>
+      <summary><div><h3>Phone snapshot</h3><p>A read-only copy of your library for your phone</p></div><span class="state later">Optional</span></summary>
+      <div class="body">
+        <p class="source-note">Saves your games, covers and progress to the <code>data\phone</code> folder. Claude publishes that as a private page you can open on your phone anywhere. It shows the library as of the last save.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn small" id="phone-export">Save phone snapshot</button>
+          <span class="test-result" id="phone-result"></span>
+        </div>
+      </div>
+    </details>
+    ${LATER.map(([n, why]) => `<div class="service later"><summary style="cursor:default"><div><h3>${n}</h3></div><span class="state later">${why}</span></summary></div>`).join("")}`;
+  body.dataset.seen = "1";
+}
+
+async function openSettings(openId) {
+  await loadSettings();
+  renderSettings(openId);
+  $("#settings-dialog").showModal();
+}
+
+// Save and test / Sign out, in Settings or in the first-run setup (rerender redraws that one).
+async function onServiceClick(e, rerender) {
+  const root = e.currentTarget;
+  const save = e.target.closest("[data-save]");
+  const clear = e.target.closest("[data-clear]");
+  if (save) {
+    const id = save.dataset.save;
+    const svc = SERVICES.find((x) => x.id === id);
+    const panel = save.closest(".service");
+    const payload = {};
+    for (const [key] of svc.fields) {
+      const v = $(`[name=${key}]`, panel).value.trim();
+      payload[key] = v;
+    }
+    const out = $(`[data-result=${id}]`, panel);
+    out.className = "test-result";
+    out.textContent = "Checking…";
+    save.disabled = true;
+    try {
+      await api("/api/settings", { method: "POST", body: payload });
+      const res = await api(`/api/test/${id}`, { method: "POST", body: {} });
+      await loadSettings();
+      rerender(id);
+      const out2 = $(`[data-result=${id}]`, root);
+      out2.className = "test-result " + (res.ok ? "ok" : "err");
+      out2.textContent = res.message;
+      if (!state.games.length) render();
+    } catch (err) {
+      out.className = "test-result err";
+      out.textContent = err.message;
+    } finally { save.disabled = false; }
+  }
+  if (clear) {
+    const svc = SERVICES.find((x) => x.id === clear.dataset.clear);
+    const keys = svc.clears || svc.fields.filter(([, , secret]) => secret).map(([key]) => key);
+    for (const key of keys) await api(`/api/settings/clear/${key}`, { method: "POST", body: {} });
+    await loadSettings();
+    rerender(svc.id);
+  }
+}
+$("#settings-body").addEventListener("click", (e) => {
+  if (e.target.id === "phone-export") { runPhoneExport(e.target); return; }
+  if (e.target.closest("[data-pc]")) { onThisPc(e.target.closest("[data-pc]")); return; }
+  onServiceClick(e, renderSettings);
+});
+$("#settings-body").addEventListener("change", async (e) => {
+  if (e.target.id === "hltb-toggle") {
+    await api("/api/settings", { method: "POST", body: { hltb_enabled: e.target.checked } });
+    await loadSettings();
+  }
+});
+
+/* ------------------------------------------------------------ desktop app: window, updates, setup */
+
+// state.desktop: {version, windows, packaged, app, shortcuts, setup_done, shortcuts_asked}
+async function loadDesktop() {
+  try { state.desktop = await api("/api/desktop"); } catch { state.desktop = {}; }
+  return state.desktop;
+}
+
+// "Still here": desktop mode quits about a minute after the last one (the window was closed).
+function startHeartbeat() {
+  const beat = () => api("/api/ping").catch(() => {});
+  beat();
+  setInterval(beat, 20000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) beat(); });
+}
+
+// In the app window, links to other sites open in your normal browser (where you're signed in).
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[href]");
+  if (!a || !state.desktop?.app || e.defaultPrevented) return;
+  const href = a.href;
+  if (!/^https?:/i.test(href) || new URL(href).host === location.host) return;
+  e.preventDefault();
+  api("/api/open", { method: "POST", body: { url: href } }).catch((err) => toast(err.message, true));
+});
+
+// Updates: a quiet bar under the header when a newer version is out.
+async function checkUpdate(force = false) {
+  let u;
+  try { u = await api(`/api/update${force ? "?force=1" : ""}`); } catch { return null; }
+  state.update = u;
+  renderUpdateBar();
+  return u;
+}
+function renderUpdateBar() {
+  const u = state.update, bar = $("#update-bar");
+  if (!u || !u.newer || state.updateDismissed === u.latest) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.innerHTML = u.busy
+    ? `<span>Updating to GameShelf ${esc(u.latest)}: ${esc((u.stage || "working").toLowerCase())}…</span>`
+    : `<span><b>GameShelf ${esc(u.latest)}</b> is out (you have ${esc(u.current)}).</span>
+       <a href="${esc(u.url)}" target="_blank" rel="noopener">What's new</a>
+       ${u.can_install ? `<button class="btn small" data-upd="install">Update now</button>` : `<a class="btn small" href="${esc(u.url)}" target="_blank" rel="noopener">Download</a>`}
+       ${u.error ? `<span class="err">${esc(u.error)}</span>` : ""}
+       <button class="link" data-upd="later">Later</button>`;
+}
+$("#update-bar").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-upd]");
+  if (!b) return;
+  if (b.dataset.upd === "later") { state.updateDismissed = state.update?.latest; renderUpdateBar(); return; }
+  if (state.sync?.running && !confirm("A sync is running. Update anyway? It stops the sync; the next one picks up where it left off.")) return;
+  try {
+    state.update = await api("/api/update", { method: "POST", body: {} });
+    renderUpdateBar();
+  } catch (err) { toast(err.message, true); return; }
+  // Wait for GameShelf to come back as the new version, then reload.
+  const from = state.update.current;
+  const poll = setInterval(async () => {
+    try {
+      const st = await api("/api/update");
+      state.update = { ...st, newer: true, busy: st.busy, latest: state.update.latest };
+      if (st.error) { clearInterval(poll); state.update.busy = false; renderUpdateBar(); return; }
+      renderUpdateBar();
+    } catch { /* restarting */ }
+    try {
+      const p = await api("/api/ping");
+      if (p.version && p.version !== from) { clearInterval(poll); location.reload(); }
+    } catch { /* not back yet */ }
+  }, 1500);
+});
+
+// Settings › This PC: version, updates and shortcuts.
+function thisPcSection(openId) {
+  const d = state.desktop || {}, u = state.update;
+  const sc = d.shortcuts || {};
+  return `<details class="service" ${openId === "pc" ? "open" : ""}>
+    <summary><div><h3>This PC</h3><p>Version, updates and shortcuts</p></div><span class="state later">GameShelf ${esc(d.version || "")}</span></summary>
+    <div class="body">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn small ghost" data-pc="check">Check for updates</button>
+        <span class="test-result ${u?.newer ? "ok" : ""}" id="pc-update">${u ? (u.newer ? `GameShelf ${esc(u.latest)} is available: see the bar at the top.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.") : ""}</span>
+      </div>
+      ${d.windows ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+        <button class="btn small ghost" data-pc="desktop" ${sc.desktop ? "disabled" : ""}>${sc.desktop ? "✓ Desktop shortcut" : "Add a desktop shortcut"}</button>
+        <button class="btn small ghost" data-pc="startmenu" ${sc.startmenu ? "disabled" : ""}>${sc.startmenu ? "✓ In the Start menu" : "Add to the Start menu"}</button>
+        <span class="test-result" id="pc-shortcut"></span>
+      </div>` : ""}
+      <p class="source-note">Your library, keys and settings live in the <code>data</code> folder next to the app. Updates never touch it.</p>
+    </div>
+  </details>`;
+}
+async function onThisPc(b) {
+  if (b.dataset.pc === "check") {
+    b.disabled = true;
+    await checkUpdate(true);
+    renderSettings("pc");
+    return;
+  }
+  try {
+    await api("/api/desktop/shortcuts", { method: "POST", body: { which: [b.dataset.pc] } });
+    await loadDesktop();
+    renderSettings("pc");
+    toast(b.dataset.pc === "desktop" ? "Shortcut added to your desktop" : "GameShelf is in the Start menu");
+  } catch (err) { $("#pc-shortcut").className = "test-result err"; $("#pc-shortcut").textContent = err.message; }
+}
+
+/* First-run setup: one thing at a time, everything skippable, the same steps as Settings. */
+const SETUP_STORES = [
+  ["steam", "Steam"], ["playstation", "PlayStation"], ["xbox", "Xbox and XGP"], ["epic", "Epic Games Store"],
+  ["ubisoft", "Ubisoft Connect"], ["battlenet", "Battle.net"], ["switch", "Nintendo Switch"],
+];
+const setup = { i: 0, stores: [] };
+
+function setupSteps() {
+  const d = state.desktop || {};
+  return ["welcome", "igdb", "stores", ...setup.stores.filter((x) => x !== "switch"), "extras",
+    ...(d.windows && d.packaged ? ["shortcuts"] : []), "done"];
+}
+
+function renderSetup() {
+  const steps = setupSteps();
+  setup.i = Math.min(setup.i, steps.length - 1);
+  const step = steps[setup.i];
+  const s = state.settings.settings;
+  const svc = SERVICES.find((x) => x.id === step);
+  const ready = svc ? svc.ready(s) : true;
+  let body = "";
+  if (step === "welcome") {
+    body = `<h2 class="setup-h">Welcome to GameShelf</h2>
+      <p class="lede">All your games from every store in one place, with covers, details, playtime and how long each one takes to beat. Plus a few friendly suggestions for what to play next.</p>
+      <p>Setup takes about five minutes: connect a free game-info service, then the stores you use. Skip anything you like; it's all in Settings later.</p>
+      <p class="source-note">Everything stays on this PC, in the <code>data</code> folder next to GameShelf. Your keys are never sent anywhere except to the service they belong to.</p>`;
+  } else if (step === "stores") {
+    body = `<h2 class="setup-h">Which stores do you use?</h2>
+      <p>Pick every one you'd like in GameShelf. You'll set them up one by one next.</p>
+      <div class="setup-stores">${SETUP_STORES.map(([id, name]) => `<label class="chip ${setup.stores.includes(id) ? "on" : ""}">
+        <input type="checkbox" value="${id}" ${setup.stores.includes(id) ? "checked" : ""}>${esc(name)}</label>`).join("")}</div>
+      ${setup.stores.includes("switch") ? `<p class="source-note">Nintendo doesn't share libraries online: once setup is done, use <b>Sync › Nintendo Switch</b> to import a screen recording of your Play Activity from the Nintendo Switch app.</p>` : ""}`;
+  } else if (step === "extras") {
+    const extra = (id) => { const x = SERVICES.find((v) => v.id === id); const ok = x.ready(s);
+      return `<details class="service" data-svc="${id}"><summary><div><h3>${x.name}</h3><p>${x.blurb}</p></div><span class="state ${ok ? "ok" : "later"}">${ok ? "Connected" : "Optional"}</span></summary>${serviceBody(x)}</details>`; };
+    body = `<h2 class="setup-h">Nice extras (optional)</h2>
+      <p>Both are free. Skip them now and add them in Settings whenever you like.</p>
+      ${extra("sgdb")}${extra("opencritic")}`;
+  } else if (step === "shortcuts") {
+    body = `<h2 class="setup-h">Shortcuts</h2>
+      <p>Where would you like to find GameShelf?</p>
+      <div class="setup-checks">
+        <label class="switch"><input type="checkbox" id="sc-desktop" checked><span>A shortcut on the desktop</span></label>
+        <label class="switch"><input type="checkbox" id="sc-startmenu" checked><span>In the Start menu (type “GameShelf” in Start)</span></label>
+      </div>
+      <p class="source-note">GameShelf opens in its own window. While it's running, its icon by the clock reopens it or quits; it also stops by itself a minute after you close the window.</p>
+      <span class="test-result" id="sc-result"></span>`;
+  } else if (step === "done") {
+    const any = SERVICES.some((x) => !["igdb", "sgdb", "opencritic"].includes(x.id) && x.ready(s));
+    body = `<h2 class="setup-h">${any ? "All set" : "Almost there"}</h2>
+      <p>${any ? "Sync pulls in your games, playtime and wishlists, then fetches covers, details and time to beat. The first one can take a while for a big library (covers appear as it goes); after that it runs by itself once a day."
+        : "No store is connected yet. Open Settings (the gear, top right) whenever you're ready."}</p>`;
+  } else if (svc) {
+    body = `<h2 class="setup-h">${esc(svc.name)}</h2><p>${esc(svc.blurb)}.</p>
+      ${step === "igdb" ? `<p class="source-note">This one's worth it: it's where game details, covers and times come from. It needs a free Twitch developer app, which takes about three minutes.</p>` : ""}
+      <div class="service open" data-svc="${svc.id}">${serviceBody(svc)}</div>`;
+  }
+  const last = setup.i === steps.length - 1;
+  const nextLabel = step === "welcome" ? "Get started" : step === "shortcuts" ? "Next" : last ? (SERVICES.some((x) => x.ready(s) && x.fields) ? "Sync now" : "Done")
+    : svc && !ready ? "Skip for now" : "Next";
+  $("#setup-body").innerHTML = `
+    <div class="setup-progress" aria-hidden="true">${steps.map((_, i) => `<i class="${i < setup.i ? "done" : i === setup.i ? "on" : ""}"></i>`).join("")}</div>
+    <div class="setup-step">${body}</div>
+    <footer class="setup-foot">
+      ${setup.i > 0 && !last ? `<button class="btn ghost" data-setup="back">Back</button>` : `<span></span>`}
+      <button class="btn ${svc && !ready ? "ghost" : ""}" data-setup="next">${nextLabel}</button>
+    </footer>`;
+}
+
+async function openSetup() {
+  await loadSettings();
+  setup.i = 0;
+  renderSetup();
+  $("#setup-dialog").showModal();
+}
+
+async function finishSetup() {
+  await api("/api/settings", { method: "POST", body: { setup_done: true } }).catch(() => {});
+  if (state.desktop) state.desktop.setup_done = true;
+}
+
+$("#setup-body").addEventListener("click", async (e) => {
+  const nav = e.target.closest("[data-setup]");
+  if (!nav) { onServiceClick(e, () => renderSetup()); return; }
+  const steps = setupSteps(), step = steps[setup.i];
+  if (nav.dataset.setup === "back") { setup.i--; renderSetup(); return; }
+  if (step === "shortcuts") {
+    const which = [["desktop", "#sc-desktop"], ["startmenu", "#sc-startmenu"]].filter(([, sel]) => $(sel).checked).map(([k]) => k);
+    nav.disabled = true;
+    try { await api("/api/desktop/shortcuts", { method: "POST", body: { which } }); await loadDesktop(); }
+    catch (err) { $("#sc-result").className = "test-result err"; $("#sc-result").textContent = err.message; nav.disabled = false; return; }
+  }
+  if (setup.i === steps.length - 1) {
+    $("#setup-dialog").close();
+    await finishSetup();
+    if (syncSources().some((x) => x.ok)) openJob("sync");
+    return;
+  }
+  setup.i++;
+  renderSetup();
+});
+$("#setup-body").addEventListener("change", (e) => {
+  if (e.target.closest(".setup-stores")) {
+    setup.stores = $$(".setup-stores input:checked").map((i) => i.value);
+    renderSetup();
+  }
+});
+$("#setup-dialog").addEventListener("close", finishSetup);
+
+// The shortcut question on its own, for a library that was set up before (e.g. after moving
+// to the Windows download).
+function askShortcuts() {
+  const d = $("#shortcut-dialog");
+  d.showModal();
+}
+$("#shortcut-dialog").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-sc]");
+  if (!b) return;
+  const which = b.dataset.sc === "yes" ? [["desktop", "#sc2-desktop"], ["startmenu", "#sc2-startmenu"]].filter(([, sel]) => $(sel).checked).map(([k]) => k) : [];
+  try { await api("/api/desktop/shortcuts", { method: "POST", body: { which } }); await loadDesktop(); }
+  catch (err) { toast(err.message, true); }
+  $("#shortcut-dialog").close();
+  if (which.length) toast("Shortcuts added");
+});
+
+async function startDesktop() {
+  const d = await loadDesktop();
+  startHeartbeat();
+  checkUpdate();
+  if (!d.setup_done && !state.games.length) openSetup();
+  else if (d.windows && d.packaged && !d.shortcuts_asked) askShortcuts();
+}
+
+/* ------------------------------------------------------------ sync */
+
+let pollTimer = null, lastReload = 0;
+
+function syncSources() {
+  const s = state.settings?.settings || {};
+  return [
+    { id: "steam", name: "Steam", ok: s.steam_api_key?.set && s.steam_id },
+    { id: "playstation", name: "PlayStation", ok: s.psn_npsso?.set },
+    { id: "epic", name: "Epic Games Store", ok: s.epic_refresh?.set },
+    { id: "xbox", name: "Xbox", ok: s.xbl_key?.set },
+    { id: "ubisoft", name: "Ubisoft Connect", ok: !!s.ubi_user },
+    { id: "battlenet", name: "Battle.net", ok: s.bnet_games?.set },
+  ];
+}
+
+const JOB_TITLES = { sync: "Sync your libraries", refresh: "Refresh assets" };
+const REFRESH_STEPS = [
+  { id: "info", label: "Game details", hint: "Identifies games on IGDB, then description, genres, developers", need: "igdb", unit: "missing" },
+  { id: "art", label: "Artwork", hint: "Covers, banners and logos", unit: "missing" },
+  { id: "reviews", label: "Steam user reviews", hint: "Every 14 days, plus Steam versions of console games", unit: "to check" },
+  { id: "ttb", label: "Time to beat", hint: "Main, extras and 100% times", unit: "missing" },
+  { id: "critics", label: "OpenCritic scores", hint: "Stays well inside the free plan (at most 140 lookups a day); the rest carry over", need: "opencritic", unit: "to look up" },
+  { id: "completions", label: "Finished games", hint: "Marks games completed from your achievements and trophies. Statuses you set yourself stay put", unit: "to check" },
+];
+
+const STEP_ICON = { done: "✓", current: "", upcoming: "", skipped: "–", failed: "!" };
+
+function timelineHTML(items) {
+  if (!items || !items.length) return "";
+  return `<ol class="timeline">${items.map((t) => {
+    let right = "";
+    if (t.state === "current" && t.note) right = t.note;
+    else if (t.state === "current" && t.total) right = `${t.done.toLocaleString()} of ${t.total.toLocaleString()}`;
+    else if (t.state === "current") right = "Working…";
+    else if (t.state === "upcoming" && t.total) right = `${t.total.toLocaleString()} to do`;
+    else if (t.state === "upcoming") right = "Waiting";
+    else if (t.state === "done") right = t.note || (t.total ? `${t.total.toLocaleString()} done` : "Done");
+    else right = t.note || "";
+    if (t.state === "planned") right = t.note || "";
+    return `<li class="${t.state === "planned" ? "upcoming" : t.state}"><i aria-hidden="true">${STEP_ICON[t.state] || ""}</i>
+      <div><b>${esc(t.label)}</b>${t.hint ? `<small>${esc(t.hint)}</small>` : ""}</div>
+      <span>${esc(right)}</span></li>`;
+  }).join("")}</ol>`;
+}
+
+function syncPreview() {
+  const picked = $$("input[name=src]:checked", $("#sync-body")).map((i) => i.value);
+  const names = { steam: "Steam", playstation: "PlayStation", epic: "Epic Games Store", xbox: "Xbox", ubisoft: "Ubisoft Connect", battlenet: "Battle.net" };
+  const est = state.settings?.settings || {};
+  const igdb = est.igdb_client_id && est.igdb_client_secret?.set;
+  const items = [
+    ...picked.map((p) => ({ label: `Import ${names[p]} library`, hint: "Games, playtime, last played", state: "upcoming" })),
+    { label: "Update XGP and PS+ lists", hint: "What's included, recently added and leaving soon", state: "upcoming" },
+    { label: "Identify new games", hint: igdb ? "Finds each game on IGDB" : "Skipped until IGDB is set up", state: igdb ? "upcoming" : "skipped" },
+    { label: "Fetch details for new games", hint: "Description, genres, developers", state: igdb ? "upcoming" : "skipped" },
+    { label: "Collect artwork for new games", hint: "Covers, banners and logos", state: "upcoming" },
+    { label: "Read Steam reviews for new games", hint: "Steam's positive-review percentage", state: "upcoming" },
+    { label: "Look up time to beat for new games", hint: "Main, extras and 100% times", state: "upcoming" },
+    { label: "Read OpenCritic scores for new games", hint: "Top critic average and % recommended", state: est.opencritic_key?.set ? "upcoming" : "skipped", need: "OpenCritic" },
+    { label: "Detect finished games", hint: "From achievements and trophies of games you've played since the last check", state: "upcoming" },
+  ].map((t) => ({ ...t, state: t.state === "upcoming" ? "planned" : t.state, note: t.state === "skipped" ? `Needs ${t.need || "IGDB"}` : "" }));
+  const box = $("#sync-preview");
+  if (box) box.innerHTML = picked.length ? timelineHTML(items) : `<p class="source-note">Pick a library to sync.</p>`;
+}
+
+function logHTML(st, n) {
+  return `<div class="log">${(st.log || []).slice(-n).reverse().map((l) => `<div class="${l.level}">${esc(l.msg)}</div>`).join("")}</div>`;
+}
+
+function renderJobDialog() {
+  const st = state.sync || {};
+  const view = st.running ? st.kind : state.jobView;
+  $("#job-title").textContent = JOB_TITLES[view] || JOB_TITLES.sync;
+  const body = $("#sync-body");
+
+  if (st.running) {
+    const pct = st.overall != null ? Math.floor(100 * st.overall) : null;
+    const step = st.step_no && st.step_count > 1 ? `Step ${st.step_no} of ${st.step_count}: ` : "";
+    const detail = st.total ? `${step}${esc(st.stage_label)}, ${st.done.toLocaleString()} of ${st.total.toLocaleString()}` : esc(st.stage_label || "Starting");
+    const other = state.jobView && state.jobView !== st.kind
+      ? `<p class="notice">${st.kind === "sync" ? "A sync is running. You can refresh assets once it finishes." : "A refresh is running. You can sync once it finishes."}</p>` : "";
+    body.innerHTML = `
+      ${other}
+      <p class="lede">You can close this and keep browsing. ${st.kind === "sync" ? "New games and art appear as they arrive." : "Updates appear as they arrive."}</p>
+      <div class="sync-head"><b>${pct == null ? "Importing your libraries" : `${pct}% done`}</b><span class="source-note">${fmtEta(st.eta_s)}</span></div>
+      <div class="progress ${pct == null ? "indeterminate" : ""}"><i style="width:${pct ?? 30}%"></i></div>
+      ${st.timeline && st.timeline.length ? timelineHTML(st.timeline) : `<div class="source-note">${detail}</div>`}
+      <details class="log-wrap"><summary>Activity log</summary>${logHTML(st, 12)}</details>
+      <div class="dialog-actions"><button class="btn ghost" type="button" id="sync-cancel">Stop</button><button class="btn" value="close">Keep browsing</button></div>`;
+    return;
+  }
+
+  const finished = st.finished_at && st.kind === view
+    ? (() => {
+        const errs = (st.errors || []).length;
+        const outcome = /Stopped early/.test(JSON.stringify(st.log || [])) ? "stopped early" : errs ? `${errs} problem${errs > 1 ? "s" : ""}` : "finished";
+        const recent = Date.now() / 1000 - st.finished_at < 120;
+        return `<details class="last-run" ${recent || errs ? "open" : ""}><summary>Last ${view === "refresh" ? "refresh" : "sync"}, ${esc(relDate(st.finished_at).toLowerCase())}: ${outcome}</summary>${timelineHTML(st.timeline)}${logHTML(st, 6)}</details>`;
+      })() : "";
+
+  if (view === "refresh") {
+    const est = state.estimate || {};
+    const mode = state.refreshMode || "missing";
+    const all = mode === "all";
+    body.innerHTML = `
+      <p class="lede">Updates details, artwork, reviews and time to beat for games already in your library. Your playtime, notes and the statuses you set aren't touched.</p>
+      <div class="sync-sources">
+        <label><input type="radio" name="rmode" value="missing" ${all ? "" : "checked"}><span>Fill in what's missing</span><small>Quick</small></label>
+        <label><input type="radio" name="rmode" value="all" ${all ? "checked" : ""}><span>Re-fetch for every game</span><small>${(est.games || 0).toLocaleString()} games, slower</small></label>
+      </div>
+      <div class="field-label">Steps, in the order they run</div>
+      <div class="toggles refresh-steps">
+        ${REFRESH_STEPS.map((x) => {
+          const off = (x.need === "igdb" && !est.igdb) || (x.need === "opencritic" && !est.opencritic);
+          const n = est[x.id] || 0;
+          const ocNote = x.id === "critics" && !off && est.oc_left
+            ? (est.oc_left.paused || !est.oc_left.requests ? "Paused until tomorrow (free plan)" : `${n.toLocaleString()} to look up, ${est.oc_left.requests} today`)
+            : null;
+          const note = off ? `<button type="button" class="link" data-setup="${x.need}">Set up ${x.need === "igdb" ? "IGDB" : "OpenCritic"}</button>`
+            : ocNote ? ocNote
+            : all ? "" : (n ? `${n.toLocaleString()} ${x.unit}` : "Up to date");
+          return `<label class="${off ? "off" : ""}"><input type="checkbox" name="rstep" value="${x.id}" ${off ? "disabled" : "checked"}><span>${x.label}<small>${x.hint}</small></span><em>${note}</em></label>`;
+        }).join("")}
+      </div>
+      ${est.unidentified ? `<p class="source-note">${est.unidentified.toLocaleString()} game${est.unidentified > 1 ? "s" : ""} couldn't be identified. “Re-fetch for every game” tries again, or open one and use Fix match.</p>` : ""}
+      ${finished}
+      ${!all && est.games && !REFRESH_STEPS.some((x) => est[x.id] && !((x.need === "igdb" && !est.igdb) || (x.need === "opencritic" && !est.opencritic))) ? `<p class="source-note">Everything is filled in. Choose “Re-fetch for every game” to pull the latest info anyway.</p>` : ""}
+      <div class="dialog-actions"><button class="btn ghost" value="close">Close</button><button class="btn" type="button" id="refresh-start" ${est.games ? "" : "disabled"}>Start refresh</button></div>`;
+    return;
+  }
+
+  const sources = syncSources();
+  const anyReady = sources.some((x) => x.ok);
+  body.innerHTML = `
+    <p class="lede">Pulls your games, playtime and last played from your stores. Games that are new to your library also get their details, art and time to beat.</p>
+    <div class="sync-sources">
+      ${sources.map((x) => `<label class="${x.ok ? "" : "off"}"><input type="checkbox" name="src" value="${x.id}" ${x.ok ? "checked" : "disabled"}><span>${x.name}</span><small>${x.ok ? "Ready" : `<button type="button" class="link" data-setup="${x.id}">Set up</button>`}</small></label>`).join("")}
+    </div>
+    <div class="field-label">What happens</div>
+    <div id="sync-preview"></div>
+    <div class="sync-sources"><label class="shots-row"><span>Nintendo Switch</span><small><button type="button" class="link" data-open-shots>Import from a screen recording</button></small></label></div>
+    <p class="source-note">Games already in your library only get their playtime and last played updated. To update their details or art, use Refresh assets.</p>
+    ${finished}
+    <div class="dialog-actions"><button class="btn ghost" value="close">Close</button><button class="btn" type="button" id="sync-start" ${anyReady ? "" : "disabled"}>Start sync</button></div>`;
+  syncPreview();
+}
+
+async function openJob(view) {
+  state.jobView = view;
+  await loadSettings();
+  state.sync = await api("/api/sync");
+  if (view === "refresh" && !state.sync.running) state.estimate = await api("/api/refresh/estimate");
+  renderJobDialog();
+  $("#sync-dialog").showModal();
+}
+
+$("#sync-body").addEventListener("change", (e) => {
+  if (e.target.name === "src") syncPreview();
+  if (e.target.name === "rmode") {
+    // keep the step ticks the user chose
+    const ticked = new Set($$("input[name=rstep]:checked").map((i) => i.value));
+    state.refreshMode = e.target.value;
+    renderJobDialog();
+    $$("input[name=rstep]:not(:disabled)").forEach((i) => { i.checked = ticked.has(i.value); });
+  }
+});
+
+$("#sync-body").addEventListener("click", async (e) => {
+  if (e.target.id === "sync-start" || e.target.id === "refresh-start") {
+    const isSync = e.target.id === "sync-start";
+    const body = isSync
+      ? { sources: $$("input[name=src]:checked", $("#sync-body")).map((i) => i.value) }
+      : { mode: state.refreshMode || "missing", steps: $$("input[name=rstep]:checked").map((i) => i.value) };
+    if (isSync && !body.sources.length) { toast("Pick at least one library", true); return; }
+    if (!isSync && !body.steps.length) { toast("Pick at least one thing to update", true); return; }
+    try {
+      state.sync = await api(isSync ? "/api/sync" : "/api/refresh", { method: "POST", body });
+      renderJobDialog();
+      startPolling();
+    } catch (err) { toast(err.message, true); }
+  }
+  if (e.target.id === "sync-cancel") {
+    await api("/api/sync/cancel", { method: "POST", body: {} });
+    toast("Stopping after the current game");
+  }
+  const setup = e.target.closest("[data-setup]");
+  if (setup) { $("#sync-dialog").close(); openSettings(setup.dataset.setup); }
+});
+
+// Opening GameShelf more than a day after the last sync starts one by itself: every
+// library that's set up, the XGP and PS+ lists, and your wishlists (prices and sales too).
+async function maybeAutoSync() {
+  const st = state.sync || {};
+  const last = st.last_sync_at || 0;
+  if (st.running || Date.now() / 1000 - last < 86400) return;
+  const ready = syncSources().filter((x) => x.ok).map((x) => x.id);
+  if (!ready.length) return;
+  try {
+    state.sync = await api("/api/sync", { method: "POST", body: { sources: ready } });
+    startPolling();
+    toast(last ? `Syncing your libraries: the last sync was ${relDate(last).toLowerCase()}` : "Syncing your libraries");
+  } catch { /* another job is running; try again next time */ }
+}
+
+function fmtEta(sec) {
+  if (sec == null) return "";
+  if (sec < 60) return "Less than a minute left";
+  const min = Math.round(sec / 60);
+  if (min < 60) return `About ${min} min left`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return `About ${h} h ${m ? m + " min " : ""}left`;
+}
+
+function updateSyncButton() {
+  const st = state.sync || {};
+  const pct = st.overall != null ? ` ${Math.floor(100 * st.overall)}%` : "…";
+  const syncing = st.running && st.kind === "sync";
+  const refreshing = st.running && st.kind === "refresh";
+  $("#btn-sync").classList.toggle("syncing", Boolean(syncing));
+  $("#btn-refresh").classList.toggle("syncing", Boolean(refreshing));
+  $("#sync-label").textContent = syncing ? `Syncing${pct}` : "Sync";
+  $("#refresh-label").textContent = refreshing ? `Refreshing${pct}` : "Refresh assets";
+}
+
+function startPolling() {
+  clearInterval(pollTimer);
+  updateSyncButton();
+  pollTimer = setInterval(async () => {
+    try { state.sync = await api("/api/sync"); } catch { return; }
+    updateSyncButton();
+    const dlg = $("#sync-dialog");
+    if (dlg.open && (state.sync.running || state.jobView === state.sync.kind)) renderJobDialog();
+    const now = Date.now();
+    if (now - lastReload > 5000) { lastReload = now; reloadLibrary(); }
+    if (!state.sync.running) {
+      clearInterval(pollTimer);
+      await reloadLibrary();
+      if (state.sync.kind === "refresh") state.estimate = await api("/api/refresh/estimate").catch(() => state.estimate);
+      if (dlg.open) renderJobDialog();
+      const name = state.sync.kind === "refresh" ? "Refresh" : "Sync";
+      const errs = (state.sync.errors || []).length;
+      toast(errs ? `${name} finished with ${errs} problem${errs > 1 ? "s" : ""}. Open ${name === "Refresh" ? "Refresh assets" : "Sync"} for details.` : `${name} finished`, errs > 0);
+    }
+  }, 1500);
+}
+
+/* ------------------------------------------------------------ data loading */
+
+async function reloadLibrary() {
+  const data = await api("/api/library");
+  state.platforms = data.platforms;
+  state.year = data.year;
+  state.wishlistAt = data.wishlist_at;
+  const seen = new Map();
+  for (const g of data.games) { const k = g.title.toLowerCase(); seen.set(k, (seen.get(k) || 0) + 1); }
+  state.sameNames = new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
+  const all = data.games.map(derive);
+  state.games = all.filter((g) => !g.isWishOnly);
+  state.wishGames = all.filter((g) => g.isWishOnly);
+  renderAll();
+}
+
+/* ------------------------------------------------------------ events */
+
+function bind() {
+  const search = $("#search");
+  let t;
+  search.addEventListener("input", () => {
+    // Searching means browsing the library (the Wishlist page searches the wishlist).
+    if (state.page === "curator") showPage("library");
+    clearTimeout(t); t = setTimeout(() => { state.q = search.value; render(); renderWishlist(); }, 120);
+  });
+  $$(".page-tabs button").forEach((b) => b.addEventListener("click", () => showPage(b.dataset.page)));
+  $("#tab-curator").textContent = CURATOR;
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); search.focus(); }
+    if (e.key === "Escape") {
+      if ($(".lightbox")) { $(".lightbox").remove(); return; }
+      if (!$("#detail-wrap").hidden && !document.querySelector("dialog[open]")) closeGame();
+    }
+  });
+
+  $("#library").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-sort]");
+    if (th) {
+      const key = th.dataset.sort;
+      if (state.prefs.sort === key) state.prefs.dir = state.prefs.dir === "asc" ? "desc" : "asc";
+      else { state.prefs.sort = key; state.prefs.dir = key === "title" ? "asc" : "desc"; }
+      savePrefs(); render(); return;
+    }
+    const card = e.target.closest("[data-id]");
+    if (card) openGame(Number(card.dataset.id));
+  });
+
+  $("#sort-key").addEventListener("change", (e) => {
+    state.prefs.sort = e.target.value;
+    state.prefs.dir = e.target.value === "title" ? "asc" : "desc";
+    savePrefs(); render();
+  });
+  $("#sort-dir").addEventListener("click", () => { state.prefs.dir = state.prefs.dir === "asc" ? "desc" : "asc"; savePrefs(); render(); });
+  $$(".view-toggle button").forEach((b) => b.addEventListener("click", () => { state.prefs.view = b.dataset.view; savePrefs(); render(); }));
+  $("#size").addEventListener("input", (e) => { state.prefs.size = Number(e.target.value); savePrefs(); document.documentElement.style.setProperty("--cover", e.target.value + "px"); });
+
+  $("#f-platforms").addEventListener("change", () => {
+    state.prefs.hiddenPlatforms = $$("#f-platforms input:not(:checked)").map((i) => i.value);
+    savePrefs(); render();
+  });
+  $("#f-status").addEventListener("change", () => {
+    state.prefs.status = $$("#f-status input:checked").map((i) => i.value);
+    savePrefs(); render();
+  });
+  $("#f-played").addEventListener("change", () => {
+    state.prefs.played = $$("#f-played input:checked").map((i) => i.value);
+    savePrefs(); render();
+  });
+  $("#f-genres").addEventListener("change", () => {
+    state.prefs.genres = $$("#f-genres input:checked").map((i) => i.value);
+    savePrefs(); renderFilters(); render();
+  });
+  $("#f-genre-clear").addEventListener("click", () => { state.prefs.genres = []; savePrefs(); renderFilters(); render(); });
+  $("#f-vr").addEventListener("change", (e) => { state.prefs.vr = e.target.checked; savePrefs(); render(); });
+  $("#f-subtags").addEventListener("change", async () => {
+    state.prefs.subTags = $$("#f-subtags input:checked").map((i) => i.value); savePrefs();
+    renderFilters(); render();
+  });
+  $("#f-hidden").addEventListener("change", (e) => { state.prefs.showHidden = e.target.checked; savePrefs(); render(); });
+  const reset = () => {
+    Object.assign(state.prefs, { hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], vr: true, subTags: [] });
+    state.q = ""; search.value = "";
+    savePrefs(); renderFilters(); render();
+  };
+  $("#f-reset").addEventListener("click", reset);
+  $("#btn-filters").addEventListener("click", () => $("#filters").classList.toggle("open"));
+
+  $("#empty").addEventListener("click", (e) => {
+    if (e.target.id === "empty-reset") reset();
+    if (e.target.id === "empty-settings") openSettings();
+    if (e.target.id === "empty-sync") openJob("sync");
+    if (e.target.id === "empty-add") openAdd();
+  });
+
+  $("#btn-settings").addEventListener("click", () => openSettings());
+  $("#btn-sync").addEventListener("click", () => openJob("sync"));
+  $("#btn-refresh").addEventListener("click", () => openJob("refresh"));
+  $("#btn-add").addEventListener("click", openAdd);
+  $("#f-dups").addEventListener("click", openDups);
+
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("[data-close-dialog]")) e.target.closest("dialog").close();
+  });
+  $$("dialog").forEach((d) => d.addEventListener("click", (e) => { if (e.target === d) d.close(); }));
+
+  // detail panel
+  $("#detail-wrap").addEventListener("click", async (e) => {
+    if (e.target.closest("[data-close]")) { closeGame(); return; }
+    const id = state.openId;
+    const g = byId(id);
+    const st = e.target.closest(".status-picker button");
+    if (st) { setStatus(id, st.dataset.s); return; }
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (act === "interest") { setInterest(id, e.target.closest("[data-act]").dataset.v); return; }
+    if (act === "endless") {
+      const v = e.target.closest("[data-act]").dataset.v;
+      try {
+        const g2 = await api(`/api/games/${id}`, { method: "PATCH", body: { endless: v === "auto" ? null : v === "1" } });
+        const d = upsertLocal(g2); renderDetail(derive(g2));
+        toast(v === "auto" ? "Back to automatic" : v === "1" ? "Marked as open-ended" : "Progress bar is back");
+      } catch (err) { toast(err.message, true); }
+      return;
+    }
+    if (act === "art") { openArt(id); return; }
+    if (act === "hide") { setHidden(id, e.target.closest("[data-act]").dataset.v === "1"); return; }
+    if (act === "ttb-reset") { setTtb(id, null); return; }
+    if (act === "fix") openFixMatch(g || { id, title: $("#detail-title").textContent });
+    if (act === "refresh") {
+      const b = e.target.closest("button");
+      b.disabled = true; b.textContent = "Refreshing…";
+      try {
+        const fresh = await api(`/api/games/${id}/refresh`, { method: "POST", body: { prefer_sgdb: true } });
+        upsertLocal(fresh); renderDetail(derive(fresh)); toast("Updated");
+      } catch (err) { toast(err.message, true); b.disabled = false; b.textContent = "Refresh assets"; }
+    }
+    if (act === "remove-entry") {
+      const row = e.target.closest("[data-entry]");
+      if (!confirm("Remove this copy from your library?")) return;
+      try {
+        const res = await api(`/api/entries/${row.dataset.entry}`, { method: "DELETE" });
+        if (res.game) { upsertLocal(res.game); renderDetail(derive(res.game)); }
+        else { closeGame(); await reloadLibrary(); }
+        toast("Removed");
+      } catch (err) { toast(err.message, true); }
+    }
+    const shot = e.target.closest(".shots img");
+    if (shot) {
+      const lb = document.createElement("div");
+      lb.className = "lightbox";
+      lb.innerHTML = `<img src="${esc(shot.src.replace("t_screenshot_big", "t_1080p"))}" alt="">`;
+      lb.onclick = () => lb.remove();
+      document.body.append(lb);
+    }
+  });
+  $("#detail-wrap").addEventListener("input", (e) => {
+    if (e.target.id === "ttb-range") $("#ttb-val").textContent = fmtHours(Number(e.target.value));
+  });
+  $("#detail-wrap").addEventListener("change", async (e) => {
+    const id = state.openId;
+    if (e.target.id === "ttb-range") { setTtb(id, Number(e.target.value)); return; }
+    if (e.target.id === "notes") {
+      try { upsertLocal(await api(`/api/games/${id}`, { method: "PATCH", body: { notes: e.target.value } })); toast("Notes saved"); }
+      catch (err) { toast(err.message, true); }
+    }
+    const row = e.target.closest("[data-entry]");
+    if (row && e.target.dataset.field) {
+      const f = e.target.dataset.field;
+      let body;
+      if (f === "counts") body = { excluded: !e.target.checked };
+      else if (f === "hours" || f === "not_mine_hours") body = { [f]: Number(e.target.value || 0) };
+      else body = { [f]: e.target.value ? Math.floor(new Date(e.target.value + "T12:00:00").getTime() / 1000) : null };
+      try {
+        const g = await api(`/api/entries/${row.dataset.entry}`, { method: "PATCH", body });
+        upsertLocal(g); renderDetail(derive(g));
+        toast(f === "counts" ? (body.excluded ? "This copy no longer counts" : "This copy counts again") : f === "not_mine_hours" ? "Saved: those hours won't count" : "Saved");
+      } catch (err) { toast(err.message, true); }
+    }
+  });
+}
+
+/* ------------------------------------------------------------ right-click menu */
+
+function closeMenu() { $("#ctx").hidden = true; state.menuId = null; }
+
+function openMenu(id, x, y) {
+  const g = byId(id);
+  if (!g) return;
+  state.menuId = id;
+  state.menuY = scrollY;
+  const st = g.status || "";
+  const m = $("#ctx");
+  m.innerHTML = `
+    <div class="ctx-title">${esc(g.title)}</div>
+    <button data-m="open">Open</button>
+    <hr>
+    ${g.isWishOnly ? "" : `${["completed", "dnf", ""].map((s) => `<button data-m="status" data-v="${s}" class="${st === s ? "on" : ""}">${st === s ? "✓ " : ""}${s === "" ? "Not marked" : statusLabel(s)}</button>`).join("")}
+    <hr>
+    ${Object.entries(INTEREST).map(([k, label]) => `<button data-m="interest" data-v="${k}" class="${g.interest === k ? "on" : ""}">${g.interest === k ? "✓ " : ""}${label}</button>`).join("")}
+    <hr>`}
+    <button data-m="art">Change art…</button>
+    <button data-m="fix">${g.match_state === "none" ? "Identify game…" : "Fix match…"}</button>
+    <button data-m="hide">${g.isHidden ? "Unhide" : "Hide"}</button>`;
+  m.hidden = false;
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
+  m.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+  m.querySelector("button").focus({ preventScroll: true });
+}
+
+$("#ctx").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-m]");
+  if (!b) return;
+  const id = state.menuId, g = byId(id);
+  closeMenu();
+  if (!g) return;
+  const m = b.dataset.m;
+  if (m === "open") openGame(id);
+  else if (m === "status") setStatus(id, b.dataset.v);
+  else if (m === "interest") setInterest(id, b.dataset.v);
+  else if (m === "art") openArt(id);
+  else if (m === "fix") openFixMatch(g);
+  else if (m === "hide") setHidden(id, !g.isHidden);
+});
+document.addEventListener("click", (e) => { if (!e.target.closest("#ctx")) closeMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#ctx").hidden) { e.stopImmediatePropagation(); closeMenu(); } }, true);
+window.addEventListener("scroll", () => { if (Math.abs(scrollY - (state.menuY || 0)) > 24) closeMenu(); }, { passive: true });
+window.addEventListener("resize", closeMenu);
+$("#page-curator").addEventListener("contextmenu", (e) => {
+  const card = e.target.closest("[data-id]");
+  if (!card) return;
+  e.preventDefault();
+  openMenu(Number(card.dataset.id), e.clientX, e.clientY);
+});
+$("#page-curator").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-id]");
+  if (card) openGame(Number(card.dataset.id));
+});
+$("#page-wishlist").addEventListener("contextmenu", (e) => {
+  const card = e.target.closest("[data-id]");
+  if (!card) return;
+  e.preventDefault();
+  openMenu(Number(card.dataset.id), e.clientX, e.clientY);
+});
+$("#page-wishlist").addEventListener("click", (e) => {
+  if (e.target.id === "wish-sync") { openJob("sync"); return; }
+  const opt = e.target.closest("[data-wf]");
+  if (opt) {
+    const k = opt.dataset.wf, v = opt.dataset.v;
+    if (k === "sale") state.prefs.wishSale = !state.prefs.wishSale;
+    else state.prefs[k] = v;
+    savePrefs(); renderWishlist(); return;
+  }
+  const card = e.target.closest("[data-id]");
+  if (card) openGame(Number(card.dataset.id));
+});
+$("#page-wishlist").addEventListener("change", (e) => {
+  if (e.target.id === "wish-sort") { state.prefs.wishSort = e.target.value; savePrefs(); renderWishlist(); }
+});
+$("#library").addEventListener("contextmenu", (e) => {
+  const card = e.target.closest("[data-id]");
+  if (!card) return;
+  e.preventDefault();
+  openMenu(Number(card.dataset.id), e.clientX, e.clientY);
+});
+
+/* ------------------------------------------------------------ duplicates */
+
+const dups = { groups: null };
+
+async function openDups() {
+  const dlg = $("#dup-dialog");
+  $("#dup-body").innerHTML = `<p class="lede">Looking for games listed more than once…</p><div class="progress indeterminate"><i></i></div>`;
+  if (!dlg.open) dlg.showModal();
+  try {
+    const res = await api("/api/duplicates");
+    dups.groups = res.groups.map((gr) => ({ ...gr, picked: new Set(gr.games.map((x) => x.id)) }));
+  } catch (e) { $("#dup-body").innerHTML = `<p class="test-result err">${esc(e.message)}</p>`; return; }
+  renderDups();
+}
+
+function renderDups() {
+  const body = $("#dup-body");
+  const groups = dups.groups || [];
+  if (!groups.length) {
+    body.innerHTML = `<p class="lede">No duplicates found. Every game is listed once.</p>
+      <div class="dialog-actions"><button class="btn" data-close-dialog>Done</button></div>`;
+    return;
+  }
+  body.innerHTML = `
+    <p class="lede">These look like the same game listed more than once: editions, store versions, tutorials or add-ons. Combining keeps one entry, adds up the playtime and keeps every copy. Untick anything that's really a different game.</p>
+    <div class="dup-groups">
+      ${groups.map((gr, gi) => `<div class="dup-group" data-g="${gi}">
+        ${gr.games.map((x) => `<label class="dup-row ${gr.picked.has(x.id) ? "" : "off"}">
+          <input type="checkbox" data-pick="${x.id}" ${gr.picked.has(x.id) ? "checked" : ""} aria-label="Include ${esc(x.title)}">
+          <span class="dup-cover">${x.cover ? `<img src="${esc(x.cover)}" alt="" loading="lazy" data-fallbacks="">` : ""}</span>
+          <span class="dup-text"><b>${esc(x.title)}</b><small>${x.platforms.map((p) => esc(PLATFORM_SHORT[p] || p)).join(", ")}${x.hours ? `, ${fmtHours(x.hours)}` : ""}${x.reason ? ` · ${esc(x.reason)}` : ""}</small></span>
+          <span class="dup-keep"><input type="radio" name="keep-${gi}" value="${x.id}" ${x.id === gr.keep ? "checked" : ""}> Keep this name</span>
+        </label>`).join("")}
+        <div class="dup-actions">
+          <button class="link" data-dismiss="${gi}">Not duplicates</button>
+          <button class="btn small" data-combine="${gi}" ${gr.picked.size < 2 ? "disabled" : ""}>Combine</button>
+        </div>
+      </div>`).join("")}
+    </div>
+    <div class="dialog-actions"><button class="btn ghost" data-close-dialog>Close</button>
+      ${groups.length > 1 ? `<button class="btn" data-combine-all>Combine all ${groups.length} groups</button>` : ""}</div>`;
+}
+
+async function combineGroup(gi) {
+  const gr = dups.groups[gi];
+  const ids = [...gr.picked];
+  const keep = ids.includes(gr.keep) ? gr.keep : ids[0];
+  await api("/api/duplicates/combine", { method: "POST", body: { keep, others: ids.filter((x) => x !== keep) } });
+}
+
+$("#dup-body").addEventListener("change", (e) => {
+  const grEl = e.target.closest("[data-g]");
+  if (!grEl) return;
+  const gr = dups.groups[Number(grEl.dataset.g)];
+  if (e.target.dataset.pick) {
+    const id = Number(e.target.dataset.pick);
+    e.target.checked ? gr.picked.add(id) : gr.picked.delete(id);
+  } else if (e.target.type === "radio") {
+    gr.keep = Number(e.target.value);
+    gr.picked.add(gr.keep);
+  }
+  renderDups();
+});
+
+$("#dup-body").addEventListener("click", async (e) => {
+  const one = e.target.closest("[data-combine]"), dis = e.target.closest("[data-dismiss]");
+  try {
+    if (one) {
+      one.disabled = true;
+      const gi = Number(one.dataset.combine);
+      await combineGroup(gi);
+      dups.groups.splice(gi, 1);
+      renderDups(); await reloadLibrary();
+      toast("Combined");
+    } else if (dis) {
+      const gi = Number(dis.dataset.dismiss);
+      await api("/api/duplicates/dismiss", { method: "POST", body: { ids: dups.groups[gi].games.map((x) => x.id) } });
+      dups.groups.splice(gi, 1);
+      renderDups();
+      toast("Got it, they'll stay separate");
+    } else if (e.target.closest("[data-combine-all]")) {
+      e.target.disabled = true;
+      let n = 0;
+      for (let gi = 0; gi < dups.groups.length; gi++) {
+        if (dups.groups[gi].picked.size >= 2) { await combineGroup(gi); n++; }
+      }
+      dups.groups = dups.groups.filter((gr) => gr.picked.size < 2);
+      renderDups(); await reloadLibrary();
+      toast(`Combined ${n} game${n === 1 ? "" : "s"}`);
+    }
+  } catch (err) { toast(err.message, true); renderDups(); }
+});
+
+/* ------------------------------------------------------------ phone snapshot */
+
+// A read-only copy of the library for the phone page: game data as JSON, and covers
+// shrunk to 150×225 and packed 100 to a sheet (the phone page can't load images from
+// other sites, so it gets its own).
+const SHEET_COLS = 10, SHEET_ROWS = 10, THUMB_W = 150, THUMB_H = 225;
+
+function loadThumb(url) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const im = new Image();
+    const timer = setTimeout(() => resolve(null), 15000);
+    im.onload = () => { clearTimeout(timer); resolve(im); };
+    im.onerror = () => { clearTimeout(timer); resolve(null); };
+    im.dataset.src = url;
+    im.src = /^https?:/.test(url) ? `/api/img?u=${encodeURIComponent(url)}` : url;
+  });
+}
+
+async function exportPhone(onProgress = () => {}) {
+  await reloadLibrary();  // the latest art, statuses and edits, not what the page loaded earlier
+  const games = state.games.filter((g) => !g.isHidden);
+  const perSheet = SHEET_COLS * SHEET_ROWS;
+  const sheets = [];
+  const covers = new Map();
+  let done = 0;
+  const queue = games.map((g, i) => ({ g, i }));
+  const canvases = [];
+  const ctxFor = (n) => {
+    if (!canvases[n]) {
+      const c = document.createElement("canvas");
+      c.width = SHEET_COLS * THUMB_W; c.height = SHEET_ROWS * THUMB_H;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#1c1828"; ctx.fillRect(0, 0, c.width, c.height);
+      canvases[n] = c;
+    }
+    return canvases[n].getContext("2d");
+  };
+  let slot = 0, fallbacks = 0;
+  async function worker() {
+    while (queue.length) {
+      const { g } = queue.shift();
+      // The same art the desktop shows: your pick (or the automatic one) first, then the
+      // same fallbacks the desktop grid uses if that image can't be loaded.
+      let im = null;
+      for (const url of g.covers) { im = await loadThumb(url); if (im) break; }
+      if (im && g.covers[0] && im.dataset?.src !== g.covers[0]) fallbacks++;
+      if (im) {
+        const n = slot++;
+        const sheet = Math.floor(n / perSheet), k = n % perSheet;
+        const ctx = ctxFor(sheet);
+        const x = (k % SHEET_COLS) * THUMB_W, y = Math.floor(k / SHEET_COLS) * THUMB_H;
+        const r = im.naturalWidth / im.naturalHeight, want = THUMB_W / THUMB_H;
+        ctx.save(); ctx.beginPath(); ctx.rect(x, y, THUMB_W, THUMB_H); ctx.clip();
+        if (r > 0.78) {
+          // wide art: blurred fill behind, whole image in front (as on the desktop grid)
+          ctx.filter = "blur(10px) brightness(.55)";
+          const h = THUMB_H * 1.2, w = h * r;
+          ctx.drawImage(im, x + (THUMB_W - w) / 2, y - THUMB_H * 0.1, w, h);
+          ctx.filter = "none";
+          const fw = THUMB_W, fh = fw / r;
+          ctx.drawImage(im, x, y + (THUMB_H - fh) / 2, fw, fh);
+        } else {
+          let sw = im.naturalWidth, sh = im.naturalHeight, sx = 0, sy = 0;
+          if (r > want) { sw = sh * want; sx = (im.naturalWidth - sw) / 2; } else { sh = sw / want; sy = (im.naturalHeight - sh) / 2; }
+          ctx.drawImage(im, sx, sy, sw, sh, x, y, THUMB_W, THUMB_H);
+        }
+        ctx.restore();
+        covers.set(g.id, [sheet, k]);
+      }
+      onProgress(++done, games.length);
+    }
+  }
+  await Promise.all(Array.from({ length: 8 }, worker));
+  for (const c of canvases) sheets.push(c.toDataURL("image/jpeg", 0.8));
+  const library = {
+    exported_at: Math.floor(Date.now() / 1000),
+    sheet: { cols: SHEET_COLS, rows: SHEET_ROWS, w: THUMB_W, h: THUMB_H },
+    platforms: state.platforms,
+    // Your desktop filters and sort, as the phone page's starting point.
+    prefs: {
+      sort: state.prefs.sort, dir: state.prefs.dir, hiddenPlatforms: state.prefs.hiddenPlatforms,
+      status: state.prefs.status, genres: state.prefs.genres, vr: state.prefs.vr, subs: true,
+      played: state.prefs.played.length === 1 ? (state.prefs.played[0] === "never" ? "unplayed" : "played") : "all",
+    },
+    games: games.map((g) => {
+      const c = covers.get(g.id);
+      return {
+        id: g.id, t: g.title, c: c || null, p: g.platforms, s: g.status || "", sat: g.status_at || null,
+        auto: g.status_auto || null, h: Math.round(g.played_h * 10) / 10, lp: g.last_played || null,
+        fp: g.first_played || null, y: year(g.release_date), ttb: g.ttb ? Math.round(g.ttb * 10) / 10 : null,
+        tm: g.ttb_main || null, te: g.ttb_extra || null, tc: g.ttb_complete || null,
+        e: g.isEndless ? 1 : 0, oc: g.oc_score != null ? Math.round(g.oc_score) : null, oct: g.oc_tier || null,
+        ocr: g.oc_recommend != null ? Math.round(g.oc_recommend) : null,
+        sr: g.steam_review_pct != null ? Math.round(g.steam_review_pct) : null, srd: g.steam_review_desc || null,
+        g: g.genres || [], dev: (g.developers || []).slice(0, 2), sub: 0, vr: g.vr ? 1 : 0,
+        sum: g.summary ? (g.summary.length > 700 ? g.summary.slice(0, 680).replace(/\s+\S*$/, "") + "…" : g.summary) : null,
+        notes: g.notes || null, add: g.added_at || null,
+        subs: (g.subs || []).map((x) => ({ s: x.s, n: x.new ? 1 : 0, l: x.leaving ? 1 : 0 })),
+      };
+    }),
+  };
+  const res = await api("/api/export/phone", { method: "POST", body: { library, sheets } });
+  return { ...res, fallbacks };
+}
+
+async function runPhoneExport(btn) {
+  const out = $("#phone-result");
+  btn.disabled = true;
+  try {
+    const res = await exportPhone((d, n) => { out.className = "test-result"; out.textContent = `Packing covers: ${d} of ${n}`; });
+    out.className = "test-result ok";
+    out.textContent = `Saved ${res.games.toLocaleString()} games to the data\\phone folder${res.fallbacks ? ` (${res.fallbacks} cover${res.fallbacks === 1 ? "" : "s"} couldn't load, so their backup art was used)` : ""}. Ask Claude to update your phone page.`;
+  } catch (e) { out.className = "test-result err"; out.textContent = e.message; }
+  finally { btn.disabled = false; }
+}
+
+/* ------------------------------------------------------------ boot */
+
+/* Keep password managers (1Password, LastPass, Bitwarden, Dashlane) from offering to
+   save anything typed here: this is a local app, its keys live in the data folder. */
+function ignoreForPasswordManagers(root = document) {
+  root.querySelectorAll("input, textarea, form").forEach((el) => {
+    el.setAttribute("data-1p-ignore", "");
+    el.setAttribute("data-lpignore", "true");
+    el.setAttribute("data-bwignore", "true");
+    el.setAttribute("data-form-type", "other");
+    if (el.tagName !== "FORM") el.setAttribute("autocomplete", "off");
+  });
+}
+new MutationObserver(() => ignoreForPasswordManagers()).observe(document.body, { childList: true, subtree: true });
+
+// Arriving from the Send to GameShelf bookmark on connect.ubisoft.com.
+async function receiveUbisoft() {
+  let payload = null;
+  try { payload = JSON.parse(decodeURIComponent(location.hash.slice("#ubisoft=".length))); } catch { /* broken link */ }
+  history.replaceState(null, "", location.pathname);
+  if (!payload) { toast("That Ubisoft link didn't come through. Click the bookmark again.", true); return; }
+  try {
+    const res = await api("/api/ubisoft/link", { method: "POST", body: { payload } });
+    await loadSettings();
+    toast(`Ubisoft Connect linked${res.name ? ` as ${res.name}` : ""}: ${res.games} games. Adding them now…`);
+    if (!state.sync?.running) {
+      state.sync = await api("/api/sync", { method: "POST", body: { sources: ["ubisoft"] } });
+      startPolling();
+    }
+  } catch (e) { toast(e.message, true); }
+}
+
+(async function boot() {
+  ignoreForPasswordManagers();
+  bind();
+  try {
+    await loadSettings();
+    await reloadLibrary();
+    showPage(["#library", "#wishlist"].includes(location.hash) ? location.hash.slice(1) : "curator", { push: false });
+    await startDesktop();
+    state.sync = await api("/api/sync");
+    if (location.hash.startsWith("#ubisoft=")) await receiveUbisoft();
+    if (state.sync.running) startPolling();
+    else maybeAutoSync();
+    setInterval(() => { if (!state.sync?.running) api("/api/sync").then((st) => { state.sync = st; maybeAutoSync(); }).catch(() => {}); }, 60 * 60 * 1000);
+  } catch (e) {
+    toast("Couldn't reach GameShelf. Start it again from its shortcut or the Start GameShelf file.", true);
+  }
+})();

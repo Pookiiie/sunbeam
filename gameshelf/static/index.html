@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GameShelf</title>
+<link rel="icon" href="/icon.svg?v=3" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Sans:wght@400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="ambient" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="6" width="6" height="20" rx="1.5"/><rect x="12" y="4" width="6" height="22" rx="1.5"/><rect x="20.5" y="7" width="6" height="19" rx="1.5" transform="rotate(8 23.5 16.5)"/><rect x="2" y="27" width="28" height="2.5" rx="1.25"/></svg>
+    <span>GameShelf</span>
+  </div>
+  <nav class="page-tabs" role="tablist" aria-label="Pages">
+    <button role="tab" data-page="curator" id="tab-curator" class="on" aria-selected="true">Curator</button>
+    <button role="tab" data-page="library" aria-selected="false">Library</button>
+    <button role="tab" data-page="wishlist" aria-selected="false">Wishlist</button>
+  </nav>
+  <label class="search">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+    <input id="search" type="search" placeholder="Search your games" autocomplete="off" aria-label="Search your games">
+    <kbd>/</kbd>
+  </label>
+  <div class="top-actions">
+    <button class="btn ghost" id="btn-add" title="Add a game by hand (Switch 2 and others)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Add game</span>
+    </button>
+    <button class="btn ghost" id="btn-refresh" title="Update details, artwork, reviews and time to beat for games you already have">
+      <svg class="sync-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5"/></svg>
+      <span id="refresh-label">Refresh assets</span>
+    </button>
+    <button class="btn" id="btn-sync" title="Pull your games and playtime from your stores">
+      <svg class="sync-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4"/></svg>
+      <span id="sync-label">Sync</span>
+    </button>
+    <button class="btn icon ghost" id="btn-settings" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </div>
+</header>
+<div class="update-bar" id="update-bar" role="status" hidden></div>
+
+<div class="page curator" id="page-curator">
+  <div id="upnext"></div>
+  <div id="wishrows"></div>
+  <div id="recent"></div>
+</div>
+
+<div class="page wishlist" id="page-wishlist">
+  <div id="wishlist"></div>
+</div>
+
+<div class="page" id="page-library">
+<section class="stats" id="stats" aria-label="Library totals"></section>
+
+<div class="layout">
+  <aside class="filters" id="filters" aria-label="Filters">
+    <div class="filter-group">
+      <h3>Platform</h3>
+      <div class="toggles" id="f-platforms"></div>
+    </div>
+    <div class="filter-group">
+      <h3>Status</h3>
+      <div class="toggles" id="f-status">
+        <label><input type="checkbox" value="" checked><span>Not marked</span><em data-count="status:"></em></label>
+        <label><input type="checkbox" value="completed" checked><span>Completed</span><em data-count="status:completed"></em></label>
+        <label><input type="checkbox" value="dnf" checked><span>Did not finish</span><em data-count="status:dnf"></em></label>
+      </div>
+    </div>
+    <div class="filter-group">
+      <h3>Played</h3>
+      <div class="toggles" id="f-played">
+        <label><input type="checkbox" value="played" checked><span>Played</span><em></em></label>
+        <label><input type="checkbox" value="never" checked><span>Never played</span><em></em></label>
+      </div>
+    </div>
+    <div class="filter-group">
+      <h3>Genre <button class="link" id="f-genre-clear" hidden>Clear</button></h3>
+      <div class="toggles genre-list" id="f-genres"></div>
+      <small class="source-note" id="f-genre-any"></small>
+    </div>
+    <div class="filter-group" id="f-subgroup">
+      <h3>XGP and PS+</h3>
+      <div class="toggles" id="f-subtags">
+        <label><input type="checkbox" value="new"><span>Recently added</span><em></em></label>
+        <label><input type="checkbox" value="leaving"><span>Leaving soon</span><em></em></label>
+      </div>
+    </div>
+    <div class="filter-group">
+      <label class="switch" id="f-vr-wrap" hidden><input type="checkbox" id="f-vr" checked><span>Include VR games (<em id="f-vr-count"></em>)</span></label>
+      <label class="switch" id="f-hidden-wrap" hidden><input type="checkbox" id="f-hidden"><span>Show hidden games (<em id="f-hidden-count"></em>)</span></label>
+    </div>
+    <button class="link" id="f-reset">Reset filters</button>
+    <button class="link" id="f-dups">Find duplicate games</button>
+  </aside>
+
+  <main class="content">
+    <div class="toolbar">
+      <div class="result-count" id="result-count"></div>
+      <div class="toolbar-right">
+        <label class="sort">
+          <span>Sort by</span>
+          <select id="sort-key">
+            <option value="recommended">Recommended</option>
+            <option value="last_played">Last played</option>
+            <option value="playtime">Total playtime</option>
+            <option value="title">Title</option>
+            <option value="release_date">Release date</option>
+            <option value="ttb_main">Length</option>
+            <option value="remaining">Time to the credits</option>
+            <option value="progress">Progress</option>
+            <option value="critic_score">OpenCritic score</option>
+            <option value="steam_review_pct">Steam reviews</option>
+            <option value="added_at">Recently added</option>
+          </select>
+        </label>
+        <button class="btn icon ghost" id="sort-dir" aria-label="Reverse sort order" title="Reverse order">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16M4 16l4 4 4-4M16 20V4M12 8l4-4 4 4"/></svg>
+        </button>
+        <div class="segmented view-toggle" role="radiogroup" aria-label="View">
+          <button data-view="grid" class="on" title="Covers">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="9" rx="1"/><rect x="13.5" y="4" width="6.5" height="9" rx="1"/><rect x="4" y="15" width="6.5" height="5" rx="1"/><rect x="13.5" y="15" width="6.5" height="5" rx="1"/></svg>
+          </button>
+          <button data-view="list" title="List">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+        </div>
+        <input type="range" id="size" min="120" max="260" step="10" value="170" aria-label="Cover size" title="Cover size">
+        <button class="btn ghost filters-toggle" id="btn-filters">Filters</button>
+      </div>
+    </div>
+    <div id="library" class="grid"></div>
+    <div id="empty" class="empty" hidden></div>
+  </main>
+</div>
+</div>
+
+<!-- Game detail -->
+<div class="panel-wrap" id="detail-wrap" hidden>
+  <div class="panel-scrim" data-close></div>
+  <article class="panel" id="detail" role="dialog" aria-modal="true" aria-labelledby="detail-title"></article>
+</div>
+
+<!-- Sync -->
+<dialog id="sync-dialog" class="dialog">
+  <form method="dialog" class="dialog-inner" id="sync-form">
+    <header><h2 id="job-title">Sync your libraries</h2><button class="btn icon ghost" value="close" aria-label="Close">✕</button></header>
+    <div id="sync-body"></div>
+  </form>
+</dialog>
+
+<!-- Settings -->
+<dialog id="settings-dialog" class="dialog wide">
+  <div class="dialog-inner">
+    <header><h2>Settings</h2><button class="btn icon ghost" data-close-dialog aria-label="Close">✕</button></header>
+    <p class="lede">Everything here stays on this computer, in the <code>data</code> folder next to the app.</p>
+    <div id="settings-body"></div>
+  </div>
+</dialog>
+
+<!-- Add / fix match -->
+<dialog id="add-dialog" class="dialog">
+  <div class="dialog-inner">
+    <header><h2 id="add-title">Add a game</h2><button class="btn icon ghost" data-close-dialog aria-label="Close">✕</button></header>
+    <div id="add-body"></div>
+  </div>
+</dialog>
+
+<!-- Nintendo Switch from a screen recording or screenshots -->
+<dialog id="shots-dialog" class="dialog wide">
+  <div class="dialog-inner">
+    <header><h2>Import Nintendo Switch games</h2><button class="btn icon ghost" data-close-dialog aria-label="Close">✕</button></header>
+    <div id="shots-body"></div>
+  </div>
+</dialog>
+
+<!-- Art picker -->
+<dialog id="art-dialog" class="dialog wide">
+  <div class="dialog-inner">
+    <header><h2 id="art-title">Change art</h2><button class="btn icon ghost" data-close-dialog aria-label="Close">✕</button></header>
+    <div id="art-body"></div>
+  </div>
+</dialog>
+
+<!-- Duplicates -->
+<dialog id="dup-dialog" class="dialog wide">
+  <div class="dialog-inner">
+    <header><h2>Duplicate games</h2><button class="btn icon ghost" data-close-dialog aria-label="Close">✕</button></header>
+    <div id="dup-body"></div>
+  </div>
+</dialog>
+
+<!-- First-run setup -->
+<dialog id="setup-dialog" class="dialog wide setup">
+  <div class="dialog-inner">
+    <header><span></span><button class="btn icon ghost" data-close-dialog aria-label="Close setup">✕</button></header>
+    <div id="setup-body"></div>
+  </div>
+</dialog>
+
+<!-- Shortcut question (libraries set up before shortcuts existed) -->
+<dialog id="shortcut-dialog" class="dialog">
+  <div class="dialog-inner">
+    <header><h2>Add GameShelf shortcuts?</h2><button class="btn icon ghost" data-sc="no" aria-label="Close">✕</button></header>
+    <p>So you can start GameShelf without opening its folder.</p>
+    <div class="setup-checks">
+      <label class="switch"><input type="checkbox" id="sc2-desktop" checked><span>A shortcut on the desktop</span></label>
+      <label class="switch"><input type="checkbox" id="sc2-startmenu" checked><span>In the Start menu</span></label>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" data-sc="no">No thanks</button>
+      <button class="btn" data-sc="yes">Add them</button>
+    </div>
+  </div>
+</dialog>
+
+<div class="ctx" id="ctx" role="menu" hidden></div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

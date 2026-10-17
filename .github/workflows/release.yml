@@ -1,0 +1,93 @@
+# Builds the Windows download (GameShelf with its own Python) and publishes it as a
+# GitHub Release. Runs when a version tag (v1.2.3) is pushed; "Run workflow" builds and
+# tests without publishing.
+name: Build and release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_EMBED: "3.12.10"   # the bundled Python; bump RUNTIME_REV below when this changes
+  RUNTIME_REV: "1"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # same minor version as the bundled Python (for wheels)
+
+      - name: Check the version
+        id: ver
+        shell: pwsh
+        run: |
+          $ver = python -c "import re; print(re.search(r'__version__ = \"(.+?)\"', open('gameshelf/__init__.py').read()).group(1))"
+          if ("${{ github.ref_type }}" -eq "tag" -and "v$ver" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} doesn't match gameshelf/__init__.py ($ver)"
+          }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Assemble GameShelf with its own Python
+        shell: pwsh
+        run: |
+          $root = "build/GameShelf"
+          New-Item -ItemType Directory -Force "$root/runtime" | Out-Null
+          Invoke-WebRequest "https://www.python.org/ftp/python/$env:PYTHON_EMBED/python-$env:PYTHON_EMBED-embed-amd64.zip" -OutFile embed.zip
+          Expand-Archive embed.zip "$root/runtime"
+          # Where the bundled Python looks for code: its own library, add-ons, and the app folder.
+          $pth = Get-ChildItem "$root/runtime/python*._pth"
+          $zip = (Get-ChildItem "$root/runtime/python3*.zip").Name
+          Set-Content $pth.FullName "$zip`r`n.`r`nLib\site-packages`r`n..`r`nimport site"
+          python -m pip install --no-compile --disable-pip-version-check --target "$root/runtime/Lib/site-packages" pip howlongtobeatpy pystray pillow
+          Set-Content "$root/runtime/RUNTIME_VERSION" "$env:PYTHON_EMBED-$env:RUNTIME_REV"
+          Copy-Item -Recurse gameshelf "$root/gameshelf"
+          Copy-Item README.md, "Start GameShelf.bat" $root
+          Get-ChildItem $root -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+
+      - name: Test it on Windows
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path "build/GameShelf").Path
+          & "$root/runtime/python.exe" -c "import pystray, PIL, howlongtobeatpy, gameshelf; print('imports ok', gameshelf.__version__)"
+          if ($LASTEXITCODE) { throw "imports failed" }
+          $p = Start-Process "$root/runtime/python.exe" -ArgumentList "-m","gameshelf","--no-browser","--port","8790" -WorkingDirectory $root -PassThru
+          Start-Sleep 8
+          $d = Invoke-RestMethod http://127.0.0.1:8790/api/desktop
+          if (-not $d.packaged) { throw "doesn't know it's the packaged version" }
+          if ($d.version -ne "${{ steps.ver.outputs.version }}") { throw "wrong version $($d.version)" }
+          Invoke-RestMethod http://127.0.0.1:8790/api/library | Out-Null
+          (Invoke-WebRequest http://127.0.0.1:8790/ -UseBasicParsing).StatusCode
+          Stop-Process $p.Id
+          # Shortcuts are made the way the app makes them.
+          & "$root/runtime/python.exe" -c "from gameshelf import desktop; print(desktop.make_shortcuts(['desktop', 'startmenu']))"
+          if ($LASTEXITCODE) { throw "shortcuts failed" }
+          Start-Sleep 2
+          Remove-Item -Recurse -Force "$root/data" -ErrorAction SilentlyContinue
+          Get-ChildItem $root -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path build/GameShelf -DestinationPath "GameShelf-${{ steps.ver.outputs.version }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GameShelf-${{ steps.ver.outputs.version }}
+          path: GameShelf-${{ steps.ver.outputs.version }}.zip
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = if (Test-Path RELEASE_NOTES.md) { "RELEASE_NOTES.md" } else { $null }
+          if ($notes) { gh release create "${{ github.ref_name }}" "GameShelf-${{ steps.ver.outputs.version }}.zip" --title "GameShelf ${{ steps.ver.outputs.version }}" --notes-file $notes }
+          else { gh release create "${{ github.ref_name }}" "GameShelf-${{ steps.ver.outputs.version }}.zip" --title "GameShelf ${{ steps.ver.outputs.version }}" --generate-notes }

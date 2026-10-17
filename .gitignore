@@ -1,0 +1,13 @@
+# Your library, keys and settings: never part of the code
+data/
+# Python's own caches
+__pycache__/
+*.pyc
+# Release builds
+build/
+dist/
+*.zip
+# The bundled Python (added by the release build)
+runtime/
+# Notes for development, not part of the app
+docs/

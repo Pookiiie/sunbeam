@@ -1,0 +1,242 @@
+"""GameShelf as a desktop app (Windows): its own window, a tray icon, and quitting by itself.
+
+- The window is Microsoft Edge (or Chrome) in app mode: no address bar or tabs, its own
+  taskbar entry, with a profile of its own in data/window (so its size is remembered).
+  Links to other sites open in your normal browser instead (the page sends them to
+  /api/open), where you're signed in to Steam, PlayStation and so on.
+- The page says "still here" every 20 seconds (/api/ping). About a minute after the last
+  one (the window was closed) GameShelf quits, unless a sync or refresh is still running:
+  then it quits a minute after that finishes.
+- A tray icon by the clock reopens the window or quits (needs the pystray package, which
+  the Windows download includes; without it there's simply no icon).
+- Shortcuts on the desktop and in the Start menu, when you ask for them.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+from pathlib import Path
+
+from .paths import APP_DIR, DATA_DIR, ROOT_DIR
+
+IDLE_QUIT_S = 90        # no word from any open page for this long: the window was closed
+FIRST_WINDOW_S = 300    # how long to wait for the first page before giving up
+ICON_ICO = APP_DIR / "static" / "icon.ico"
+ICON_PNG = APP_DIR / "static" / "icon-256.png"
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+_last_ping = 0.0
+_started = time.time()
+_quit = threading.Event()
+_tray = None
+APP_MODE = False  # started with --app (set by __main__)
+_shortcuts: dict | None = None
+
+
+def is_windows() -> bool:
+    return os.name == "nt"
+
+
+def packaged() -> bool:
+    """Running from the Windows download (its own Python in the runtime folder)."""
+    return (ROOT_DIR / "runtime").is_dir() and Path(sys.executable).resolve().parent == (ROOT_DIR / "runtime").resolve()
+
+
+def pythonw() -> str:
+    exe = Path(sys.executable)
+    w = exe.with_name("pythonw.exe")
+    return str(w if w.exists() else exe)
+
+
+# ------------------------------------------------------------------ the window
+
+def _browser() -> str | None:
+    """Edge (comes with Windows) or Chrome, for an app-mode window."""
+    if not is_windows():
+        return None
+    roots = [os.environ.get(k) for k in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")]
+    rels = [r"Microsoft\Edge\Application\msedge.exe", r"Google\Chrome\Application\chrome.exe",
+            r"BraveSoftware\Brave-Browser\Application\brave.exe"]
+    for rel in rels:
+        for root in roots:
+            if root and (Path(root) / rel).exists():
+                return str(Path(root) / rel)
+    return None
+
+
+def open_window(url: str) -> None:
+    exe = _browser()
+    if not exe:
+        webbrowser.open(url)
+        return
+    profile = DATA_DIR / "window"
+    profile.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.Popen([
+            exe, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1440,900",
+            "--no-first-run", "--no-default-browser-check", "--disable-sync",
+            # keep the "still here" pings going while the window is minimised or covered
+            "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows",
+        ], creationflags=NO_WINDOW, close_fds=True)
+    except OSError:
+        webbrowser.open(url)
+
+
+def open_external(url: str) -> None:
+    """A link to another site, in your normal browser."""
+    if is_windows():
+        os.startfile(url)  # type: ignore[attr-defined]
+    else:
+        webbrowser.open(url)
+
+
+# ------------------------------------------------------------------ quitting by itself
+
+def ping() -> None:
+    global _last_ping
+    _last_ping = time.time()
+
+
+def watch_and_quit(httpd, busy) -> None:
+    """Stop the server once no window has been open for a while (and nothing is running)."""
+    def loop():
+        while not _quit.wait(5):
+            now = time.time()
+            if busy():
+                ping()  # a sync is running: wait for it, and count the minute from when it ends
+                continue
+            if _last_ping:
+                if now - _last_ping > IDLE_QUIT_S:
+                    break
+            elif now - _started > FIRST_WINDOW_S:
+                break
+        quit_app(httpd)
+    threading.Thread(target=loop, daemon=True, name="watchdog").start()
+
+
+def quit_app(httpd) -> None:
+    _quit.set()
+    if _tray is not None:
+        try:
+            _tray.stop()
+        except Exception:
+            pass
+    threading.Thread(target=httpd.shutdown, daemon=True).start()
+
+
+# ------------------------------------------------------------------ tray icon
+
+def run_tray(url: str, httpd) -> bool:
+    """Show the tray icon (blocks until it's removed). False when pystray isn't available."""
+    global _tray
+    try:
+        import pystray  # type: ignore
+        from PIL import Image  # type: ignore
+    except Exception:
+        return False
+    try:
+        image = Image.open(ICON_PNG)
+    except Exception:
+        image = Image.new("RGBA", (64, 64), (255, 92, 158, 255))
+    menu = pystray.Menu(
+        pystray.MenuItem("Open GameShelf", lambda: open_window(url), default=True),
+        pystray.MenuItem("Quit GameShelf", lambda: quit_app(httpd)),
+    )
+    _tray = pystray.Icon("GameShelf", image, "GameShelf", menu)
+    try:
+        _tray.run()
+    except Exception:
+        return False
+    return True
+
+
+# ------------------------------------------------------------------ shortcuts
+
+def shortcut_paths() -> dict[str, str]:
+    """Where the desktop and Start menu shortcuts go (OneDrive-moved desktops included)."""
+    if not is_windows():
+        return {}
+    script = ("[Environment]::GetFolderPath('Desktop'); [Environment]::GetFolderPath('Programs')")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                             capture_output=True, text=True, timeout=20, creationflags=NO_WINDOW).stdout.split("\n")
+        desktop, programs = out[0].strip(), out[1].strip()
+    except Exception:
+        home = Path(os.environ.get("USERPROFILE", "~")).expanduser()
+        desktop = str(home / "Desktop")
+        programs = str(Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs")
+    return {"desktop": str(Path(desktop) / "GameShelf.lnk"), "startmenu": str(Path(programs) / "GameShelf.lnk")}
+
+
+def shortcuts_state() -> dict:
+    """{"desktop": bool, "startmenu": bool}: whether each shortcut exists (looked up once)."""
+    global _shortcuts
+    if not is_windows():
+        return {}
+    if _shortcuts is None:
+        _shortcuts = shortcut_paths()
+    return {k: Path(v).exists() for k, v in _shortcuts.items()}
+
+
+def make_shortcuts(which: list[str]) -> list[str]:
+    """Create the shortcuts asked for; returns where they went."""
+    if not is_windows():
+        raise RuntimeError("Shortcuts are only made on Windows.")
+    paths = shortcut_paths()
+    made = []
+    for key in which:
+        lnk = paths.get(key)
+        if not lnk:
+            continue
+        ps = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:GS_LNK); "
+              "$s.TargetPath = $env:GS_TARGET; $s.Arguments = '-m gameshelf --app'; "
+              "$s.WorkingDirectory = $env:GS_ROOT; $s.IconLocation = $env:GS_ICON; "
+              "$s.Description = 'GameShelf: all your games in one place'; $s.Save()")
+        env = {**os.environ, "GS_LNK": lnk, "GS_TARGET": pythonw(), "GS_ROOT": str(ROOT_DIR), "GS_ICON": str(ICON_ICO)}
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], env=env,
+                           capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+        if r.returncode != 0 or not Path(lnk).exists():
+            raise RuntimeError(f"Couldn't create the shortcut ({(r.stderr or '').strip()[:200]})")
+        made.append(lnk)
+    return made
+
+
+def unblock_files() -> None:
+    """Files unzipped from a download carry Windows' "came from the internet" mark, which makes
+    Windows ask before running them. GameShelf's own files don't need it: remove it once."""
+    if not is_windows():
+        return
+    flag = DATA_DIR / ".unblocked"
+    if flag.exists():
+        return
+    for base in (ROOT_DIR / "runtime", APP_DIR, ROOT_DIR):
+        it = base.rglob("*") if base != ROOT_DIR else base.glob("*")
+        for p in it:
+            if p.is_file():
+                try:
+                    os.remove(f"{p}:Zone.Identifier")
+                except OSError:
+                    pass
+    try:
+        flag.write_text("1")
+    except OSError:
+        pass
+
+
+def log_to_file() -> None:
+    """Without a console window (pythonw), messages go to data/gameshelf.log instead."""
+    log = DATA_DIR / "gameshelf.log"
+    try:
+        if log.exists() and log.stat().st_size > 1_000_000:  # keep it small: start over
+            log.unlink()
+        f = open(log, "a", encoding="utf-8", buffering=1)
+    except OSError:
+        return
+    f.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+    sys.stdout = sys.stderr = f
