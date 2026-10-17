@@ -872,46 +872,172 @@ function renderStats() {
 `;
 }
 
+/* ------------------------------------------------------------ Library filters: a bar of dropdowns */
+
+// Each filter is a dropdown chip above the covers. Changes apply at once; a pink tag per
+// active filter clears it in one click. In a menu, tick boxes to combine, or "only" for one.
+const STATUS_NAMES = { "": "Not marked", completed: "Completed", dnf: "Did not finish" };
+const PLAYED_NAMES = { played: "Played", never: "Never played" };
+const SUBTAG_NAMES = { new: "Recently added", leaving: "Leaving soon" };
+const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], vr: true, subTags: [], showHidden: false });
+state.openFilter = null;
+state.genreQuery = "";
+
+function filterFacts() {
+  const visible = state.games.filter((g) => !g.isHidden);
+  const plat = {}, status = {}, played = {}, genres = {}, subs = { new: 0, leaving: 0 };
+  for (const g of state.games) for (const p of g.platforms) plat[p] = (plat[p] || 0) + 1;
+  for (const g of visible) {
+    status[g.status || ""] = (status[g.status || ""] || 0) + 1;
+    played[g.neverPlayed ? "never" : "played"] = (played[g.neverPlayed ? "never" : "played"] || 0) + 1;
+    for (const x of g.genres || []) genres[x] = (genres[x] || 0) + 1;
+    for (const t of Object.keys(subs)) if (subMatch(g, [t])) subs[t]++;
+  }
+  const platforms = Object.keys(state.platforms).filter((p) => plat[p]);
+  return { plat, platforms, status, played, genres, subs,
+    vr: visible.filter((g) => g.vr).length, hidden: state.games.filter((g) => g.isHidden).length };
+}
+
+// IGDB calls platformers "Platform", which reads like the Platform filter.
+const genreLabel = (x) => (x === "Platform" ? "Platformer" : x);
+const short = (p) => ({ "Epic Games Store": "Epic", "Ubisoft Connect": "Ubisoft", "Nintendo Switch": "Switch", "Nintendo Switch 2": "Switch 2" }[state.platforms[p]] || state.platforms[p] || p);
+
+// What each filter is set to, in a few words (null = not filtering).
+function filterSummaries(f) {
+  const p = state.prefs;
+  const shown = f.platforms.filter((x) => !p.hiddenPlatforms.includes(x));
+  const plat = shown.length === f.platforms.length ? null
+    : !shown.length ? "None"
+    : shown.length <= 2 ? shown.map(short).join(", ")
+    : f.platforms.length - shown.length <= 2 ? `All but ${f.platforms.filter((x) => !shown.includes(x)).map(short).join(", ")}`
+    : `${shown.length} of ${f.platforms.length}`;
+  const st = p.status.length === 3 ? null : !p.status.length ? "None" : p.status.map((x) => STATUS_NAMES[x]).join(", ");
+  const pl = p.played.length === 2 ? null : !p.played.length ? "None" : PLAYED_NAMES[p.played[0]];
+  const gen = !p.genres.length ? null : p.genres.length <= 2 ? p.genres.map(genreLabel).join(", ") : `${p.genres.length} genres`;
+  const more = [...p.subTags.map((t) => SUBTAG_NAMES[t]), ...(p.vr ? [] : ["No VR"]), ...(p.showHidden ? ["Hidden shown"] : [])];
+  return { platform: plat, status: st, played: pl, genre: gen, more: more.length ? more.join(", ") : null };
+}
+
 function renderFilters() {
-  const counts = {};
-  for (const g of state.games) {
-    for (const p of g.platforms) counts[p] = (counts[p] || 0) + 1;
-    counts["status:" + (g.status || "")] = (counts["status:" + (g.status || "")] || 0) + 1;
+  const bar = $("#fbar");
+  if (!bar) return;
+  const f = filterFacts(), sum = filterSummaries(f), p = state.prefs;
+  const chip = (id, label, empty = "Any") => `<button type="button" class="fchip ${sum[id] ? "on" : ""} ${state.openFilter === id ? "open" : ""}" data-fopen="${id}" aria-expanded="${state.openFilter === id}">
+      ${label} <b>${esc(sum[id] || empty)}</b><i aria-hidden="true">▾</i></button>`;
+  const tags = Object.entries(sum).filter(([, v]) => v).map(([id, v]) =>
+    `<button type="button" class="ftag" data-fclear="${id}" title="Clear this filter">${esc(v)}<span aria-hidden="true">✕</span></button>`).join("");
+  bar.innerHTML = `
+    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("more", "More", "")}
+    ${tags ? `<span class="fsep"></span>${tags}<button type="button" class="link fclear-all" data-fclear="all">Clear all</button>` : ""}
+    ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""}" role="dialog">${filterMenu(state.openFilter, f)}</div>` : ""}`;
+  const pop = $(".fpop", bar), anchor = $(`[data-fopen="${state.openFilter}"]`, bar);
+  if (pop && anchor) {
+    const left = Math.min(anchor.offsetLeft, bar.clientWidth - pop.offsetWidth);
+    pop.style.left = Math.max(0, left) + "px";
+    const q = $(".fpop-search", pop);
+    if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
   }
-  const present = Object.keys(state.platforms).filter((p) => counts[p]);
-  $("#f-platforms").innerHTML = present.length
-    ? present.map((p) => `<label><input type="checkbox" value="${p}" ${state.prefs.hiddenPlatforms.includes(p) ? "" : "checked"}><span>${esc(state.platforms[p])}</span><em>${counts[p]}</em></label>`).join("")
-    : `<span class="source-note">Sync a library to see platforms.</span>`;
-  $$("#f-status em").forEach((em) => { em.textContent = counts[em.dataset.count] || 0; });
-  $$("#f-status input").forEach((i) => { i.checked = state.prefs.status.includes(i.value); });
-  $$("#f-played input").forEach((i) => {
-    i.checked = state.prefs.played.includes(i.value);
-    i.parentElement.querySelector("em").textContent = state.games.filter((g) => !g.isHidden && (g.neverPlayed ? "never" : "played") === i.value).length;
-  });
-  const gcount = {};
-  for (const g of state.games) if (!g.isHidden) for (const x of g.genres || []) gcount[x] = (gcount[x] || 0) + 1;
-  const genres = Object.keys(gcount).sort();
-  $("#f-genres").innerHTML = genres.length
-    ? genres.map((x) => `<label><input type="checkbox" value="${esc(x)}" ${state.prefs.genres.includes(x) ? "checked" : ""}><span>${esc(x)}</span><em>${gcount[x]}</em></label>`).join("")
-    : `<span class="source-note">Genres appear once game details are in.</span>`;
-  $("#f-genre-clear").hidden = !state.prefs.genres.length;
-  $("#f-genre-any").textContent = state.prefs.genres.length > 1 ? "Showing games in any of these" : "";
-  const vrCount = state.games.filter((g) => g.vr && !g.isHidden).length;
-  $("#f-vr-wrap").hidden = !vrCount;
-  $("#f-vr").checked = state.prefs.vr;
-  $("#f-vr-count").textContent = vrCount;
-  const sc = { leaving: 0, new: 0 };
-  for (const g of state.games.filter((x) => !x.isHidden)) {
-    for (const t of Object.keys(sc)) if (subMatch(g, [t])) sc[t]++;
+}
+
+function filterMenu(id, f) {
+  const p = state.prefs;
+  const row = (group, value, label, n, on) => `<div class="frow">
+      <label><input type="checkbox" data-fgroup="${group}" value="${esc(value)}" ${on ? "checked" : ""}><span>${esc(label)}</span></label>
+      <button type="button" class="fonly" data-fonly="${group}" data-v="${esc(value)}">only</button><em>${n ?? ""}</em></div>`;
+  const head = (title, group) => `<div class="fpop-head"><span>${title}</span><span><button type="button" class="link" data-fall="${group}">All</button><button type="button" class="link" data-fnone="${group}">None</button></span></div>`;
+  if (id === "platform") return head("Platforms", "platform") + (f.platforms.length
+    ? f.platforms.map((x) => row("platform", x, state.platforms[x], f.plat[x], !p.hiddenPlatforms.includes(x))).join("")
+    : `<p class="source-note">Sync a library to see platforms.</p>`);
+  if (id === "status") return head("Status", "status") + Object.entries(STATUS_NAMES).map(([v, l]) => row("status", v, l, f.status[v] || 0, p.status.includes(v))).join("");
+  if (id === "played") return head("Played", "played") + Object.entries(PLAYED_NAMES).map(([v, l]) => row("played", v, l, f.played[v] || 0, p.played.includes(v))).join("")
+    + `<p class="fpop-note">Never played: no time and no launch date on any store.</p>`;
+  if (id === "genre") {
+    const q = state.genreQuery.trim().toLowerCase();
+    const all = Object.keys(f.genres).sort((a, b) => f.genres[b] - f.genres[a] || a.localeCompare(b));
+    const list = all.filter((x) => !q || genreLabel(x).toLowerCase().includes(q));
+    return `<input class="fpop-search" type="search" placeholder="Find a genre" value="${esc(state.genreQuery)}" autocomplete="off">
+      <div class="fpop-head"><span>${p.genres.length > 1 ? "Games in any of the ticked genres" : "Genres"}</span><span><button type="button" class="link" data-fnone="genre">Clear</button></span></div>
+      <div class="fcols">${list.length ? list.map((x) => row("genre", x, genreLabel(x), f.genres[x], p.genres.includes(x))).join("")
+        : `<p class="source-note">${all.length ? "No genre matches." : "Genres appear once game details are in."}</p>`}</div>`;
   }
-  $$("#f-subtags input").forEach((i) => {
-    i.checked = state.prefs.subTags.includes(i.value);
-    const em = i.parentElement.querySelector("em"); if (em) em.textContent = sc[i.value] ?? "";
+  if (id === "more") return `<div class="fpop-head"><span>XGP and PS+</span></div>`
+    + Object.entries(SUBTAG_NAMES).map(([v, l]) => row("subtags", v, l, f.subs[v], p.subTags.includes(v))).join("")
+    + `<div class="fpop-head"><span>Also</span></div>
+      ${f.vr ? `<div class="frow"><label><input type="checkbox" data-fflag="vr" ${p.vr ? "checked" : ""}><span>Include VR games</span></label><em>${f.vr}</em></div>` : ""}
+      ${f.hidden ? `<div class="frow"><label><input type="checkbox" data-fflag="showHidden" ${p.showHidden ? "checked" : ""}><span>Show hidden games</span></label><em>${f.hidden}</em></div>` : ""}
+      <div class="fpop-foot"><button type="button" class="link" data-fdups>Find duplicate games</button></div>`;
+  return "";
+}
+
+function setFilterGroup(group, values) {
+  const p = state.prefs, f = filterFacts();
+  if (group === "platform") p.hiddenPlatforms = f.platforms.filter((x) => !values.includes(x));
+  if (group === "status") p.status = values;
+  if (group === "played") p.played = values;
+  if (group === "genre") p.genres = values;
+  if (group === "subtags") p.subTags = values;
+  savePrefs(); renderFilters(); render();
+}
+function groupValues(group) {
+  const p = state.prefs, f = filterFacts();
+  return { platform: f.platforms.filter((x) => !p.hiddenPlatforms.includes(x)), status: p.status, played: p.played,
+    genre: p.genres, subtags: p.subTags }[group];
+}
+function allValues(group) {
+  const f = filterFacts();
+  return { platform: f.platforms, status: Object.keys(STATUS_NAMES), played: Object.keys(PLAYED_NAMES), genre: [], subtags: [] }[group];
+}
+function clearFilter(id) {
+  const d = FILTER_DEFAULTS(), p = state.prefs;
+  if (id === "all") { Object.assign(p, d); state.q = ""; $("#search").value = ""; }
+  if (id === "platform") p.hiddenPlatforms = d.hiddenPlatforms;
+  if (id === "status") p.status = d.status;
+  if (id === "played") p.played = d.played;
+  if (id === "genre") p.genres = d.genres;
+  if (id === "more") Object.assign(p, { subTags: d.subTags, vr: d.vr, showHidden: d.showHidden });
+  savePrefs(); renderFilters(); render();
+}
+
+function bindFilters() {
+  const bar = $("#fbar");
+  bar.addEventListener("click", (e) => {
+    const t = e.target;
+    const open = t.closest("[data-fopen]");
+    if (open) {
+      state.openFilter = state.openFilter === open.dataset.fopen ? null : open.dataset.fopen;
+      state.genreQuery = "";
+      renderFilters(); return;
+    }
+    const clr = t.closest("[data-fclear]");
+    if (clr) { state.openFilter = null; clearFilter(clr.dataset.fclear); return; }
+    const only = t.closest("[data-fonly]");
+    if (only) { setFilterGroup(only.dataset.fonly, [only.dataset.v]); return; }
+    const all = t.closest("[data-fall]");
+    if (all) { setFilterGroup(all.dataset.fall, allValues(all.dataset.fall)); return; }
+    const none = t.closest("[data-fnone]");
+    if (none) { setFilterGroup(none.dataset.fnone, []); return; }
+    if (t.closest("[data-fdups]")) { state.openFilter = null; renderFilters(); openDups(); }
   });
-  const hiddenCount = state.games.filter((g) => g.isHidden).length;
-  $("#f-hidden-wrap").hidden = !hiddenCount;
-  $("#f-hidden").checked = state.prefs.showHidden;
-  $("#f-hidden-count").textContent = hiddenCount;
+  bar.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset.fgroup) {
+      const g = t.dataset.fgroup;
+      const vals = new Set(groupValues(g));
+      if (t.checked) vals.add(t.value); else vals.delete(t.value);
+      setFilterGroup(g, [...vals]);
+    }
+    if (t.dataset.fflag) { state.prefs[t.dataset.fflag] = t.checked; savePrefs(); renderFilters(); render(); }
+  });
+  bar.addEventListener("input", (e) => {
+    if (e.target.classList.contains("fpop-search")) { state.genreQuery = e.target.value; renderFilters(); }
+  });
+  document.addEventListener("click", (e) => {
+    // composedPath: the clicked element may already have been redrawn (and detached) by then
+    if (state.openFilter && !e.composedPath().includes(bar)) { state.openFilter = null; renderFilters(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.openFilter) { e.stopPropagation(); state.openFilter = null; renderFilters(); }
+  }, true);
 }
 
 function render() {
@@ -2606,36 +2732,9 @@ function bind() {
   $$(".view-toggle button").forEach((b) => b.addEventListener("click", () => { state.prefs.view = b.dataset.view; savePrefs(); render(); }));
   $("#size").addEventListener("input", (e) => { state.prefs.size = Number(e.target.value); savePrefs(); document.documentElement.style.setProperty("--cover", e.target.value + "px"); });
 
-  $("#f-platforms").addEventListener("change", () => {
-    state.prefs.hiddenPlatforms = $$("#f-platforms input:not(:checked)").map((i) => i.value);
-    savePrefs(); render();
-  });
-  $("#f-status").addEventListener("change", () => {
-    state.prefs.status = $$("#f-status input:checked").map((i) => i.value);
-    savePrefs(); render();
-  });
-  $("#f-played").addEventListener("change", () => {
-    state.prefs.played = $$("#f-played input:checked").map((i) => i.value);
-    savePrefs(); render();
-  });
-  $("#f-genres").addEventListener("change", () => {
-    state.prefs.genres = $$("#f-genres input:checked").map((i) => i.value);
-    savePrefs(); renderFilters(); render();
-  });
-  $("#f-genre-clear").addEventListener("click", () => { state.prefs.genres = []; savePrefs(); renderFilters(); render(); });
-  $("#f-vr").addEventListener("change", (e) => { state.prefs.vr = e.target.checked; savePrefs(); render(); });
-  $("#f-subtags").addEventListener("change", async () => {
-    state.prefs.subTags = $$("#f-subtags input:checked").map((i) => i.value); savePrefs();
-    renderFilters(); render();
-  });
-  $("#f-hidden").addEventListener("change", (e) => { state.prefs.showHidden = e.target.checked; savePrefs(); render(); });
-  const reset = () => {
-    Object.assign(state.prefs, { hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], vr: true, subTags: [] });
-    state.q = ""; search.value = "";
-    savePrefs(); renderFilters(); render();
-  };
-  $("#f-reset").addEventListener("click", reset);
-  $("#btn-filters").addEventListener("click", () => $("#filters").classList.toggle("open"));
+  bindFilters();
+  const reset = () => clearFilter("all");
+
 
   $("#empty").addEventListener("click", (e) => {
     if (e.target.id === "empty-reset") reset();
@@ -2648,7 +2747,6 @@ function bind() {
   $("#btn-sync").addEventListener("click", () => openJob("sync"));
   $("#btn-refresh").addEventListener("click", () => openJob("refresh"));
   $("#btn-add").addEventListener("click", openAdd);
-  $("#f-dups").addEventListener("click", openDups);
 
   document.addEventListener("click", (e) => {
     if (e.target.closest("[data-close-dialog]")) e.target.closest("dialog").close();

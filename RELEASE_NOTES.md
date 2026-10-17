@@ -1,2 +1,2 @@
-- **Update now** works the same from the update bar, What's new and Settings, and closes those windows so you can watch the update in the bar at the top.
-- Curator's Recently released row shows just the date (no "Out").
+- **Library filters** are now a row of menus above the covers (Platform, Status, Played, Genre, More) instead of the long sidebar, so the covers get the full width. In each menu, tick boxes to combine or choose **only** to show just one; All / None at the top. Each active filter shows as a pink tag: click its ✕ to clear it, or **Clear all**. Genre has a search box. Find duplicate games and Show hidden games are under **More**.
+- Long names wrap onto two lines in Curator's wishlist rows instead of being cut off.

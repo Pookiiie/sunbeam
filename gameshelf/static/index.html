@@ -64,45 +64,6 @@
 <section class="stats" id="stats" aria-label="Library totals"></section>
 
 <div class="layout">
-  <aside class="filters" id="filters" aria-label="Filters">
-    <div class="filter-group">
-      <h3>Platform</h3>
-      <div class="toggles" id="f-platforms"></div>
-    </div>
-    <div class="filter-group">
-      <h3>Status</h3>
-      <div class="toggles" id="f-status">
-        <label><input type="checkbox" value="" checked><span>Not marked</span><em data-count="status:"></em></label>
-        <label><input type="checkbox" value="completed" checked><span>Completed</span><em data-count="status:completed"></em></label>
-        <label><input type="checkbox" value="dnf" checked><span>Did not finish</span><em data-count="status:dnf"></em></label>
-      </div>
-    </div>
-    <div class="filter-group">
-      <h3>Played</h3>
-      <div class="toggles" id="f-played">
-        <label><input type="checkbox" value="played" checked><span>Played</span><em></em></label>
-        <label><input type="checkbox" value="never" checked><span>Never played</span><em></em></label>
-      </div>
-    </div>
-    <div class="filter-group">
-      <h3>Genre <button class="link" id="f-genre-clear" hidden>Clear</button></h3>
-      <div class="toggles genre-list" id="f-genres"></div>
-      <small class="source-note" id="f-genre-any"></small>
-    </div>
-    <div class="filter-group" id="f-subgroup">
-      <h3>XGP and PS+</h3>
-      <div class="toggles" id="f-subtags">
-        <label><input type="checkbox" value="new"><span>Recently added</span><em></em></label>
-        <label><input type="checkbox" value="leaving"><span>Leaving soon</span><em></em></label>
-      </div>
-    </div>
-    <div class="filter-group">
-      <label class="switch" id="f-vr-wrap" hidden><input type="checkbox" id="f-vr" checked><span>Include VR games (<em id="f-vr-count"></em>)</span></label>
-      <label class="switch" id="f-hidden-wrap" hidden><input type="checkbox" id="f-hidden"><span>Show hidden games (<em id="f-hidden-count"></em>)</span></label>
-    </div>
-    <button class="link" id="f-reset">Reset filters</button>
-    <button class="link" id="f-dups">Find duplicate games</button>
-  </aside>
 
   <main class="content">
     <div class="toolbar">
@@ -136,9 +97,9 @@
           </button>
         </div>
         <input type="range" id="size" min="120" max="260" step="10" value="170" aria-label="Cover size" title="Cover size">
-        <button class="btn ghost filters-toggle" id="btn-filters">Filters</button>
       </div>
     </div>
+    <div class="fbar" id="fbar" aria-label="Filters"></div>
     <div id="library" class="grid"></div>
     <div id="empty" class="empty" hidden></div>
   </main>
