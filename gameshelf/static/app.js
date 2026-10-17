@@ -1,4 +1,7 @@
-/* GameShelf UI — plain JavaScript, no build step. */
+/* The app's UI — plain JavaScript, no build step. */
+
+// The app's name comes from gameshelf/brand.py (the server puts it on the page): rename it there.
+const APP = document.documentElement.dataset.app || "Sunbeam";
 "use strict";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -512,7 +515,7 @@ async function setInterest(id, v) {
 
 /* ------------------------------------------------------------ Wishlist */
 
-// Your Steam and PlayStation wishlists (GameShelf reads them; it can't change them).
+// Your Steam and PlayStation wishlists (the app reads them; it can't change them).
 const WISH_PLATFORM = { steam: "steam", psn: "playstation" };
 const WISH_STORE = { steam: "Steam", psn: "PlayStation" };
 const WISH_DAYS = 60;  // Curator's "Recently released" and "Coming out soon" windows
@@ -950,7 +953,7 @@ function renderEmpty() {
   empty.hidden = false;
   empty.innerHTML = `
     <h2>Your shelf is empty</h2>
-    <p>Connect your stores once and GameShelf brings every game together with its art, details and your playtime.</p>
+    <p>Connect your stores once and ${APP} brings every game together with its art, details and your playtime.</p>
     <ol class="steps">
       <li class="${metaOk ? "ok" : ""}"><div><b>Connect game info (IGDB)</b><span>Free. Supplies descriptions, genres, covers and time to beat.</span></div></li>
       <li class="${libOk ? "ok" : ""}"><div><b>Connect Steam and PlayStation</b><span>Imports what you own and how long you've played.</span></div></li>
@@ -1272,7 +1275,7 @@ function openAdd() {
   const options = Object.entries(state.platforms).filter(([k]) => k !== "steam" && k !== "playstation")
     .map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
   body.innerHTML = `
-    <p class="lede">For Switch 2 and anywhere GameShelf can't import from yet. Art and details fill in automatically.</p>
+    <p class="lede">For Switch 2 and anywhere ${APP} can't import from yet. Art and details fill in automatically.</p>
     <button class="btn quiet small shots-link" data-open-shots>Import Nintendo Switch games from a screen recording instead</button>
     <div id="add-search"></div>
     <label class="field"><span>Title</span><input type="text" id="add-name" placeholder="Game title"></label>
@@ -1363,7 +1366,7 @@ const PLAT_LABEL = { switch2: "Switch 2", switch: "Switch" };
 function videoStageHTML() {
   const v = shots.video || {};
   if (v.uploading != null) {
-    return `<p class="lede">Sending ${esc(v.name || "the recording")} to GameShelf…</p><div class="progress"><i style="width:${Math.round(v.uploading * 100)}%"></i></div>`;
+    return `<p class="lede">Sending ${esc(v.name || "the recording")} to ${APP}…</p><div class="progress"><i style="width:${Math.round(v.uploading * 100)}%"></i></div>`;
   }
   const st = v.status || {};
   const label = {
@@ -1393,7 +1396,7 @@ function renderShots(stage = "pick") {
       : x.status === "join" ? `Joins ${esc(x.game_title)} from your other stores`
       : x.system ? "Nintendo app, not a game" : x.demo ? "Demo" : "New";
     body.innerHTML = `
-      <p class="lede">Here's what GameShelf found. Untick anything that isn't right; you can fix titles, hours and the console too.${rich ? "" : ` Nintendo shows hours as "or more", so these are minimums.`}</p>
+      <p class="lede">Here's what ${APP} found. Untick anything that isn't right; you can fix titles, hours and the console too.${rich ? "" : ` Nintendo shows hours as "or more", so these are minimums.`}</p>
       ${shots.problems.map((p) => `<p class="test-result err">${esc(p)}</p>`).join("")}
       ${items.length ? `<div class="shots-list ${rich ? "rich" : ""}">
         ${items.map((x, i) => `<div class="shots-item ${x.on ? "" : "off"}" data-i="${i}">
@@ -1410,7 +1413,7 @@ function renderShots(stage = "pick") {
     return;
   }
   body.innerHTML = `
-    <p class="lede">Record your screen in the Nintendo Switch app and drop the video here. GameShelf reads every game's playtime, first and last played dates and day-by-day history.</p>
+    <p class="lede">Record your screen in the Nintendo Switch app and drop the video here. ${APP} reads every game's playtime, first and last played dates and day-by-day history.</p>
     <ol class="shots-how">
       <li>In the <b>Nintendo Switch app</b>, open your user page › <b>Play Activity</b>, and tap your most recent game.</li>
       <li>Start a screen recording, then swipe through the games one by one. A short pause on each card is plenty.</li>
@@ -1456,7 +1459,7 @@ function uploadVideo(file) {
     if (xhr.status !== 200) { shots.video = null; renderShots(); toast(data.error || "Couldn't send the video", true); return; }
     watchVideo(data);
   };
-  xhr.onerror = () => { shots.video = null; renderShots(); toast("Couldn't send the video to GameShelf", true); };
+  xhr.onerror = () => { shots.video = null; renderShots(); toast(`Couldn't send the video to ${APP}`, true); };
   xhr.send(file);
 }
 
@@ -1671,7 +1674,7 @@ SERVICES.push({
   steps: [
     `Sign in at <a href="https://www.epicgames.com" target="_blank" rel="noopener">epicgames.com</a> in your browser.`,
     `In the same browser, open <a href="https://www.epicgames.com/id/login?redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Fapi%2Fredirect%3FclientId%3D34a02cf8f4414e29b15921876da36f9a%26responseType%3Dcode" target="_blank" rel="noopener">this Epic sign-in link</a>. You'll see a short line of text.`,
-    `Copy the value after <code>"authorizationCode":</code> (or the whole line), paste it below and choose Save and test straight away: the code only works once, for a few minutes. GameShelf stays signed in after that, as long as you sync every few weeks.`,
+    `Copy the value after <code>"authorizationCode":</code> (or the whole line), paste it below and choose Save and test straight away: the code only works once, for a few minutes. ${APP} stays signed in after that, as long as you sync every few weeks.`,
   ],
   fields: [["epic_code", "Sign-in code", true]],
   clears: ["epic_refresh", "epic_code"],  // signing out forgets the saved session
@@ -1686,12 +1689,12 @@ SERVICES.push({
   ],
   fields: [["xbl_key", "OpenXBL API key", true]],
 });
-// The "Send to GameShelf" bookmark for Ubisoft Connect. Ubisoft's sign-in only answers
+// The "Send to <app>" bookmark for Ubisoft Connect. Ubisoft's sign-in only answers
 // real browsers now, so this runs on connect.ubisoft.com in your own browser, where you're
-// signed in: it reads your games and their stats cards there, then opens GameShelf with them.
+// signed in: it reads your games and their stats cards there, then opens the app with them.
 // Self-contained (it runs on Ubisoft's page, not here).
 function ubiBookmarklet() {
-  const GS = "__GS__", A = "b8fde481-327d-4031-85ce-7c10a202a700", U = "https://public-ubiservices.ubi.com";
+  const GS = "__GS__", APPN = "__APP__", A = "b8fde481-327d-4031-85ce-7c10a202a700", U = "https://public-ubiservices.ubi.com";
   const say = (t) => { let b = document.getElementById("gs-note"); if (!b) { b = document.createElement("div"); b.id = "gs-note";
     b.style.cssText = "position:fixed;z-index:2147483647;left:50%;top:20px;transform:translateX(-50%);background:#1c1828;color:#fff;font:600 15px system-ui;padding:12px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);border:1px solid #ff5c9e";
     document.body.appendChild(b); } b.textContent = t; };
@@ -1708,10 +1711,10 @@ function ubiBookmarklet() {
         for (const f of ["ticket", "rememberMeTicket", "sessionId", "userId", "profileId", "nameOnPlatform", "username", "expiration"]) if (v[f] && !info[f]) info[f] = v[f]; } catch (e) { /* not JSON */ }
     }
     if (!info.ticket && !info.rememberMeTicket) {
-      if (confirm("GameShelf couldn't find your Ubisoft sign-in on this page. Open Ubisoft Connect's sign-in page? Sign in there, then click the bookmark again.")) location.assign(LOGIN);
+      if (confirm(APPN + " couldn't find your Ubisoft sign-in on this page. Open Ubisoft Connect's sign-in page? Sign in there, then click the bookmark again.")) location.assign(LOGIN);
       return;
     }
-    say("GameShelf: reading your Ubisoft games…");
+    say(APPN + ": reading your Ubisoft games…");
     // A sign-in pass belongs to the Ubisoft site that issued it, so try this site's app id first.
     const ids = [];
     const html = document.documentElement.outerHTML;
@@ -1751,25 +1754,25 @@ function ubiBookmarklet() {
           if (r.ok) g.cards = ((await r.json()).Statscards || []).filter((c) => c.format === "LongTimespan" || c.lastModified)
             .map((c) => ({ statName: c.statName, displayName: c.displayName, format: c.format, unit: c.unit, value: c.value, lastModified: c.lastModified }));
         } catch (e) { /* no stats for this one */ }
-        say("GameShelf: reading your Ubisoft games… " + (++done) + " of " + games.length);
+        say(APPN + ": reading your Ubisoft games… " + (++done) + " of " + games.length);
       }));
     }
     const out = { v: 1, app, user: s.userId, name: s.nameOnPlatform || info.nameOnPlatform || info.username, ticket: s.ticket, session: s.sessionId,
       remember: s.rememberMeTicket || info.rememberMeTicket, expiration: s.expiration, games };
-    say("GameShelf: opening GameShelf…");
+    say(APPN + ": opening " + APPN + "…");
     location.assign(GS + "/#ubisoft=" + encodeURIComponent(JSON.stringify(out)));
   })().catch((e) => { say(""); alert("Something went wrong: " + e.message); });
 }
-const ubiBookmarkHref = () => "javascript:" + encodeURIComponent("(" + ubiBookmarklet.toString().replace("__GS__", location.origin) + ")()");
+const ubiBookmarkHref = () => "javascript:" + encodeURIComponent("(" + ubiBookmarklet.toString().replace("__GS__", location.origin).replace("__APP__", APP.replace(/["\\]/g, "")) + ")()");
 
 SERVICES.push({
   id: "ubisoft", name: "Ubisoft Connect", blurb: "PC games you own, playtime and last played",
   ready: (s) => !!s.ubi_user,
   steps: [
-    `Drag this button to your browser's bookmarks bar (drag it, don't click it): <a class="btn small bookmarklet" href="__UBI_BOOKMARK__" onclick="event.preventDefault(); toast('Drag the button to your bookmarks bar instead of clicking it')">Send to GameShelf</a>`,
-    `Open <a href="https://connect.ubisoft.com/login?appId=b8fde481-327d-4031-85ce-7c10a202a700&lang=en-US" target="_blank" rel="noopener">connect.ubisoft.com</a> and sign in as usual (two-step codes work there like always). Ubisoft only lets a real browser sign in, so GameShelf can't do this part itself.`,
-    `Once you're signed in, click the <b>Send to GameShelf</b> bookmark while you're on a connect.ubisoft.com page. If Ubisoft sent you to an error page or another site after signing in, open that link again first (you'll stay signed in), then click the bookmark. It reads your games and hours, then opens GameShelf, which adds them.`,
-    `Later syncs try to update Ubisoft by themselves; if Ubisoft says no, GameShelf keeps the last list and tells you to click the bookmark again for fresh hours. Last-played dates also come from the Ubisoft Connect app on this PC.`,
+    `Drag this button to your browser's bookmarks bar (drag it, don't click it): <a class="btn small bookmarklet" href="__UBI_BOOKMARK__" onclick="event.preventDefault(); toast('Drag the button to your bookmarks bar instead of clicking it')">Send to ${APP}</a>`,
+    `Open <a href="https://connect.ubisoft.com/login?appId=b8fde481-327d-4031-85ce-7c10a202a700&lang=en-US" target="_blank" rel="noopener">connect.ubisoft.com</a> and sign in as usual (two-step codes work there like always). Ubisoft only lets a real browser sign in, so ${APP} can't do this part itself.`,
+    `Once you're signed in, click the <b>Send to ${APP}</b> bookmark while you're on a connect.ubisoft.com page. If Ubisoft sent you to an error page or another site after signing in, open that link again first (you'll stay signed in), then click the bookmark. It reads your games and hours, then opens ${APP}, which adds them.`,
+    `Later syncs try to update Ubisoft by themselves; if Ubisoft says no, ${APP} keeps the last list and tells you to click the bookmark again for fresh hours. Last-played dates also come from the Ubisoft Connect app on this PC.`,
   ],
   fields: [],
   clears: ["ubi_remember", "ubi_ticket", "ubi_session", "ubi_user"],
@@ -1791,7 +1794,7 @@ SERVICES.push({
   steps: [
     `Create a free account at <a href="https://rapidapi.com" target="_blank" rel="noopener">rapidapi.com</a>.`,
     `Open the <a href="https://rapidapi.com/opencritic-opencritic-default/api/opencritic-api/pricing" target="_blank" rel="noopener">OpenCritic API</a> and subscribe to the free <b>Basic</b> plan.`,
-    `Copy your <b>X-RapidAPI-Key</b> from the API's page and paste it below. GameShelf stays well inside the free plan: at most 140 lookups a day, and it stops early if RapidAPI reports that less than a quarter of your allowance is left. A big library fills in over a few days.`,
+    `Copy your <b>X-RapidAPI-Key</b> from the API's page and paste it below. ${APP} stays well inside the free plan: at most 140 lookups a day, and it stops early if RapidAPI reports that less than a quarter of your allowance is left. A big library fills in over a few days.`,
   ],
   fields: [["opencritic_key", "RapidAPI key", true]],
 });
@@ -1840,7 +1843,7 @@ function renderSettings(openId) {
       <div class="body">
         ${state.settings.hltb_installed
           ? `<label class="switch"><input type="checkbox" id="hltb-toggle" ${s.hltb_enabled !== false ? "checked" : ""}><span>Use HowLongToBeat for time-to-beat numbers</span></label>`
-          : `<p class="source-note">The launcher installs it automatically when it can. If it couldn't (for example without internet on first start), restart GameShelf to try again. Until then, IGDB's time-to-beat data is used.</p>`}
+          : `<p class="source-note">The launcher installs it automatically when it can. If it couldn't (for example without internet on first start), restart ${APP} to try again. Until then, IGDB's time-to-beat data is used.</p>`}
       </div>
     </details>
     <details class="service" ${openId === "phone" ? "open" : ""}>
@@ -1954,8 +1957,8 @@ function renderUpdateBar() {
   if (!u || !u.newer || state.updateDismissed === u.latest) { bar.hidden = true; return; }
   bar.hidden = false;
   bar.innerHTML = u.busy
-    ? `<span>Updating to GameShelf ${esc(u.latest)}: ${esc((u.stage || "working").toLowerCase())}…</span>`
-    : `<span><b>GameShelf ${esc(u.latest)}</b> is out (you have ${esc(u.current)}).</span>
+    ? `<span>Updating to ${APP} ${esc(u.latest)}: ${esc((u.stage || "working").toLowerCase())}…</span>`
+    : `<span><b>${APP} ${esc(u.latest)}</b> is out (you have ${esc(u.current)}).</span>
        <a href="${esc(u.url)}" target="_blank" rel="noopener">What's new</a>
        ${u.can_install ? `<button class="btn small" data-upd="install">Update now</button>` : `<a class="btn small" href="${esc(u.url)}" target="_blank" rel="noopener">Download</a>`}
        ${u.error ? `<span class="err">${esc(u.error)}</span>` : ""}
@@ -1970,7 +1973,7 @@ $("#update-bar").addEventListener("click", async (e) => {
     state.update = await api("/api/update", { method: "POST", body: {} });
     renderUpdateBar();
   } catch (err) { toast(err.message, true); return; }
-  // Wait for GameShelf to come back as the new version, then reload.
+  // Wait for the app to come back as the new version, then reload.
   const from = state.update.current;
   const poll = setInterval(async () => {
     try {
@@ -1991,11 +1994,11 @@ function thisPcSection(openId) {
   const d = state.desktop || {}, u = state.update;
   const sc = d.shortcuts || {};
   return `<details class="service" ${openId === "pc" ? "open" : ""}>
-    <summary><div><h3>This PC</h3><p>Version, updates and shortcuts</p></div><span class="state later">GameShelf ${esc(d.version || "")}</span></summary>
+    <summary><div><h3>This PC</h3><p>Version, updates and shortcuts</p></div><span class="state later">${APP} ${esc(d.version || "")}</span></summary>
     <div class="body">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <button class="btn small ghost" data-pc="check">Check for updates</button>
-        <span class="test-result ${u?.newer ? "ok" : ""}" id="pc-update">${u ? (u.newer ? `GameShelf ${esc(u.latest)} is available: see the bar at the top.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.") : ""}</span>
+        <span class="test-result ${u?.newer ? "ok" : ""}" id="pc-update">${u ? (u.newer ? `${APP} ${esc(u.latest)} is available: see the bar at the top.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.") : ""}</span>
       </div>
       ${d.windows ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
         <button class="btn small ghost" data-pc="desktop" ${sc.desktop ? "disabled" : ""}>${sc.desktop ? "✓ Desktop shortcut" : "Add a desktop shortcut"}</button>
@@ -2017,7 +2020,7 @@ async function onThisPc(b) {
     await api("/api/desktop/shortcuts", { method: "POST", body: { which: [b.dataset.pc] } });
     await loadDesktop();
     renderSettings("pc");
-    toast(b.dataset.pc === "desktop" ? "Shortcut added to your desktop" : "GameShelf is in the Start menu");
+    toast(b.dataset.pc === "desktop" ? "Shortcut added to your desktop" : `${APP} is in the Start menu`);
   } catch (err) { $("#pc-shortcut").className = "test-result err"; $("#pc-shortcut").textContent = err.message; }
 }
 
@@ -2043,13 +2046,13 @@ function renderSetup() {
   const ready = svc ? svc.ready(s) : true;
   let body = "";
   if (step === "welcome") {
-    body = `<h2 class="setup-h">Welcome to GameShelf</h2>
+    body = `<h2 class="setup-h">Welcome to ${APP}</h2>
       <p class="lede">All your games from every store in one place, with covers, details, playtime and how long each one takes to beat. Plus a few friendly suggestions for what to play next.</p>
       <p>Setup takes about five minutes: connect a free game-info service, then the stores you use. Skip anything you like; it's all in Settings later.</p>
-      <p class="source-note">Everything stays on this PC, in the <code>data</code> folder next to GameShelf. Your keys are never sent anywhere except to the service they belong to.</p>`;
+      <p class="source-note">Everything stays on this PC, in the <code>data</code> folder next to ${APP}. Your keys are never sent anywhere except to the service they belong to.</p>`;
   } else if (step === "stores") {
     body = `<h2 class="setup-h">Which stores do you use?</h2>
-      <p>Pick every one you'd like in GameShelf. You'll set them up one by one next.</p>
+      <p>Pick every one you'd like in ${APP}. You'll set them up one by one next.</p>
       <div class="setup-stores">${SETUP_STORES.map(([id, name]) => `<label class="chip ${setup.stores.includes(id) ? "on" : ""}">
         <input type="checkbox" value="${id}" ${setup.stores.includes(id) ? "checked" : ""}>${esc(name)}</label>`).join("")}</div>
       ${setup.stores.includes("switch") ? `<p class="source-note">Nintendo doesn't share libraries online: once setup is done, use <b>Sync › Nintendo Switch</b> to import a screen recording of your Play Activity from the Nintendo Switch app.</p>` : ""}`;
@@ -2061,12 +2064,12 @@ function renderSetup() {
       ${extra("sgdb")}${extra("opencritic")}`;
   } else if (step === "shortcuts") {
     body = `<h2 class="setup-h">Shortcuts</h2>
-      <p>Where would you like to find GameShelf?</p>
+      <p>Where would you like to find ${APP}?</p>
       <div class="setup-checks">
         <label class="switch"><input type="checkbox" id="sc-desktop" checked><span>A shortcut on the desktop</span></label>
-        <label class="switch"><input type="checkbox" id="sc-startmenu" checked><span>In the Start menu (type “GameShelf” in Start)</span></label>
+        <label class="switch"><input type="checkbox" id="sc-startmenu" checked><span>In the Start menu (type “${APP}” in Start)</span></label>
       </div>
-      <p class="source-note">GameShelf opens in its own window. While it's running, its icon by the clock reopens it or quits; it also stops by itself a minute after you close the window.</p>
+      <p class="source-note">${APP} opens in its own window. While it's running, its icon by the clock reopens it or quits; it also stops by itself a minute after you close the window.</p>
       <span class="test-result" id="sc-result"></span>`;
   } else if (step === "done") {
     const any = SERVICES.some((x) => !["igdb", "sgdb", "opencritic"].includes(x.id) && x.ready(s));
@@ -2344,7 +2347,7 @@ $("#sync-body").addEventListener("click", async (e) => {
   if (setup) { $("#sync-dialog").close(); openSettings(setup.dataset.setup); }
 });
 
-// Opening GameShelf more than a day after the last sync starts one by itself: every
+// Opening the app more than a day after the last sync starts one by itself: every
 // library that's set up, the XGP and PS+ lists, and your wishlists (prices and sales too).
 async function maybeAutoSync() {
   const st = state.sync || {};
@@ -2893,7 +2896,7 @@ function ignoreForPasswordManagers(root = document) {
 }
 new MutationObserver(() => ignoreForPasswordManagers()).observe(document.body, { childList: true, subtree: true });
 
-// Arriving from the Send to GameShelf bookmark on connect.ubisoft.com.
+// Arriving from the Send to <app> bookmark on connect.ubisoft.com.
 async function receiveUbisoft() {
   let payload = null;
   try { payload = JSON.parse(decodeURIComponent(location.hash.slice("#ubisoft=".length))); } catch { /* broken link */ }
@@ -2924,6 +2927,6 @@ async function receiveUbisoft() {
     else maybeAutoSync();
     setInterval(() => { if (!state.sync?.running) api("/api/sync").then((st) => { state.sync = st; maybeAutoSync(); }).catch(() => {}); }, 60 * 60 * 1000);
   } catch (e) {
-    toast("Couldn't reach GameShelf. Start it again from its shortcut or the Start GameShelf file.", true);
+    toast(`Couldn't reach ${APP}. Start it again from its shortcut or the Start ${APP} file.`, true);
   }
 })();

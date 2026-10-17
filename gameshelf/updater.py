@@ -1,8 +1,8 @@
-"""Updates from GitHub Releases (github.com/Pookiiie/GameShelf).
+"""Updates from GitHub Releases (the repository in brand.py).
 
-GameShelf asks GitHub for the latest release now and then (at most every 6 hours). When
-it's newer, the page offers "Update now": the release's zip is downloaded, GameShelf's own
-files are replaced (your data folder is never touched), and GameShelf restarts itself.
+The app asks GitHub for the latest release now and then (at most every 6 hours). When
+it's newer, the page offers "Update now": the release's zip is downloaded, the app's own
+files are replaced (your data folder is never touched), and the app restarts itself.
 
 Only the Windows download updates itself; a copy run with your own Python just links to
 the release page. A release that needs a newer bundled Python (runtime/RUNTIME_VERSION
@@ -22,10 +22,10 @@ import time
 import zipfile
 from pathlib import Path
 
-from . import __version__, db, desktop, net
+from . import __version__, brand, db, desktop, net
 from .paths import APP_DIR, DATA_DIR, ROOT_DIR
 
-REPO = "Pookiiie/GameShelf"
+REPO = brand.REPO
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 CHECK_EVERY = 6 * 3600
 KEEP = {"data", "runtime"}  # never replaced by an update
@@ -86,7 +86,7 @@ def _install(httpd) -> None:
         work = DATA_DIR / "update"
         shutil.rmtree(work, ignore_errors=True)
         work.mkdir(parents=True)
-        zpath = work / "GameShelf.zip"
+        zpath = work / "release.zip"
         resp = net.request("GET", info["zip"], headers={"Accept": "application/octet-stream"}, timeout=300, retries=1)
         zpath.write_bytes(resp.body)
         _state["stage"] = "Unpacking"
@@ -95,10 +95,10 @@ def _install(httpd) -> None:
             if bad:
                 raise RuntimeError("The download looks damaged.")
             z.extractall(work / "new")
-        # The zip holds one folder (GameShelf/) with the app inside.
+        # The zip holds one folder (named after the app) with the app inside.
         new_root = next((p.parent.parent for p in (work / "new").rglob("gameshelf/__init__.py")), None)
         if not new_root:
-            raise RuntimeError("The download doesn't contain GameShelf.")
+            raise RuntimeError(f"The download doesn't contain {brand.NAME}.")
         if runtime_version(new_root) != runtime_version():
             raise RuntimeError("This update needs a fresh download (it comes with a newer Python). "
                                "Download the new zip from the release page and copy your data folder into it.")
@@ -113,6 +113,10 @@ def _install(httpd) -> None:
                 shutil.copytree(item, dest, dirs_exist_ok=True)
             else:
                 shutil.copy2(item, dest)
+        # A launcher left over from an earlier name ("Start OldName.bat") goes.
+        for old in ROOT_DIR.glob("Start *.bat"):
+            if not (new_root / old.name).exists():
+                old.unlink(missing_ok=True)
         shutil.rmtree(work, ignore_errors=True)
         db.set_meta("update_check", "")
         _state["stage"] = "Restarting"

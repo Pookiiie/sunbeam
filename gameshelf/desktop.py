@@ -1,11 +1,11 @@
-"""GameShelf as a desktop app (Windows): its own window, a tray icon, and quitting by itself.
+"""The app as a desktop app (Windows): its own window, a tray icon, and quitting by itself.
 
 - The window is Microsoft Edge (or Chrome) in app mode: no address bar or tabs, its own
   taskbar entry, with a profile of its own in data/window (so its size is remembered).
   Links to other sites open in your normal browser instead (the page sends them to
   /api/open), where you're signed in to Steam, PlayStation and so on.
 - The page says "still here" every 20 seconds (/api/ping). About a minute after the last
-  one (the window was closed) GameShelf quits, unless a sync or refresh is still running:
+  one (the window was closed) the app quits, unless a sync or refresh is still running:
   then it quits a minute after that finishes.
 - A tray icon by the clock reopens the window or quits (needs the pystray package, which
   the Windows download includes; without it there's simply no icon).
@@ -22,6 +22,7 @@ import time
 import webbrowser
 from pathlib import Path
 
+from . import brand
 from .paths import APP_DIR, DATA_DIR, ROOT_DIR
 
 IDLE_QUIT_S = 90        # no word from any open page for this long: the window was closed
@@ -145,10 +146,10 @@ def run_tray(url: str, httpd) -> bool:
     except Exception:
         image = Image.new("RGBA", (64, 64), (255, 92, 158, 255))
     menu = pystray.Menu(
-        pystray.MenuItem("Open GameShelf", lambda: open_window(url), default=True),
-        pystray.MenuItem("Quit GameShelf", lambda: quit_app(httpd)),
+        pystray.MenuItem(f"Open {brand.NAME}", lambda: open_window(url), default=True),
+        pystray.MenuItem(f"Quit {brand.NAME}", lambda: quit_app(httpd)),
     )
-    _tray = pystray.Icon("GameShelf", image, "GameShelf", menu)
+    _tray = pystray.Icon("gameshelf", image, brand.NAME, menu)
     try:
         _tray.run()
     except Exception:
@@ -171,7 +172,34 @@ def shortcut_paths() -> dict[str, str]:
         home = Path(os.environ.get("USERPROFILE", "~")).expanduser()
         desktop = str(home / "Desktop")
         programs = str(Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs")
-    return {"desktop": str(Path(desktop) / "GameShelf.lnk"), "startmenu": str(Path(programs) / "GameShelf.lnk")}
+    return {"desktop": str(Path(desktop) / f"{_safe_name()}.lnk"), "startmenu": str(Path(programs) / f"{_safe_name()}.lnk")}
+
+
+def _safe_name() -> str:
+    """The app's name as a file name."""
+    import re
+    return re.sub(r'[<>:"/\\|?*]', "", brand.NAME).strip() or "App"
+
+
+def rename_shortcuts() -> None:
+    """After the app is renamed (brand.py), shortcuts made under the old name get the new one."""
+    if not is_windows():
+        return
+    from . import settings
+    made = settings.get("shortcuts_made") or []
+    if not made or all(Path(p).stem == _safe_name() for p in made):
+        return
+    try:
+        keys = [k for k, v in shortcut_paths().items() if any(Path(p).parent == Path(v).parent for p in made)]
+        for p in made:
+            if Path(p).stem != _safe_name():
+                try:
+                    Path(p).unlink()
+                except OSError:
+                    pass
+        make_shortcuts(keys)
+    except Exception as e:
+        print(f"  Couldn't rename the shortcuts: {e}")
 
 
 def shortcuts_state() -> dict:
@@ -197,19 +225,25 @@ def make_shortcuts(which: list[str]) -> list[str]:
         ps = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:GS_LNK); "
               "$s.TargetPath = $env:GS_TARGET; $s.Arguments = '-m gameshelf --app'; "
               "$s.WorkingDirectory = $env:GS_ROOT; $s.IconLocation = $env:GS_ICON; "
-              "$s.Description = 'GameShelf: all your games in one place'; $s.Save()")
-        env = {**os.environ, "GS_LNK": lnk, "GS_TARGET": pythonw(), "GS_ROOT": str(ROOT_DIR), "GS_ICON": str(ICON_ICO)}
+              "$s.Description = $env:GS_DESC; $s.Save()")
+        env = {**os.environ, "GS_LNK": lnk, "GS_TARGET": pythonw(), "GS_ROOT": str(ROOT_DIR), "GS_ICON": str(ICON_ICO),
+               "GS_DESC": f"{brand.NAME}: {brand.TAGLINE.lower()}"}
         r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], env=env,
                            capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
         if r.returncode != 0 or not Path(lnk).exists():
             raise RuntimeError(f"Couldn't create the shortcut ({(r.stderr or '').strip()[:200]})")
         made.append(lnk)
+    from . import settings
+    known = [p for p in settings.get("shortcuts_made") or [] if Path(p).exists() and p not in made]
+    settings.update({"shortcuts_made": known + made})
+    global _shortcuts
+    _shortcuts = None
     return made
 
 
 def unblock_files() -> None:
     """Files unzipped from a download carry Windows' "came from the internet" mark, which makes
-    Windows ask before running them. GameShelf's own files don't need it: remove it once."""
+    Windows ask before running them. The app's own files don't need it: remove it once."""
     if not is_windows():
         return
     flag = DATA_DIR / ".unblocked"

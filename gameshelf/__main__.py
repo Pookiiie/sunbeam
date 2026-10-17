@@ -1,4 +1,4 @@
-"""Start GameShelf: `python -m gameshelf` (the Windows launcher and shortcuts add --app)."""
+"""Start the app: `python -m gameshelf` (the Windows launcher and shortcuts add --app)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import threading
 import time
 import webbrowser
 
-from . import __version__, db, desktop
+from . import __version__, brand, db, desktop
 from .server import serve
 
 DEFAULT_PORT = 8765
@@ -34,6 +34,7 @@ def main():
         desktop.log_to_file()
     if app:
         desktop.unblock_files()
+        desktop.rename_shortcuts()
 
     url = f"http://localhost:{args.port}/"
     if args.wait_port:
@@ -43,7 +44,7 @@ def main():
             time.sleep(0.2)
     if _port_in_use(args.port):
         # Already running (e.g. opened twice): just show the window.
-        print(f"GameShelf is already running at {url}")
+        print(f"{brand.NAME} is already running at {url}")
         if not args.no_browser:
             desktop.open_window(url) if app else webbrowser.open(url)
         return
@@ -58,7 +59,7 @@ def main():
     except Exception as e:  # never stop the app from starting
         print(f"  Couldn't re-check finished games: {e}")
     httpd = serve(args.port)
-    print(f"\n  GameShelf {__version__} is running at {url}")
+    print(f"\n  {brand.NAME} {__version__} is running at {url}")
 
     if not app:
         print("  Keep this window open while you use it. Close it to quit.\n")
@@ -83,7 +84,7 @@ def main():
         server.join()
     server.join(timeout=10)
     httpd.server_close()
-    print("  GameShelf stopped.")
+    print(f"  {brand.NAME} stopped.")
 
 
 if __name__ == "__main__":

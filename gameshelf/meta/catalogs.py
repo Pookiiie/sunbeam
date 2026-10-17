@@ -7,7 +7,7 @@
   Game Trials or Premium Classics), with the same concept IDs as your
   PlayStation library.
 
-"Recently added" means GameShelf first saw the game in the list in the last 30
+"Recently added" means the app first saw the game in the list in the last 30
 days. The first update only sets the starting point, so nothing is "new" until
 the lists change. Sony doesn't publish a "leaving soon" list, so that tag is
 Game Pass only.
@@ -31,7 +31,7 @@ GP_PC_ALL = "fdd9e2a7-0fee-49f6-ad69-4354098401ff"
 GP_PC_LEAVING = "cc7fc951-d00f-410e-9e02-5e4628e04163"
 DISPLAY = "https://displaycatalog.mp.microsoft.com/v7.0/products"
 PS_GAMES_FEED = "https://www.playstation.com/bin/imagic/gameslist"
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GameShelf/0.1"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 
 NEW_DAYS = 30
 SERVICES = {"gamepass": "XGP", "psplus": "PS+"}  # XGP = Xbox PC Game Pass (the user's shorthand)

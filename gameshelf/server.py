@@ -14,7 +14,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, db, duplicates, settings, switch_import, switch_video, sync
+from . import __version__, brand, db, duplicates, settings, switch_import, switch_video, sync
 from .meta import hltb, igdb, opencritic, sgdb, wishlist
 from .paths import DATA_DIR, STATIC_DIR
 from .sources import PLATFORMS, battlenet, epic, playstation, steam, ubisoft, xbox
@@ -206,7 +206,7 @@ def post_dismiss(req, body, query):
 
 @route("GET", "/api/opencritic/check")
 def get_oc_check(req, body, query):
-    """Diagnostics: can GameShelf reach Wikidata's OpenCritic matches, and what's left today?"""
+    """Diagnostics: can the app reach Wikidata's OpenCritic matches, and what's left today?"""
     from .meta import opencritic
     opencritic._map_cache.clear()
     m = opencritic.id_map()
@@ -390,7 +390,7 @@ def get_catalog(req, body, query):
 
 @route("POST", "/api/ubisoft/link")
 def post_ubisoft_link(req, body, query):
-    """The Send to GameShelf bookmark hands its Ubisoft data to the page, which posts it here."""
+    """The Send to <app> bookmark hands its Ubisoft data to the page, which posts it here."""
     try:
         return ubisoft.link(body.get("payload"))
     except ubisoft.UbisoftError as e:
@@ -422,7 +422,7 @@ def post_open(req, body, query):
 def get_desktop(req, body, query):
     from . import desktop
     s = settings.load()
-    return {"version": __version__, "windows": desktop.is_windows(), "packaged": desktop.packaged(),
+    return {"version": __version__, "name": brand.NAME, "windows": desktop.is_windows(), "packaged": desktop.packaged(),
             "app": desktop.APP_MODE, "shortcuts": desktop.shortcuts_state(),
             "setup_done": bool(s.get("setup_done")), "shortcuts_asked": bool(s.get("shortcuts_asked"))}
 
@@ -465,7 +465,7 @@ def post_cancel(req, body, query):
 # ------------------------------------------------------------------ HTTP plumbing
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "GameShelf/" + __version__
+    server_version = "gameshelf/" + __version__
 
     def log_message(self, fmt, *args):  # quieter console
         if args and isinstance(args[1], str) and args[1].startswith(("4", "5")):
@@ -528,7 +528,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(404, {"error": "Not found"})
 
     def _image_proxy(self, url: str):
-        """Cover art fetched through GameShelf, so the page can draw it onto a canvas
+        """Cover art fetched through the app, so the page can draw it onto a canvas
         (browsers won't let a page read pixels of images from other sites)."""
         if not re.match(r"^https?://", url or ""):
             return self._json(400, {"error": "Not an image link."})
@@ -584,7 +584,11 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript",):
             ctype += "; charset=utf-8"
-        self._send(200, target.read_bytes(), ctype, {"Cache-Control": "no-cache"})
+        payload = target.read_bytes()
+        if target.name == "index.html":  # the app's name (brand.py) goes into the page
+            import html as _html
+            payload = payload.replace(b"__APP__", _html.escape(brand.NAME).encode())
+        self._send(200, payload, ctype, {"Cache-Control": "no-cache"})
 
     def do_GET(self):
         self._dispatch("GET")

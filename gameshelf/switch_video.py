@@ -29,7 +29,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from . import db, switch_import
+from . import brand, db, switch_import
 from .paths import DATA_DIR
 
 MAX_BYTES = 2 * 1024 ** 3  # 2 GB
@@ -98,7 +98,7 @@ def still_moments(ff: str, path: str, fps: int = 10) -> list[float]:
     size = w * h
     frames = [raw[i:i + size] for i in range(0, len(raw) - size + 1, size)]
     if not frames:
-        raise VideoError("The video has no frames GameShelf can read.")
+        raise VideoError(f"The video has no frames {brand.NAME} can read.")
     diffs = [0.0] + [sum(abs(a - b) for a, b in zip(frames[i], frames[i - 1])) / size
                      for i in range(1, len(frames))]
     groups, cur = [], []
@@ -461,7 +461,7 @@ def _run_job(path: str):
             _set(state="setup")
             ff = _install_ffmpeg()
         if not ff:
-            raise VideoError("GameShelf needs a small video tool (ffmpeg) to read recordings and couldn't download it. "
+            raise VideoError(f"{brand.NAME} needs a small video tool (ffmpeg) to read recordings and couldn't download it. "
                              "Check your internet connection and try again, or use screenshots instead.")
         _set(state="scanning")
         moments = still_moments(ff, path)[:400]

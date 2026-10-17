@@ -2,7 +2,7 @@
 (the approach of the open-source Legendary and Heroic launchers).
 
 Sign-in: open the login link in Settings while signed in to epicgames.com, copy
-the "authorizationCode" it shows, and paste it into GameShelf. That one-time
+the "authorizationCode" it shows, and paste it into the app. That one-time
 code is swapped for a refresh token, kept in data/settings.json and renewed on
 every sync, so you only paste a code again if you don't sync for a few weeks.
 

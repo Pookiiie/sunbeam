@@ -1,4 +1,4 @@
-"""Where GameShelf keeps its data: a `data` folder next to the app, so the whole
+"""Where the app keeps its data: a `data` folder next to the app, so the whole
 thing stays portable (copy the folder and your library comes with it)."""
 
 from pathlib import Path

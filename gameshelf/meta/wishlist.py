@@ -7,7 +7,7 @@
   same NPSSO token as your PlayStation library. Each product's release date and
   price come from the store's product queries.
 
-GameShelf only reads the wishlists; it can't change them. Every wishlist game is
+The app only reads the wishlists; it can't change them. Every wishlist game is
 linked to the matching game in your library (owned, or on XGP / PS+), else it
 gets a game of its own with a "wishlist" copy, so it has details, art, reviews
 and time to beat like any other. That copy doesn't count as owning the game and

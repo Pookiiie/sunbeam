@@ -1,4 +1,4 @@
-The first shareable GameShelf: download, extract, double-click **Start GameShelf**.
+The first shareable Sunbeam: download, extract, double-click **Start Sunbeam**.
 
 - Includes its own Python: nothing to install.
 - Opens in its own window, with a tray icon by the clock (Open / Quit). It stops by itself about a minute after you close the window, once any sync has finished.

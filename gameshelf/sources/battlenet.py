@@ -1,13 +1,13 @@
 """Battle.net (Blizzard and Activision games on the Battle.net app).
 
 Blizzard has no public "my games" API. Like GOG Galaxy's Battle.net plugin
-(github.com/bartok765/galaxy_blizzard_plugin, MIT licence), GameShelf reads the
+(github.com/bartok765/galaxy_blizzard_plugin, MIT licence), the app reads the
 list behind Blizzard's account site:
 
 - https://account.battle.net/api/games-and-subs  {"gameAccounts": [{"titleId": …, "gameAccountStatus": …}]}
 - https://account.battle.net/api/classic-games   {"classicGames": [{"localizedGameName": …}]}
 
-GameShelf has no browser of its own to sign in with, so you open those pages
+The app has no browser of its own to sign in with, so you open those pages
 while signed in and paste what they show into Settings (kept in
 data/settings.json). Paste again when you get a new Blizzard game.
 
@@ -110,7 +110,7 @@ def _name_in(acc: dict) -> str | None:
 
 
 def parse_pasted(text: str) -> tuple[dict[str, str], list[str]]:
-    """{code: name} from the pasted pages, plus codes GameShelf has no name for."""
+    """{code: name} from the pasted pages, plus codes the app has no name for."""
     games: dict[str, str] = {}
     unknown: list[str] = []
     blobs = _json_blobs(text or "")

@@ -2,7 +2,7 @@
 
 HowLongToBeat has no official API and changes its site from time to time, so
 this is optional: the launcher tries to install the package once, and if it
-isn't available (or breaks) GameShelf falls back to IGDB's time-to-beat data.
+isn't available (or breaks) the app falls back to IGDB's time-to-beat data.
 """
 
 from __future__ import annotations

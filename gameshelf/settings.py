@@ -18,7 +18,7 @@ FIELDS = {
     "epic_name": False,
     "xbl_key": True,        # OpenXBL API key (xbl.io)
     "xbl_gamertag": False,
-    "ubi_ticket": True,     # Ubisoft Connect, from the Send to GameShelf bookmark
+    "ubi_ticket": True,     # Ubisoft Connect, from the Send to <app> bookmark
     "ubi_session": True,
     "ubi_remember": True,   # Ubisoft's remember-me pass, renewed every sync
     "ubi_user": False,
@@ -34,6 +34,7 @@ FIELDS = {
     "hltb_enabled": False,
     "setup_done": False,       # finished (or skipped) the first-run setup
     "shortcuts_asked": False,  # answered the desktop / Start menu shortcut question
+    "shortcuts_made": False,   # where the shortcuts are (renamed along with the app)
 }
 
 _lock = threading.Lock()

@@ -14,11 +14,11 @@ import difflib
 import re
 import time
 
-from .. import db, net, settings
+from .. import brand, db, net, settings
 
 HOST = "opencritic-api.p.rapidapi.com"
 # The free plan allows 200 requests and 25 searches a day, and RapidAPI can bill for going over.
-# GameShelf stays well under: its own daily cap, plus RapidAPI's own "remaining" counts, which
+# The app stays well under: its own daily cap, plus RapidAPI's own "remaining" counts, which
 # it reads from every response and obeys (stopping once less than 25% of the allowance is left).
 DAILY_REQUESTS = 140
 DAILY_SEARCHES = 15
@@ -144,7 +144,7 @@ def _get(path: str, params: dict | None = None, search: bool = False):
 # ------------------------------------------------------------------ finding games
 
 # Wikidata asks for a descriptive client name (generic or browser-like ones get refused).
-WIKIDATA_UA = "GameShelf/0.1 (personal game library app running locally; https://www.wikidata.org/wiki/Property:P2864)"
+WIKIDATA_UA = f"{brand.NAME}/1.0 (personal game library app running locally; https://www.wikidata.org/wiki/Property:P2864)"
 
 
 def id_map() -> dict:
@@ -211,11 +211,11 @@ def scores(oc_id: int) -> dict | None:
 def test() -> str:
     left = budget_left()
     if left["paused"] or not left["requests"]:
-        return ("Key saved. GameShelf has paused OpenCritic lookups for today to stay inside the free plan; "
+        return (f"Key saved. {brand.NAME} has paused OpenCritic lookups for today to stay inside the free plan; "
                 "they resume tomorrow (UTC).")
     hit = scores(463)  # one lookup of a well-known game, to prove the key works
     if hit is None:
         return "Connected, but a test lookup returned nothing."
     left = budget_left()
     extra = f" RapidAPI reports: {left['rapidapi']}." if left.get("rapidapi") else ""
-    return f"Connected to OpenCritic. GameShelf will use at most {left['requests']} more lookups today.{extra}"
+    return f"Connected to OpenCritic. {brand.NAME} will use at most {left['requests']} more lookups today.{extra}"

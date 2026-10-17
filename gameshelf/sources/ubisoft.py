@@ -2,10 +2,10 @@
 (the approach of GOG Galaxy's Ubisoft plugin, github.com/FriendsOfGalaxy/galaxy-integration-uplay).
 
 Signing in: since 2026 Ubisoft's sign-in service only answers real browsers (bot
-protection; scripts get "429 Too many requests"), so GameShelf can't sign in by
-itself. Instead, a "Send to GameShelf" bookmark does it from your own browser: on
+protection; scripts get "429 Too many requests"), so the app can't sign in by
+itself. Instead, a "Send to <app>" bookmark does it from your own browser: on
 connect.ubisoft.com, while signed in (two-step codes work as usual there), it
-reads your games and their stats cards and opens GameShelf with them, along with
+reads your games and their stats cards and opens the app with them, along with
 Ubisoft's "stay signed in" pass. Later syncs try to refresh straight from Ubisoft
 with that pass; if Ubisoft refuses, the last list sent by the bookmark is used.
 
@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from .. import db, net, settings
+from .. import brand, db, net, settings
 
 APP_ID = "b8fde481-327d-4031-85ce-7c10a202a700"  # Ubisoft Connect website
 SESSIONS = "https://public-ubiservices.ubi.com/v3/profiles/sessions"
@@ -92,11 +92,11 @@ def _session_headers() -> dict:
     if not ticket or int(settings.get("ubi_expires") or 0) < time.time() + 120:
         remember = settings.get("ubi_remember")
         if not remember:
-            raise UbisoftError("Link Ubisoft Connect in Settings first (the Send to GameShelf bookmark).")
+            raise UbisoftError(f"Link Ubisoft Connect in Settings first (the Send to {brand.NAME} bookmark).")
         try:
             _save_session(_post_session(f"rm_v1 t={remember}"))
         except UbisoftError:
-            raise UbisoftError("Ubisoft didn't let GameShelf refresh by itself.") from None
+            raise UbisoftError(f"Ubisoft didn't let {brand.NAME} refresh by itself.") from None
     return {**_base(), "Authorization": f"Ubi_v1 t={settings.get('ubi_ticket')}",
             "Ubi-SessionId": settings.get("ubi_session") or ""}
 
@@ -264,9 +264,9 @@ def _load_snapshot() -> dict | None:
 
 
 def link(payload: dict) -> dict:
-    """What the Send to GameShelf bookmark sends from connect.ubisoft.com."""
+    """What the Send to <app> bookmark sends from connect.ubisoft.com."""
     if not isinstance(payload, dict) or not isinstance(payload.get("games"), list):
-        raise UbisoftError("That didn't come from the Send to GameShelf bookmark.")
+        raise UbisoftError(f"That didn't come from the Send to {brand.NAME} bookmark.")
     if not payload.get("user"):
         payload["user"] = settings.get("ubi_user") or "unknown"  # only needed for later syncs and save folders
     expires = int(time.time()) + 2 * 3600
@@ -301,12 +301,12 @@ def fetch() -> list[dict]:
         snap = _load_snapshot()
         if not snap:
             raise UbisoftError("Link Ubisoft Connect first: Settings › Ubisoft Connect explains the "
-                               "Send to GameShelf bookmark.") from None
+                               f"Send to {brand.NAME} bookmark.") from None
         items = snap["games"]
         age = (time.time() - snap.get("at", 0)) / 86400
         if age >= 1:
             notice = (f"Ubisoft hours are from {int(age)} day{'s' if int(age) != 1 else ''} ago (Ubisoft only lets "
-                      "a browser sign in). Click the Send to GameShelf bookmark on connect.ubisoft.com to update them.")
+                      f"a browser sign in). Click the Send to {brand.NAME} bookmark on connect.ubisoft.com to update them.")
     local = local_last_played()
     for it in items:
         saved = local.get(db.normalize_title(it["name"]))
@@ -338,5 +338,5 @@ def test() -> str:
     hours = sum(g["playtime_min"] for g in games) / 60
     who = settings.get("ubi_name") or "your account"
     snap = _load_snapshot() or {}
-    when = "" if snap.get("source") == "sync" else " (from the bookmark; Ubisoft didn't let GameShelf refresh by itself)"
+    when = "" if snap.get("source") == "sync" else f" (from the bookmark; Ubisoft didn't let {brand.NAME} refresh by itself)"
     return f"Linked as {who}: {len(games)} games, {hours:,.0f} hours played{when}."

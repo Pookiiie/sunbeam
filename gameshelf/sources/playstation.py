@@ -2,7 +2,7 @@
 
 Auth: your NPSSO token. Sign in at https://www.playstation.com, then open
 https://ca.account.sony.com/api/v1/ssocookie and copy the "npsso" value.
-It lasts about two months; GameShelf will tell you when it needs replacing.
+It lasts about two months; the app will tell you when it needs replacing.
 
 Returns PS4 and PS5 games you have *played* (with playtime and last played).
 Games you own but never launched aren't included by this endpoint.

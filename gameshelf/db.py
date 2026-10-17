@@ -176,7 +176,7 @@ def _migrate(c: sqlite3.Connection) -> None:
         for col, kind in (
             ("ttb_custom", "REAL"),             # hours you set with the time-to-beat slider
             ("status_manual", "INTEGER"),       # 1 = you set the status yourself: detection leaves it alone
-            ("status_auto", "TEXT"),            # why GameShelf marked it completed (achievement/trophy)
+            ("status_auto", "TEXT"),            # why the app marked it completed (achievement/trophy)
             ("completion_checked_at", "INTEGER"),
         ):
             if col not in cols:

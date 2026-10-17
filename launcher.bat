@@ -1,7 +1,10 @@
 @echo off
 setlocal
-title GameShelf
+title __APP__
 cd /d "%~dp0"
+
+rem The release build names this file "Start <app name>.bat" and fills in __APP__ / __REPO__
+rem from gameshelf\brand.py.
 
 rem ---- the Windows download: its own Python, no console window ---------------
 if exist "runtime\pythonw.exe" (
@@ -18,11 +21,11 @@ if not defined PY (
 
 if not defined PY (
   echo.
-  echo   This copy of GameShelf needs Python 3.10 or newer.
-  echo   The easiest fix: download GameShelf from https://github.com/Pookiiie/GameShelf/releases
+  echo   This copy of __APP__ needs Python 3.10 or newer.
+  echo   The easiest fix: download __APP__ from https://github.com/__REPO__/releases
   echo   (that download includes everything it needs^).
   echo.
-  start "" "https://github.com/Pookiiie/GameShelf/releases"
+  start "" "https://github.com/__REPO__/releases"
   pause
   exit /b 1
 )

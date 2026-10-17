@@ -238,7 +238,7 @@ def apply(items: list[dict]) -> dict:
                 if last and (not existing["last_played"] or last > existing["last_played"]):
                     c.execute("UPDATE entries SET last_played=? WHERE id=?", (last, eid))
                     changed = True
-                # Copies GameShelf imported can move between Switch and Switch 2 when the recording says so.
+                # Copies the app imported can move between Switch and Switch 2 when the recording says so.
                 if platform and platform != existing["platform"] and existing["external_id"].startswith("nsw:"):
                     clash = c.execute("SELECT 1 FROM entries WHERE platform=? AND external_id=?",
                                       (platform, existing["external_id"])).fetchone()
