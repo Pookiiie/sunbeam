@@ -418,6 +418,19 @@ def post_open(req, body, query):
     return {"ok": True}
 
 
+@route("POST", "/api/window")
+def post_window(req, body, query):
+    """The app window's size and place, so the next one opens the same way."""
+    try:
+        rect = {k: int(body[k]) for k in ("x", "y", "w", "h")}
+    except (KeyError, TypeError, ValueError):
+        raise ApiError(400, "Expected x, y, w and h.")
+    rect["max"] = bool(body.get("max"))
+    if rect["w"] >= 480 and rect["h"] >= 360:
+        settings.update({"window_rect": rect})
+    return {"ok": True}
+
+
 @route("GET", "/api/desktop")
 def get_desktop(req, body, query):
     from . import desktop

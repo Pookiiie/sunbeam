@@ -135,7 +135,7 @@ def open_window(url: str) -> None:
     profile.mkdir(parents=True, exist_ok=True)
     try:
         subprocess.Popen([
-            exe, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1440,900",
+            exe, f"--app={url}", f"--user-data-dir={profile}", *_window_args(),
             "--no-first-run", "--no-default-browser-check", "--disable-sync",
             # keep the "still here" pings going while the window is minimised or covered
             "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
@@ -146,11 +146,32 @@ def open_window(url: str) -> None:
 
 
 def open_external(url: str) -> None:
-    """A link to another site, in your normal browser."""
+    """A link to another site, in your normal browser. (os.startfile from the server's threads
+    can quietly do nothing on Windows: those threads haven't set up COM, which the shell's
+    URL handling needs. A separate rundll32 process has.)"""
     if is_windows():
-        os.startfile(url)  # type: ignore[attr-defined]
-    else:
-        webbrowser.open(url)
+        try:
+            subprocess.Popen(["rundll32.exe", "url.dll,FileProtocolHandler", url], creationflags=NO_WINDOW, close_fds=True)
+            return
+        except OSError:
+            pass
+    webbrowser.open(url)
+
+
+def _window_args() -> list[str]:
+    """Where the window was last time (the page reports it to /api/window), else a roomy default."""
+    from . import settings
+    r = settings.get("window_rect")
+    try:
+        if r and r.get("max"):
+            return ["--start-maximized"]
+        if r:
+            w, h, x, y = (int(r[k]) for k in ("w", "h", "x", "y"))
+            if w >= 480 and h >= 360 and -100 < x < 20000 and -100 < y < 20000:
+                return [f"--window-size={w},{h}", f"--window-position={x},{y}"]
+    except (TypeError, ValueError, KeyError, AttributeError):
+        pass
+    return ["--window-size=1440,900"]
 
 
 # ------------------------------------------------------------------ quitting by itself

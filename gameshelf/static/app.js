@@ -1932,6 +1932,23 @@ function startHeartbeat() {
   beat();
   setInterval(beat, 20000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) beat(); });
+  if (state.desktop?.app) watchWindow();
+}
+
+// Remember the app window's size and place (and whether it's maximised) for next time.
+function watchWindow() {
+  let last = "", timer;
+  const report = () => {
+    const max = outerWidth >= screen.availWidth - 2 && outerHeight >= screen.availHeight - 2;
+    const rect = { x: screenX, y: screenY, w: outerWidth, h: outerHeight, max };
+    const key = JSON.stringify(rect);
+    if (key === last || document.hidden) return;
+    last = key;
+    api("/api/window", { method: "POST", body: rect }).catch(() => {});
+  };
+  addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(report, 800); });
+  setInterval(report, 4000);  // moving a window has no event: check now and then
+  setTimeout(report, 1500);
 }
 
 // In the app window, links to other sites open in your normal browser (where you're signed in).

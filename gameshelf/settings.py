@@ -34,7 +34,8 @@ FIELDS = {
     "hltb_enabled": False,
     "setup_done": False,       # finished (or skipped) the first-run setup
     "shortcuts_asked": False,  # answered the desktop / Start menu shortcut question
-    "shortcuts_made": False,   # where the shortcuts are (renamed along with the app)
+    "shortcuts_made": False,
+    "window_rect": False,      # the app window's size and place last time {x, y, w, h, max}   # where the shortcuts are (renamed along with the app)
 }
 
 _lock = threading.Lock()

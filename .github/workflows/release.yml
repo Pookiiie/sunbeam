@@ -87,11 +87,15 @@ jobs:
           Get-ChildItem $root -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
 
       - name: Check the app window (one window, reused)
+        id: window
         shell: pwsh
         run: |
           $root = (Resolve-Path "build/${{ steps.ver.outputs.name }}").Path
           & "$root/runtime/python.exe" tools/ci_window_check.py $root
           if ($LASTEXITCODE) { throw "window check failed" }
+          $rgb = (Get-Content "$root/titlebar.txt") -split ","
+          Remove-Item "$root/titlebar.txt"
+          "titlebar=$((($rgb | ForEach-Object { [int]$_ }) | Measure-Object -Sum).Sum)" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
           foreach ($i in 1..10) {
             Start-Sleep 2
             Remove-Item -Recurse -Force "$root/data" -ErrorAction SilentlyContinue
@@ -99,6 +103,11 @@ jobs:
           }
           Get-ChildItem $root -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
           if (Test-Path "$root/data") { throw "a data folder is left in the build" }
+
+      - name: Title bar is dark (informational)
+        continue-on-error: true
+        shell: pwsh
+        run: if ([int]"${{ steps.window.outputs.titlebar }}" -gt 240) { throw "light title bar (${{ steps.window.outputs.titlebar }})" }
 
       - name: Zip
         shell: pwsh

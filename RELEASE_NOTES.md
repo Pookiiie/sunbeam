@@ -1,1 +1,3 @@
-- Clicking the tray icon (or opening Sunbeam again from a shortcut) brings the open window to the front, restoring it if it's minimised, instead of opening a second one.
+- Sunbeam opens at the size and place you left it (or maximised, if it was).
+- The window's title bar takes the app's dark colour instead of a light Windows bar.
+- "What's new" and other links to websites open in your browser again.
