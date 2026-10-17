@@ -1,11 +1,13 @@
-# Builds the Windows download (the app with its own Python) and publishes it as a
-# GitHub Release. Runs when a version tag (v1.2.3) is pushed; "Run workflow" builds and
-# tests without publishing.
+# Builds the Windows download (the app with its own Python), tests it on Windows, and
+# publishes it as a GitHub Release when its version (gameshelf/__init__.py) hasn't been
+# released yet. So releasing = raise the version and push to main. Other pushes just
+# build and test.
 name: Build and release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths-ignore: ["**.md", "tools/rename.py"]
   workflow_dispatch:
 
 permissions:
@@ -32,6 +34,14 @@ jobs:
           python tools/buildinfo.py | Tee-Object -Variable info
           if ($LASTEXITCODE) { throw "version check failed" }
           $info | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+          $ver = ($info | Select-String '^version=(.*)').Matches[0].Groups[1].Value
+          gh release view "v$ver" -R "${{ github.repository }}" *> $null
+          $new = if ($LASTEXITCODE) { "true" } else { "false" }
+          "publish=$new" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+          Write-Host "Version $ver released already: $(-not [bool]::Parse($new))"
+          $global:LASTEXITCODE = 0
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Assemble the app with its own Python
         shell: pwsh
@@ -86,11 +96,13 @@ jobs:
           path: ${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.version }}.zip
 
       - name: Publish the release
-        if: github.ref_type == 'tag'
+        if: steps.ver.outputs.publish == 'true' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $notes = if (Test-Path RELEASE_NOTES.md) { "RELEASE_NOTES.md" } else { $null }
-          if ($notes) { gh release create "${{ github.ref_name }}" "${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.version }}.zip" --title "${{ steps.ver.outputs.name }} ${{ steps.ver.outputs.version }}" --notes-file $notes }
-          else { gh release create "${{ github.ref_name }}" "${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.version }}.zip" --title "${{ steps.ver.outputs.name }} ${{ steps.ver.outputs.version }}" --generate-notes }
+          $tag = "v${{ steps.ver.outputs.version }}"
+          $zip = "${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.version }}.zip"
+          $title = "${{ steps.ver.outputs.name }} ${{ steps.ver.outputs.version }}"
+          if (Test-Path RELEASE_NOTES.md) { gh release create $tag $zip --target "${{ github.sha }}" --title $title --notes-file RELEASE_NOTES.md }
+          else { gh release create $tag $zip --target "${{ github.sha }}" --title $title --generate-notes }
