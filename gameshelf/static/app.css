@@ -775,3 +775,5 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
   border-radius: var(--radius-l); padding: 20px 22px 22px; }
 #upnext { gap: 20px; }
 @media (max-width: 900px) { .curator .cur-section { padding: 16px 14px 18px; } }
+/* small covers (Curator's wishlist rows): long names wrap onto a second line instead of being cut */
+.rec.mini .rec-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
