@@ -743,7 +743,8 @@ function wishBox(g) {
   };
   const prices = w.prices || [];
   const boxes = [
-    ...prices.map((x, i) => box(x, i === 0 && prices.length > 1)),
+    // the cheapest outlined, only when it really is cheaper
+    ...prices.map((x, i) => box(x, i === 0 && prices.length > 1 && x.price_cents < prices[1].price_cents)),
     ...(w.stores || []).filter((s) => !prices.some((x) => x.store === s.store)).map((s) => box({ store: s.store, url: s.url }, false)),
     ...(w.missing || []).map((st) => `<div class="pbox none"><span class="pbox-top">${storeMark(st, false)}<b>${esc(WISH_STORE[st])}</b></span><small>Not sold on ${st === "psn" ? "the PlayStation Store" : "Steam"}</small></div>`),
   ];

@@ -541,7 +541,11 @@ def _summary(rows: list[dict], owned_on: list[str], others: list[dict] | None = 
             prices.append({"store": r["store"], "wished": wished, "url": r["url"], "price_cents": cents,
                            "price_text": _money(cents) or r["price_text"], "base_text": (_money(base) or r["base_text"]) if base else None,
                            "discount_pct": r["discount_pct"], "sale_ends": r["sale_ends"], "sale_note": r["sale_note"]})
-    prices.sort(key=lambda x: (x["price_cents"] if x["price_cents"] is not None else 1 << 40, not x["wished"]))
+    # Same price on both: the store whose wishlist has it; on both wishlists, a pick that's random
+    # but steady for each game (so it doesn't flip with every sync).
+    coin = (rows[0].get("game_id") or 0) % 2 if rows else 0
+    prices.sort(key=lambda x: (x["price_cents"] if x["price_cents"] is not None else 1 << 40, not x["wished"],
+                               (x["store"] == "steam") == bool(coin)))
     best = prices[0] if prices else None
     missing = sorted({r["store"] for r in others if not r["item_id"]})  # looked for, not on that store
     return {**rel, "stores": stores, "added_at": min(s["added_at"] or now for s in stores),

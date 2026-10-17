@@ -1,3 +1,1 @@
-- **Fixed:** Sync stopped at "Update wishlists" with "Failed: 'other_store'" (the wishlists and prices were saved; only the step's report broke).
-- **Wishlist cards:** the price now has the store's regular Steam or PlayStation icon in front of it (the hearts on the cover already say which wishlists it's on).
-- **Game pages:** "Wishlist and prices" is just one box per store. A heart icon and "Wishlisted <date>" mean it's on that store's wishlist; the regular icon means it isn't. The repeated line above the boxes is gone.
+- **Same price on both stores:** the card shows the store whose wishlist has the game; if it's on both wishlists, one is picked at random for each game (and stays the same from one sync to the next). On the game page, a box is only outlined when that store really is cheaper.
