@@ -277,7 +277,9 @@ input[type=range] { accent-color: var(--accent); width: 110px; }
 .section h2 { font: 700 20px/1.2 var(--display); margin: 0 0 12px; letter-spacing: -.01em; }
 .summary { max-width: 72ch; color: #d9d4e6; white-space: pre-line; }
 .summary.clamp { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
-.meta-grid { display: grid; grid-template-columns: 150px 1fr; gap: 8px 18px; max-width: 760px; }
+/* Details: label/value pairs in two columns */
+.meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 36px; margin: 0; }
+.meta-grid > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 14px; align-items: baseline; }
 .meta-grid dt { color: var(--muted); }
 .meta-grid dd { margin: 0; }
 .copies-wrap { overflow-x: auto; }
@@ -372,6 +374,15 @@ textarea { width: 100%; min-height: 90px; background: var(--ink-2); border: 1px 
 
 .lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(8,6,14,.92); display: grid; place-items: center; cursor: zoom-out; }
 .lightbox img { max-width: 94vw; max-height: 90vh; border-radius: var(--radius-m); }
+.lightbox img { cursor: default; }
+.lb-nav, .lb-close { position: absolute; display: grid; place-items: center; border: 0; border-radius: 50%; cursor: pointer;
+  background: rgba(255,255,255,.08); color: var(--text); transition: background .15s; }
+.lb-nav:hover, .lb-close:hover { background: rgba(255,255,255,.18); }
+.lb-nav { top: 50%; width: 52px; height: 52px; margin-top: -26px; font-size: 34px; line-height: 1; padding-bottom: 4px; }
+.lb-nav.prev { left: 18px; }
+.lb-nav.next { right: 18px; }
+.lb-close { top: 16px; right: 18px; width: 40px; height: 40px; font-size: 16px; }
+.lb-count { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; z-index: 80;
@@ -401,8 +412,7 @@ textarea { width: 100%; min-height: 90px; background: var(--ink-2); border: 1px 
   .hero-cover { width: 90px; }
   .hero-title { font-size: 30px; }
   .detail-body { padding: 8px 16px 40px; }
-  .meta-grid { grid-template-columns: 1fr; gap: 2px 0; }
-  .meta-grid dd { margin-bottom: 8px; }
+  .meta-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .row { grid-template-columns: 1fr; }
   .list .hide-sm { display: none; }
 }

@@ -342,6 +342,12 @@ def unblock_files() -> None:
         pass
 
 
+def remove_phone_snapshot() -> None:
+    """The phone snapshot is gone (1.0.10): delete what older versions saved for it."""
+    import shutil
+    shutil.rmtree(DATA_DIR / "phone", ignore_errors=True)
+
+
 def log_to_file() -> None:
     """Without a console window (pythonw), messages go to data/gameshelf.log instead."""
     log = DATA_DIR / "gameshelf.log"

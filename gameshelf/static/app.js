@@ -1285,17 +1285,17 @@ function renderDetail(g) {
         </table>
       </section>` : ""}
 
+      ${(g.screenshots || []).length ? `<section class="section"><h2>Screenshots</h2><div class="shots">${g.screenshots.map((s, i) => `<img data-shot="${i}" src="${esc(s)}" alt="" loading="lazy" data-fallbacks="">`).join("")}</div></section>` : ""}
+
       ${g.summary ? `<section class="section"><h2>About</h2><p class="summary clamp" id="summary">${esc(g.summary)}${g.storyline ? "\n\n" + esc(g.storyline) : ""}</p><button class="link" id="more">Read more</button></section>` : ""}
 
       ${playHistory(g)}
 
       ${meta.length ? `<section class="section"><h2>Details</h2><dl class="meta-grid">
-        ${meta.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v.join(", "))}</dd>`).join("")}
-        ${g.release_date ? `<dt>Released</dt><dd>${fmtDate(g.release_date)}</dd>` : ""}
-        ${g.igdb_url ? `<dt>More</dt><dd><a href="${esc(g.igdb_url)}" target="_blank" rel="noopener">IGDB page</a>${g.steam_appid ? ` and <a href="https://store.steampowered.com/app/${g.steam_appid}" target="_blank" rel="noopener">Steam store page</a>` : ""}</dd>` : ""}
+        ${meta.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v.join(", "))}</dd></div>`).join("")}
+        ${g.release_date ? `<div><dt>Released</dt><dd>${fmtDate(g.release_date)}</dd></div>` : ""}
+        ${g.igdb_url ? `<div><dt>More</dt><dd><a href="${esc(g.igdb_url)}" target="_blank" rel="noopener">IGDB page</a>${g.steam_appid ? ` and <a href="https://store.steampowered.com/app/${g.steam_appid}" target="_blank" rel="noopener">Steam store page</a>` : ""}</dd></div>` : ""}
       </dl></section>` : ""}
-
-      ${(g.screenshots || []).length ? `<section class="section"><h2>Screenshots</h2><div class="shots">${g.screenshots.map((s) => `<img src="${esc(s)}" alt="" loading="lazy" data-fallbacks="">`).join("")}</div></section>` : ""}
 
       <section class="section">
         <h2>Notes</h2>
@@ -1974,16 +1974,6 @@ function renderSettings(openId) {
           : `<p class="source-note">The launcher installs it automatically when it can. If it couldn't (for example without internet on first start), restart ${APP} to try again. Until then, IGDB's time-to-beat data is used.</p>`}
       </div>
     </details>
-    <details class="service" ${openId === "phone" ? "open" : ""}>
-      <summary><div><h3>Phone snapshot</h3><p>A read-only copy of your library for your phone</p></div><span class="state later">Optional</span></summary>
-      <div class="body">
-        <p class="source-note">Saves your games, covers and progress to the <code>data\phone</code> folder. Claude publishes that as a private page you can open on your phone anywhere. It shows the library as of the last save.</p>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <button class="btn small" id="phone-export">Save phone snapshot</button>
-          <span class="test-result" id="phone-result"></span>
-        </div>
-      </div>
-    </details>
     ${LATER.map(([n, why]) => `<div class="service later"><summary style="cursor:default"><div><h3>${n}</h3></div><span class="state later">${why}</span></summary></div>`).join("")}`;
   body.dataset.seen = "1";
 }
@@ -2047,7 +2037,6 @@ async function onServiceClick(e, rerender) {
   }
 }
 $("#settings-body").addEventListener("click", (e) => {
-  if (e.target.id === "phone-export") { runPhoneExport(e.target); return; }
   if (e.target.closest("[data-pc]")) { onThisPc(e.target.closest("[data-pc]")); return; }
   onServiceClick(e, renderSettings);
 });
@@ -2713,6 +2702,7 @@ function bind() {
   $("#tab-curator").textContent = CURATOR;
 
   document.addEventListener("keydown", (e) => {
+    if ($(".lightbox") && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); lightboxStep(e.key === "ArrowLeft" ? -1 : 1); return; }
     if (e.key === "/" && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); search.focus(); }
     if (e.key === "Escape") {
       if ($(".lightbox")) { $(".lightbox").remove(); return; }
@@ -2803,13 +2793,7 @@ function bind() {
       } catch (err) { toast(err.message, true); }
     }
     const shot = e.target.closest(".shots img");
-    if (shot) {
-      const lb = document.createElement("div");
-      lb.className = "lightbox";
-      lb.innerHTML = `<img src="${esc(shot.src.replace("t_screenshot_big", "t_1080p"))}" alt="">`;
-      lb.onclick = () => lb.remove();
-      document.body.append(lb);
-    }
+    if (shot) openLightbox([...shot.parentElement.querySelectorAll("img")].map((x) => x.src), Number(shot.dataset.shot) || 0);
   });
   $("#detail-wrap").addEventListener("input", (e) => {
     if (e.target.id === "ttb-range") $("#ttb-val").textContent = fmtHours(Number(e.target.value));
@@ -2929,6 +2913,54 @@ $("#library").addEventListener("contextmenu", (e) => {
   openMenu(Number(card.dataset.id), e.clientX, e.clientY);
 });
 
+/* ------------------------------------------------------------ screenshot viewer */
+
+// Full-size screenshots with previous / next (buttons, arrow keys or a swipe), wrapping around.
+const lightbox = { list: [], i: 0 };
+const bigShot = (u) => u.replace("t_screenshot_big", "t_1080p");
+
+function openLightbox(list, i) {
+  $(".lightbox")?.remove();
+  Object.assign(lightbox, { list, i });
+  const lb = document.createElement("div");
+  lb.className = "lightbox";
+  lb.innerHTML = `<img alt="">
+    ${list.length > 1 ? `<button class="lb-nav prev" data-lb="-1" aria-label="Previous screenshot">‹</button>
+      <button class="lb-nav next" data-lb="1" aria-label="Next screenshot">›</button>
+      <span class="lb-count"></span>` : ""}
+    <button class="lb-close" aria-label="Close">✕</button>`;
+  lb.addEventListener("click", (e) => {
+    const nav = e.target.closest("[data-lb]");
+    if (nav) { lightboxStep(Number(nav.dataset.lb)); return; }
+    if (e.target.tagName !== "IMG") lb.remove();  // outside the picture, or ✕
+  });
+  let x0 = null;
+  lb.addEventListener("touchstart", (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  lb.addEventListener("touchend", (e) => {
+    const dx = e.changedTouches[0].clientX - (x0 ?? 0);
+    if (x0 != null && Math.abs(dx) > 40) lightboxStep(dx > 0 ? -1 : 1);
+    x0 = null;
+  });
+  document.body.append(lb);
+  lightboxShow();
+}
+
+function lightboxStep(d) {
+  const n = lightbox.list.length;
+  if (n < 2) return;
+  lightbox.i = (lightbox.i + d + n) % n;
+  lightboxShow();
+}
+
+function lightboxShow() {
+  const lb = $(".lightbox"), { list, i } = lightbox;
+  if (!lb) return;
+  $("img", lb).src = bigShot(list[i]);
+  const c = $(".lb-count", lb);
+  if (c) c.textContent = `${i + 1} / ${list.length}`;
+  for (const j of [i + 1, i - 1]) { const u = list[(j + list.length) % list.length]; if (u) new Image().src = bigShot(u); }  // ready for the next flip
+}
+
 /* ------------------------------------------------------------ duplicates */
 
 const dups = { groups: null, auto: false };
@@ -3044,123 +3076,6 @@ $("#dup-body").addEventListener("click", async (e) => {
     }
   } catch (err) { toast(err.message, true); renderDups(); }
 });
-
-/* ------------------------------------------------------------ phone snapshot */
-
-// A read-only copy of the library for the phone page: game data as JSON, and covers
-// shrunk to 150×225 and packed 100 to a sheet (the phone page can't load images from
-// other sites, so it gets its own).
-const SHEET_COLS = 10, SHEET_ROWS = 10, THUMB_W = 150, THUMB_H = 225;
-
-function loadThumb(url) {
-  return new Promise((resolve) => {
-    if (!url) return resolve(null);
-    const im = new Image();
-    const timer = setTimeout(() => resolve(null), 15000);
-    im.onload = () => { clearTimeout(timer); resolve(im); };
-    im.onerror = () => { clearTimeout(timer); resolve(null); };
-    im.dataset.src = url;
-    im.src = /^https?:/.test(url) ? `/api/img?u=${encodeURIComponent(url)}` : url;
-  });
-}
-
-async function exportPhone(onProgress = () => {}) {
-  await reloadLibrary();  // the latest art, statuses and edits, not what the page loaded earlier
-  const games = state.games.filter((g) => !g.isHidden);
-  const perSheet = SHEET_COLS * SHEET_ROWS;
-  const sheets = [];
-  const covers = new Map();
-  let done = 0;
-  const queue = games.map((g, i) => ({ g, i }));
-  const canvases = [];
-  const ctxFor = (n) => {
-    if (!canvases[n]) {
-      const c = document.createElement("canvas");
-      c.width = SHEET_COLS * THUMB_W; c.height = SHEET_ROWS * THUMB_H;
-      const ctx = c.getContext("2d");
-      ctx.fillStyle = "#1c1828"; ctx.fillRect(0, 0, c.width, c.height);
-      canvases[n] = c;
-    }
-    return canvases[n].getContext("2d");
-  };
-  let slot = 0, fallbacks = 0;
-  async function worker() {
-    while (queue.length) {
-      const { g } = queue.shift();
-      // The same art the desktop shows: your pick (or the automatic one) first, then the
-      // same fallbacks the desktop grid uses if that image can't be loaded.
-      let im = null;
-      for (const url of g.covers) { im = await loadThumb(url); if (im) break; }
-      if (im && g.covers[0] && im.dataset?.src !== g.covers[0]) fallbacks++;
-      if (im) {
-        const n = slot++;
-        const sheet = Math.floor(n / perSheet), k = n % perSheet;
-        const ctx = ctxFor(sheet);
-        const x = (k % SHEET_COLS) * THUMB_W, y = Math.floor(k / SHEET_COLS) * THUMB_H;
-        const r = im.naturalWidth / im.naturalHeight, want = THUMB_W / THUMB_H;
-        ctx.save(); ctx.beginPath(); ctx.rect(x, y, THUMB_W, THUMB_H); ctx.clip();
-        if (r > 0.78) {
-          // wide art: blurred fill behind, whole image in front (as on the desktop grid)
-          ctx.filter = "blur(10px) brightness(.55)";
-          const h = THUMB_H * 1.2, w = h * r;
-          ctx.drawImage(im, x + (THUMB_W - w) / 2, y - THUMB_H * 0.1, w, h);
-          ctx.filter = "none";
-          const fw = THUMB_W, fh = fw / r;
-          ctx.drawImage(im, x, y + (THUMB_H - fh) / 2, fw, fh);
-        } else {
-          let sw = im.naturalWidth, sh = im.naturalHeight, sx = 0, sy = 0;
-          if (r > want) { sw = sh * want; sx = (im.naturalWidth - sw) / 2; } else { sh = sw / want; sy = (im.naturalHeight - sh) / 2; }
-          ctx.drawImage(im, sx, sy, sw, sh, x, y, THUMB_W, THUMB_H);
-        }
-        ctx.restore();
-        covers.set(g.id, [sheet, k]);
-      }
-      onProgress(++done, games.length);
-    }
-  }
-  await Promise.all(Array.from({ length: 8 }, worker));
-  for (const c of canvases) sheets.push(c.toDataURL("image/jpeg", 0.8));
-  const library = {
-    exported_at: Math.floor(Date.now() / 1000),
-    sheet: { cols: SHEET_COLS, rows: SHEET_ROWS, w: THUMB_W, h: THUMB_H },
-    platforms: state.platforms,
-    // Your desktop filters and sort, as the phone page's starting point.
-    prefs: {
-      sort: state.prefs.sort, dir: state.prefs.dir, hiddenPlatforms: state.prefs.hiddenPlatforms,
-      status: state.prefs.status, genres: state.prefs.genres, vr: state.prefs.vr, subs: true,
-      played: state.prefs.played.length === 1 ? (state.prefs.played[0] === "never" ? "unplayed" : "played") : "all",
-    },
-    games: games.map((g) => {
-      const c = covers.get(g.id);
-      return {
-        id: g.id, t: g.title, c: c || null, p: g.platforms, s: g.status || "", sat: g.status_at || null,
-        auto: g.status_auto || null, h: Math.round(g.played_h * 10) / 10, lp: g.last_played || null,
-        fp: g.first_played || null, y: year(g.release_date), ttb: g.ttb ? Math.round(g.ttb * 10) / 10 : null,
-        tm: g.ttb_main || null, te: g.ttb_extra || null, tc: g.ttb_complete || null,
-        e: g.isEndless ? 1 : 0, oc: g.oc_score != null ? Math.round(g.oc_score) : null, oct: g.oc_tier || null,
-        ocr: g.oc_recommend != null ? Math.round(g.oc_recommend) : null,
-        sr: g.steam_review_pct != null ? Math.round(g.steam_review_pct) : null, srd: g.steam_review_desc || null,
-        g: g.genres || [], dev: (g.developers || []).slice(0, 2), sub: 0, vr: g.vr ? 1 : 0,
-        sum: g.summary ? (g.summary.length > 700 ? g.summary.slice(0, 680).replace(/\s+\S*$/, "") + "…" : g.summary) : null,
-        notes: g.notes || null, add: g.added_at || null,
-        subs: (g.subs || []).map((x) => ({ s: x.s, n: x.new ? 1 : 0, l: x.leaving ? 1 : 0 })),
-      };
-    }),
-  };
-  const res = await api("/api/export/phone", { method: "POST", body: { library, sheets } });
-  return { ...res, fallbacks };
-}
-
-async function runPhoneExport(btn) {
-  const out = $("#phone-result");
-  btn.disabled = true;
-  try {
-    const res = await exportPhone((d, n) => { out.className = "test-result"; out.textContent = `Packing covers: ${d} of ${n}`; });
-    out.className = "test-result ok";
-    out.textContent = `Saved ${res.games.toLocaleString()} games to the data\\phone folder${res.fallbacks ? ` (${res.fallbacks} cover${res.fallbacks === 1 ? "" : "s"} couldn't load, so their backup art was used)` : ""}. Ask Claude to update your phone page.`;
-  } catch (e) { out.className = "test-result err"; out.textContent = e.message; }
-  finally { btn.disabled = false; }
-}
 
 /* ------------------------------------------------------------ boot */
 

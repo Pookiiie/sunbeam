@@ -1,1 +1,3 @@
-- **Nintendo Switch import:** clearer step-by-step instructions. They now point to the **Nintendo Store** phone app (iPhone or Android) › your profile › **Play History**, and explain how to start a screen recording on each kind of phone and how to get the video onto your PC.
+- **Game pages:** Screenshots now come before About and Details. Click one to open it full size, then flip through them with the ‹ › buttons, the arrow keys or a swipe (Esc or a click outside closes it).
+- **Details** use two columns, so the section takes about half the space.
+- The **phone snapshot** is gone (Settings › Phone snapshot), along with the files older versions saved for it in the data folder. Sunbeam is a desktop app.

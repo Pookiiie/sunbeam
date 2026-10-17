@@ -10,7 +10,6 @@ import re
 import threading
 import traceback
 import uuid
-from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -234,26 +233,6 @@ def post_switch_preview(req, body, query):
     if len(images) > 30:
         raise ApiError(400, "That's a lot of screenshots: try 30 or fewer at a time.")
     return switch_import.preview(images)
-
-
-@route("POST", "/api/export/phone")
-def post_export_phone(req, body, query):
-    """Save the phone snapshot the page put together: the library as JSON plus the
-    covers packed into a few JPEG sheets. Written to data/phone/."""
-    import base64
-    lib = body.get("library")
-    sheets = body.get("sheets") or []
-    if not isinstance(lib, dict) or not isinstance(sheets, list):
-        raise ApiError(400, "Nothing to save.")
-    out = DATA_DIR / "phone"
-    out.mkdir(exist_ok=True)
-    for old in out.glob("covers-*.jpg"):
-        old.unlink()
-    for i, b64 in enumerate(sheets):
-        raw = base64.b64decode(str(b64).split(",", 1)[-1])
-        (out / f"covers-{i}.jpg").write_bytes(raw)
-    (out / "library.json").write_text(json.dumps(lib, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    return {"ok": True, "folder": str(out), "games": len(lib.get("games") or []), "sheets": len(sheets)}
 
 
 @route("GET", "/api/switch/video")
@@ -547,8 +526,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(403, {"error": "Missing app header"})
         if method == "POST" and path == "/api/switch/video":
             return self._upload_video()
-        if method == "GET" and path == "/api/img":
-            return self._image_proxy(parse_qs(parts.query).get("u", [""])[0])
         body = {}
         length = int(self.headers.get("Content-Length") or 0)
         if length:
@@ -570,21 +547,6 @@ class Handler(BaseHTTPRequestHandler):
                     traceback.print_exc()
                     return self._json(500, {"error": str(e)})
         return self._json(404, {"error": "Not found"})
-
-    def _image_proxy(self, url: str):
-        """Cover art fetched through the app, so the page can draw it onto a canvas
-        (browsers won't let a page read pixels of images from other sites)."""
-        if not re.match(r"^https?://", url or ""):
-            return self._json(400, {"error": "Not an image link."})
-        try:
-            from . import net
-            resp = net.request("GET", url, headers={"Accept": "image/*"}, timeout=20, retries=1)
-        except Exception as e:
-            return self._json(502, {"error": f"Couldn't load the image: {e}"})
-        ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip()
-        if not ctype.startswith("image/") or len(resp.body) > 15 * 1024 * 1024:
-            return self._json(415, {"error": "That link isn't an image."})
-        self._send(200, resp.body, ctype, {"Cache-Control": "max-age=86400"})
 
     def _upload_video(self):
         """Screen recordings can be large: stream them to disk instead of reading them into memory."""
