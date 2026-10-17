@@ -1,6 +1,2 @@
-- **What's new** opens a list of changes with their dates, right in Sunbeam.
-- Settings: **Updates** is at the top (always visible), with **Shortcuts** just below.
-- The Sync and Refresh assets windows use two columns: choices on the left, the steps on the right.
-- A full refresh (Re-fetch for every game) is remembered: if Sunbeam closes, it carries on where it stopped next time. While it runs you can **Pause** it (continue later from Refresh assets) or **Cancel** it.
-- Darker window frame.
-- Links to websites (store pages, What's new on GitHub) open in your browser reliably.
+- Curator: each section (Keep playing, Try something new, From your wishlist, Recently played) sits in its own soft panel, so they're easier to tell apart.
+- Friendlier descriptions for the Keep playing and Try something new lists.

@@ -456,14 +456,14 @@ function renderUpNext() {
     </div>`;
   setHTML(el, `
     <section class="cur-section">
-      <h2 class="cur-h">Keep playing</h2>
-      ${row("Quick wins", `under ${COMMIT_HOURS}h to the credits, or to replay from the start`, L.keepQuick, "Started games close to the credits show up here.")}
-      ${row("Worthwhile commitments", "long, and loved by players or critics", L.keepCommit, "Long, great games you've started show up here.")}
+      <div class="cur-title"><h2 class="cur-h">Keep playing</h2></div>
+      ${row("Quick wins", "a few evenings from the credits", L.keepQuick, "Started games close to the credits show up here.")}
+      ${row("Worthwhile commitments", "long, and worth every hour", L.keepCommit, "Long, great games you've started show up here.")}
     </section>
     <section class="cur-section">
-      <h2 class="cur-h">Try something new</h2>
-      ${row("Quick wins", `under ${COMMIT_HOURS}h to beat`, L.freshQuick, "Short games you haven't played show up here.")}
-      ${row("Worthwhile commitments", "long, and loved by players or critics", L.freshCommit, "Long, great games you haven't played show up here.")}
+      <div class="cur-title"><h2 class="cur-h">Try something new</h2></div>
+      ${row("Quick wins", "short and well loved", L.freshQuick, "Short games you haven't played show up here.")}
+      ${row("Worthwhile commitments", "big, and among the best", L.freshCommit, "Long, great games you haven't played show up here.")}
     </section>`);
   renderWishRows();
   renderRecent();
@@ -474,7 +474,7 @@ function renderRecent() {
   const list = state.games.filter((g) => !g.isHidden && !g.isCatalog && g.last_played)
     .sort((a, b) => b.last_played - a.last_played).slice(0, 18);
   setHTML($("#recent"), list.length
-    ? `<section class="cur-section"><h2 class="cur-h">Recently played</h2><div class="grid cur-recent">${renderGrid(list)}</div></section>` : "");
+    ? `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">Recently played</h2></div><div class="grid cur-recent">${renderGrid(list)}</div></section>` : "");
 }
 
 // Two pages: CURATOR (the default) and Library. The address remembers which (#library).
@@ -697,7 +697,7 @@ function renderWishRows() {
     </div>`;
   setHTML(el, `
     <section class="cur-section">
-      <h2 class="cur-h">From your wishlist</h2>
+      <div class="cur-title"><h2 class="cur-h">From your wishlist</h2></div>
       <div class="cur-wish-split">
         ${row("Recently released", `the last ${WISH_DAYS} days`, recent, (g) => `${esc(wishWhen(g))}${recReview(g) != null ? ` · ${recScoreTag(g)}` : ""}`,
           `Nothing from your wishlist came out in the last ${WISH_DAYS} days.`)}

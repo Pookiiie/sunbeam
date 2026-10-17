@@ -769,3 +769,9 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .pc-row p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
 .pc-row .spacer { flex: 1; }
 .pc-block > .source-note { margin: 10px 0 0; }
+
+/* ------------------------------------------------------------ Curator: each section in a soft panel */
+.curator .cur-section { background: rgba(255,255,255,.025); border: 1px solid rgba(255,255,255,.06);
+  border-radius: var(--radius-l); padding: 20px 22px 22px; }
+#upnext { gap: 20px; }
+@media (max-width: 900px) { .curator .cur-section { padding: 16px 14px 18px; } }
