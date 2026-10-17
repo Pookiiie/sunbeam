@@ -363,9 +363,28 @@ def post_sync(req, body, query):
 @route("POST", "/api/refresh")
 def post_refresh_all(req, body, query):
     mode = "all" if body.get("mode") == "all" else "missing"
-    if not sync.start_refresh(mode, list(body.get("steps") or [])):
+    resume = bool(body.get("resume"))
+    if resume and not sync.refresh_job():
+        raise ApiError(400, "There's no full refresh to continue.")
+    if not sync.start_refresh(mode, list(body.get("steps") or []), resume=resume):
         _busy()
     return sync.status()
+
+
+@route("GET", "/api/refresh/job")
+def get_refresh_job(req, body, query):
+    """A full refresh that's paused or was interrupted (None if there's none)."""
+    return {"job": sync._job_view()}
+
+
+@route("POST", "/api/refresh/forget")
+def post_refresh_forget(req, body, query):
+    """Drop a paused full refresh."""
+    if sync.status().get("running") and sync.status().get("kind") == "refresh":
+        sync.cancel(forget=True)
+    else:
+        sync._save_job(None)
+    return {"job": None}
 
 
 @route("GET", "/api/refresh/estimate")
@@ -471,7 +490,7 @@ def post_update(req, body, query):
 
 @route("POST", "/api/sync/cancel")
 def post_cancel(req, body, query):
-    sync.cancel()
+    sync.cancel(forget=bool(body.get("forget")))
     return sync.status()
 
 

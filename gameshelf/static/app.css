@@ -740,3 +740,32 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .setup-stores .chip.on { background: var(--grad); color: var(--accent-ink); border-color: transparent; }
 .setup-checks { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
 .setup-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 14px; border-top: 1px solid var(--line); }
+
+/* ------------------------------------------------------------ Sync / Refresh assets: two columns */
+.job-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 32px; align-items: start; }
+.job-main, .job-side { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.job-main > *, .job-side > * { margin-top: 0; margin-bottom: 0; }
+.job-side .timeline, .job-side .refresh-steps { margin-top: 0; }
+@media (max-width: 860px) { .job-cols { grid-template-columns: minmax(0, 1fr); } }
+.log-wrap.open .log { max-height: 220px; overflow: auto; }
+.job-paused { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; border-radius: var(--radius-m);
+  border: 1px solid rgba(255,92,158,.45); background: rgba(255,92,158,.08); }
+.job-paused > div { flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; }
+.job-paused small { color: var(--muted); }
+
+/* What's new, and Settings › Updates */
+.release { padding: 14px 0; border-top: 1px solid var(--line); }
+.release:first-of-type { border-top: 0; padding-top: 4px; }
+.release h3 { margin: 0 0 6px; font: 650 16px/1.3 var(--body); display: flex; gap: 10px; align-items: baseline; }
+.release h3 span { color: var(--muted); font-weight: 400; font-size: 13px; }
+.release-notes ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.release-notes p { margin: 6px 0; }
+.release-notes h4 { margin: 10px 0 4px; font-size: 14px; }
+#notes-body .dialog-actions { align-items: center; }
+#notes-body .spacer { flex: 1; }
+.pc-block { padding: 14px 16px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--ink-2); }
+.pc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.pc-row h3 { margin: 0; font-size: 16px; }
+.pc-row p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+.pc-row .spacer { flex: 1; }
+.pc-block > .source-note { margin: 10px 0 0; }

@@ -32,11 +32,15 @@ try:
     user32.SetForegroundWindow(hwnd)
     time.sleep(1)
     dc = user32.GetDC(0)
-    px = gdi32.GetPixel(dc, rect.left + 200, rect.top + 12)
+    def at(x, y):
+        px = gdi32.GetPixel(dc, x, y)
+        return px & 0xFF, (px >> 8) & 0xFF, (px >> 16) & 0xFF
+    bar = at(rect.left + 300, rect.top + 12)
+    page = at(rect.left + 300, rect.top + 80)  # the app's own header, to show sampling works
     user32.ReleaseDC(0, dc)
-    r, g, b = px & 0xFF, (px >> 8) & 0xFF, (px >> 16) & 0xFF
-    print(f"title bar colour: #{r:02x}{g:02x}{b:02x}")
-    Path(root / "titlebar.txt").write_text(f"{r},{g},{b}")
+    print(f"title bar {bar}, page header {page}, window {rect.left},{rect.top},{rect.right},{rect.bottom}")
+    Path(root / "titlebar.txt").write_text(",".join(str(v) for v in bar))
+    Path(root / "titlebar-info.txt").write_text(f"bar {bar} page {page} rect {rect.left},{rect.top},{rect.right},{rect.bottom}")
     desktop.open_window("http://localhost:8791/")  # what the tray icon does
     time.sleep(8)
     again = desktop._find_window(every=True)

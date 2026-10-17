@@ -17,6 +17,8 @@ SOURCES = {"steam": steam, "playstation": playstation, "epic": epic, "xbox": xbo
 _state_lock = threading.Lock()
 _state: dict = {"running": False}
 _cancel = threading.Event()
+_forget = threading.Event()  # set with _cancel: drop a full refresh instead of pausing it
+_since: int | None = None    # a full refresh re-fetches games last updated before this time
 
 
 # Enrichment steps, in the order they run.
@@ -163,7 +165,10 @@ def _finish_step(name: str):
                 t["state"] = "done"
 
 
-def cancel():
+def cancel(forget: bool = False):
+    """Stop the running job. A full refresh is paused (it carries on next time) unless forget."""
+    if forget:
+        _forget.set()
     _cancel.set()
 
 
@@ -179,6 +184,7 @@ def _begin(kind: str, target, args: tuple, **extra) -> bool:
         _state.update(running=True, kind=kind, started_at=int(time.time()), log=[], errors=[],
                       stage="starting", stage_label="Starting", done=0, total=0, **extra)
     _cancel.clear()
+    _forget.clear()
     threading.Thread(target=_job, args=(target, args), daemon=True, name="sync").start()
     return True
 
@@ -242,12 +248,41 @@ def start_sync(sources: list[str]) -> bool:
     return _begin("sync", _run_sync, (sources,), sources=sources, timeline=timeline)
 
 
-def start_refresh(mode: str, steps: list[str]) -> bool:
+# A full refresh ("Re-fetch for every game") takes a long time for a big library, so it's
+# remembered (meta "refresh_job": {since, steps, paused}) and picks up where it stopped: a game
+# whose info was fetched after `since` is done. It ends when every step has gone through every
+# game, or when you cancel it.
+def refresh_job() -> dict | None:
+    import json
+    try:
+        job = json.loads(db.get_meta("refresh_job") or "null")
+    except ValueError:
+        return None
+    return job if isinstance(job, dict) and job.get("since") else None
+
+
+def _save_job(job: dict | None) -> None:
+    import json
+    db.set_meta("refresh_job", json.dumps(job) if job else "")
+
+
+def start_refresh(mode: str, steps: list[str], resume: bool = False) -> bool:
     """Update info for games already in the library.
-    mode "missing": only fill gaps. mode "all": re-fetch for every game."""
+    mode "missing": only fill gaps. mode "all": re-fetch for every game (resumable).
+    resume: carry on with the remembered full refresh."""
+    job = refresh_job()
+    if resume:
+        if not job:
+            return False
+        mode, steps = "all", job["steps"]
     steps = [s for s in steps if s in ALL_STEPS] or list(ALL_STEPS)
-    return _begin("refresh", _run_refresh, (mode, steps), mode=mode, steps=steps,
-                  timeline=_info_timeline(steps, for_new=False))
+    if mode == "all" and not resume:
+        job = {"since": db.now(), "steps": steps, "paused": False}
+    if mode == "all":
+        job["paused"] = False
+        _save_job(job)
+    return _begin("refresh", _run_refresh, (mode, steps, job["since"] if mode == "all" else None),
+                  mode=mode, steps=steps, resumed=resume, timeline=_info_timeline(steps, for_new=False))
 
 
 def _run_sync(sources: list[str]):
@@ -296,8 +331,25 @@ def _run_sync(sources: list[str]):
     enrich(min_id=before + 1)
 
 
-def _run_refresh(mode: str, steps: list[str]):
-    enrich(refresh=(mode == "all"), steps=steps)
+def _run_refresh(mode: str, steps: list[str], since: int | None = None):
+    global _since
+    _since = since
+    try:
+        enrich(refresh=(mode == "all"), steps=steps)
+    finally:
+        _since = None
+    if mode != "all":
+        return
+    if _cancel.is_set() and not _forget.is_set():
+        job = refresh_job()
+        if job:
+            job["paused"] = True
+            _save_job(job)
+            _log("Paused. The full refresh carries on from here when you continue it (Refresh assets).")
+    else:
+        _save_job(None)  # finished, or cancelled
+        if _forget.is_set():
+            _log("Full refresh cancelled.")
 
 
 def _catalogs():
@@ -406,6 +458,8 @@ def enrich(refresh: bool = False, game_ids: list[int] | None = None, min_id: int
 def _conds(refresh: bool) -> dict[str, str]:
     stale = db.now() - 14 * 86400
     now = db.now()
+    if refresh and _since:
+        return _resume_conds(_since, now)
     # Not out yet (wishlist games): nothing to look up on HowLongToBeat or OpenCritic until release.
     out = (f"NOT (COALESCE(release_date, 0) > {now} OR id IN (SELECT game_id FROM wishlist "
            f"WHERE game_id IS NOT NULL AND released = 0 AND game_id NOT IN (SELECT game_id FROM wishlist WHERE released = 1)))")
@@ -434,6 +488,43 @@ def _conds(refresh: bool) -> dict[str, str]:
                        + ("" if refresh else " AND (games.completion_checked_at IS NULL OR "
                                              "COALESCE(last_played, 0) > games.completion_checked_at)") + ")",
     }
+
+
+def _not_out(now: int) -> str:
+    return (f"NOT (COALESCE(release_date, 0) > {now} OR id IN (SELECT game_id FROM wishlist "
+            f"WHERE game_id IS NOT NULL AND released = 0 AND game_id NOT IN (SELECT game_id FROM wishlist WHERE released = 1)))")
+
+
+def _resume_conds(since: int, now: int) -> dict[str, str]:
+    """A full refresh: every game whose info wasn't fetched since the refresh began."""
+    return {
+        "match": "match_state IN ('pending', 'none')",
+        "details": f"igdb_id IS NOT NULL AND (meta_at IS NULL OR meta_at < {since})",
+        "art": f"(art_at IS NULL OR art_at < {since})",
+        "reviews": f"((steam_appid IS NOT NULL AND (reviews_at IS NULL OR reviews_at < {since})) "
+                   f"OR (steam_appid IS NULL AND (steam_checked_at IS NULL OR steam_checked_at < {since})))",
+        "ttb": _not_out(now) + f" AND (ttb_at IS NULL OR ttb_at < {since})",
+        "critics": _not_out(now) + f" AND (oc_checked_at IS NULL OR oc_checked_at < {since})",
+        "completions": "status = '' AND COALESCE(status_manual, 0) = 0 AND id IN (SELECT game_id FROM entries "
+                       "WHERE platform IN ('steam', 'playstation') AND playtime_min > 0 AND NOT COALESCE(excluded, 0)) "
+                       f"AND (completion_checked_at IS NULL OR completion_checked_at < {since})",
+    }
+
+
+def job_progress(job: dict) -> float:
+    """How far a remembered full refresh got (0..1), counting games per step."""
+    since, now = job["since"], db.now()
+    c = _resume_conds(since, now)
+    wanted = {"info": ["details"], "art": ["art"], "reviews": ["reviews"], "ttb": ["ttb"],
+              "critics": ["critics"], "completions": ["completions"]}
+    total = left = 0
+    games = _count("1=1")
+    for step in job.get("steps") or []:
+        for key in wanted.get(step, []):
+            n = _count(c[key])
+            left += n
+            total += max(games if key != "completions" else n, n)
+    return round(1 - left / total, 3) if total else 1.0
 
 
 def _count(cond: str, scope: str = "", args=()) -> int:
@@ -923,7 +1014,15 @@ def estimate() -> dict:
         "igdb": igdb.configured(),
         "sgdb": sgdb.configured(),
         "hltb": hltb.available(),
+        "job": _job_view(),
     }
+
+
+def _job_view() -> dict | None:
+    job = refresh_job()
+    if not job:
+        return None
+    return {**job, "progress": job_progress(job)}
 
 
 def art_options(game_id: int) -> dict:

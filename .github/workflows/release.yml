@@ -95,6 +95,8 @@ jobs:
           if ($LASTEXITCODE) { throw "window check failed" }
           $rgb = (Get-Content "$root/titlebar.txt") -split ","
           Remove-Item "$root/titlebar.txt"
+          Write-Host "::notice::$(Get-Content "$root/titlebar-info.txt")"
+          Remove-Item "$root/titlebar-info.txt"
           "titlebar=$((($rgb | ForEach-Object { [int]$_ }) | Measure-Object -Sum).Sum)" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
           foreach ($i in 1..10) {
             Start-Sleep 2

@@ -1830,13 +1830,13 @@ function serviceBody(svc) {
 function renderSettings(openId) {
   const s = state.settings.settings;
   const body = $("#settings-body");
-  body.innerHTML = SERVICES.map((svc) => {
+  body.innerHTML = updatesBlock() + shortcutsSection(openId) + SERVICES.map((svc) => {
     const ok = svc.ready(s);
     return `<details class="service" data-svc="${svc.id}" ${openId === svc.id || (!openId && !ok && svc.id !== "sgdb" && !body.dataset.seen) ? "open" : ""}>
       <summary><div><h3>${svc.name}</h3><p>${svc.blurb}</p></div><span class="state ${ok ? "ok" : "todo"}">${ok ? "Connected" : "Not set up"}</span></summary>
       ${serviceBody(svc)}
     </details>`;
-  }).join("") + thisPcSection(openId) + `
+  }).join("") + `
     <details class="service" ${openId === "hltb" ? "open" : ""}>
       <summary><div><h3>Time to beat: HowLongToBeat</h3><p>Used first when available, otherwise IGDB's numbers</p></div>
       <span class="state ${state.settings.hltb_installed ? "ok" : "later"}">${state.settings.hltb_installed ? "Available" : "Not installed"}</span></summary>
@@ -1976,7 +1976,7 @@ function renderUpdateBar() {
   bar.innerHTML = u.busy
     ? `<span>Updating to ${APP} ${esc(u.latest)}: ${esc((u.stage || "working").toLowerCase())}…</span>`
     : `<span><b>${APP} ${esc(u.latest)}</b> is out (you have ${esc(u.current)}).</span>
-       <a href="${esc(u.url)}" target="_blank" rel="noopener">What's new</a>
+       <button class="link" data-upd="notes">What's new</button>
        ${u.can_install ? `<button class="btn small" data-upd="install">Update now</button>` : `<a class="btn small" href="${esc(u.url)}" target="_blank" rel="noopener">Download</a>`}
        ${u.error ? `<span class="err">${esc(u.error)}</span>` : ""}
        <button class="link" data-upd="later">Later</button>`;
@@ -1985,6 +1985,7 @@ $("#update-bar").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-upd]");
   if (!b) return;
   if (b.dataset.upd === "later") { state.updateDismissed = state.update?.latest; renderUpdateBar(); return; }
+  if (b.dataset.upd === "notes") { showReleaseNotes(); return; }
   if (state.sync?.running && !confirm("A sync is running. Update anyway? It stops the sync; the next one picks up where it left off.")) return;
   try {
     state.update = await api("/api/update", { method: "POST", body: {} });
@@ -2006,37 +2007,93 @@ $("#update-bar").addEventListener("click", async (e) => {
   }, 1500);
 });
 
-// Settings › This PC: version, updates and shortcuts.
-function thisPcSection(openId) {
+// Release notes (GitHub's Markdown, the simple parts): bullets, bold, code, paragraphs.
+function notesHTML(md) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
+  const out = [];
+  let list = null;
+  for (const raw of String(md || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    const item = line.match(/^[-*]\s+(.*)$/);
+    if (item) { (list ||= []).push(`<li>${inline(item[1])}</li>`); continue; }
+    if (list) { out.push(`<ul>${list.join("")}</ul>`); list = null; }
+    if (/^#+\s/.test(line)) out.push(`<h4>${inline(line.replace(/^#+\s*/, ""))}</h4>`);
+    else if (line) out.push(`<p>${inline(line)}</p>`);
+  }
+  if (list) out.push(`<ul>${list.join("")}</ul>`);
+  return out.join("") || `<p class="source-note">No notes for this one.</p>`;
+}
+function showReleaseNotes() {
+  const u = state.update || {};
+  const changes = u.changes && u.changes.length ? u.changes : [{ version: u.latest, date: u.date, notes: u.notes }];
+  $("#notes-body").innerHTML = `
+    <p class="lede">You have ${esc(APP)} ${esc(u.current || "")}. Here's what's changed since:</p>
+    ${changes.map((c) => `<section class="release">
+      <h3>${esc(APP)} ${esc(c.version)}<span>${c.date ? esc(fmtDate(Date.parse(c.date) / 1000)) : ""}</span></h3>
+      <div class="release-notes">${notesHTML(c.notes)}</div>
+    </section>`).join("")}
+    <div class="dialog-actions">
+      <a class="link" href="${esc(u.url || "")}" target="_blank" rel="noopener">See it on GitHub</a>
+      <span class="spacer"></span>
+      <button class="btn ghost" data-close-dialog>Close</button>
+      ${u.can_install ? `<button class="btn" id="notes-install">Update now</button>` : ""}
+    </div>`;
+  $("#notes-dialog").showModal();
+}
+$("#notes-body").addEventListener("click", (e) => {
+  if (e.target.id === "notes-install") {
+    $("#notes-dialog").close();
+    $('#update-bar [data-upd="install"]')?.click();
+  }
+});
+
+// Settings, at the top: Updates (always visible) and, on Windows, Shortcuts.
+function updatesBlock() {
   const d = state.desktop || {}, u = state.update;
+  const status = !u ? "" : u.newer ? `${esc(APP)} ${esc(u.latest)} is available.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.";
+  return `<div class="pc-block">
+    <div class="pc-row">
+      <div><h3>Updates</h3><p>You have ${esc(APP)} ${esc(d.version || "")}.</p></div>
+      <span class="spacer"></span>
+      <span class="test-result ${u?.newer ? "ok" : ""}" id="pc-update">${status}</span>
+      ${u?.newer ? `<button class="btn small ghost" data-pc="notes">What's new</button>` : ""}
+      ${u?.newer && u.can_install ? `<button class="btn small" data-pc="install">Update now</button>` : ""}
+      <button class="btn small ghost" data-pc="check">Check for updates</button>
+    </div>
+    <p class="source-note">Your library, keys and settings live in the <code>data</code> folder next to the app. Updates never touch it.</p>
+  </div>`;
+}
+function shortcutsSection(openId) {
+  const d = state.desktop || {};
+  if (!d.windows) return "";
   const sc = d.shortcuts || {};
-  return `<details class="service" ${openId === "pc" ? "open" : ""}>
-    <summary><div><h3>This PC</h3><p>Version, updates and shortcuts</p></div><span class="state later">${APP} ${esc(d.version || "")}</span></summary>
+  const n = (sc.desktop ? 1 : 0) + (sc.startmenu ? 1 : 0);
+  return `<details class="service" ${openId === "shortcuts" ? "open" : ""}>
+    <summary><div><h3>Shortcuts</h3><p>Start ${esc(APP)} from the desktop or the Start menu</p></div>
+      <span class="state ${n ? "ok" : "later"}">${n === 2 ? "Both added" : n ? "One added" : "None yet"}</span></summary>
     <div class="body">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button class="btn small ghost" data-pc="check">Check for updates</button>
-        <span class="test-result ${u?.newer ? "ok" : ""}" id="pc-update">${u ? (u.newer ? `${APP} ${esc(u.latest)} is available: see the bar at the top.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.") : ""}</span>
-      </div>
-      ${d.windows ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
         <button class="btn small ghost" data-pc="desktop" ${sc.desktop ? "disabled" : ""}>${sc.desktop ? "✓ Desktop shortcut" : "Add a desktop shortcut"}</button>
         <button class="btn small ghost" data-pc="startmenu" ${sc.startmenu ? "disabled" : ""}>${sc.startmenu ? "✓ In the Start menu" : "Add to the Start menu"}</button>
         <span class="test-result" id="pc-shortcut"></span>
-      </div>` : ""}
-      <p class="source-note">Your library, keys and settings live in the <code>data</code> folder next to the app. Updates never touch it.</p>
+      </div>
     </div>
   </details>`;
 }
 async function onThisPc(b) {
   if (b.dataset.pc === "check") {
     b.disabled = true;
+    b.textContent = "Checking…";
     await checkUpdate(true);
-    renderSettings("pc");
+    renderSettings();
     return;
   }
+  if (b.dataset.pc === "notes") { showReleaseNotes(); return; }
+  if (b.dataset.pc === "install") { $("#settings-dialog").close(); $('#update-bar [data-upd="install"]')?.click(); return; }
   try {
     await api("/api/desktop/shortcuts", { method: "POST", body: { which: [b.dataset.pc] } });
     await loadDesktop();
-    renderSettings("pc");
+    renderSettings("shortcuts");
     toast(b.dataset.pc === "desktop" ? "Shortcut added to your desktop" : `${APP} is in the Start menu`);
   } catch (err) { $("#pc-shortcut").className = "test-result err"; $("#pc-shortcut").textContent = err.message; }
 }
@@ -2256,14 +2313,27 @@ function renderJobDialog() {
     const detail = st.total ? `${step}${esc(st.stage_label)}, ${st.done.toLocaleString()} of ${st.total.toLocaleString()}` : esc(st.stage_label || "Starting");
     const other = state.jobView && state.jobView !== st.kind
       ? `<p class="notice">${st.kind === "sync" ? "A sync is running. You can refresh assets once it finishes." : "A refresh is running. You can sync once it finishes."}</p>` : "";
+    const full = st.kind === "refresh" && st.mode === "all";
     body.innerHTML = `
-      ${other}
-      <p class="lede">You can close this and keep browsing. ${st.kind === "sync" ? "New games and art appear as they arrive." : "Updates appear as they arrive."}</p>
-      <div class="sync-head"><b>${pct == null ? "Importing your libraries" : `${pct}% done`}</b><span class="source-note">${fmtEta(st.eta_s)}</span></div>
-      <div class="progress ${pct == null ? "indeterminate" : ""}"><i style="width:${pct ?? 30}%"></i></div>
-      ${st.timeline && st.timeline.length ? timelineHTML(st.timeline) : `<div class="source-note">${detail}</div>`}
-      <details class="log-wrap"><summary>Activity log</summary>${logHTML(st, 12)}</details>
-      <div class="dialog-actions"><button class="btn ghost" type="button" id="sync-cancel">Stop</button><button class="btn" value="close">Keep browsing</button></div>`;
+      <div class="job-cols">
+        <div class="job-main">
+          ${other}
+          <p class="lede">You can close this and keep browsing. ${st.kind === "sync" ? "New games and art appear as they arrive." : "Updates appear as they arrive."}
+            ${full ? `This full refresh is remembered: if ${esc(APP)} closes, it carries on where it stopped next time.` : ""}</p>
+          <div class="sync-head"><b>${pct == null ? "Importing your libraries" : `${pct}% done`}</b><span class="source-note">${fmtEta(st.eta_s)}</span></div>
+          <div class="progress ${pct == null ? "indeterminate" : ""}"><i style="width:${pct ?? 30}%"></i></div>
+          <div class="log-wrap open"><div class="field-label">Activity</div>${logHTML(st, 10)}</div>
+        </div>
+        <div class="job-side">
+          <div class="field-label">Steps</div>
+          ${st.timeline && st.timeline.length ? timelineHTML(st.timeline) : `<div class="source-note">${detail}</div>`}
+        </div>
+      </div>
+      <div class="dialog-actions">
+        ${full ? `<button class="btn ghost" type="button" id="sync-cancel" data-forget="1" title="Stop and forget this full refresh">Cancel refresh</button>
+          <button class="btn ghost" type="button" id="sync-cancel" title="Stop for now; continue it later from Refresh assets">Pause</button>`
+          : `<button class="btn ghost" type="button" id="sync-cancel">Stop</button>`}
+        <button class="btn" value="close">Keep browsing</button></div>`;
     return;
   }
 
@@ -2279,12 +2349,25 @@ function renderJobDialog() {
     const est = state.estimate || {};
     const mode = state.refreshMode || "missing";
     const all = mode === "all";
+    const job = est.job;
     body.innerHTML = `
+      <div class="job-cols">
+      <div class="job-main">
       <p class="lede">Updates details, artwork, reviews and time to beat for games already in your library. Your playtime, notes and the statuses you set aren't touched.</p>
+      ${job ? `<div class="job-paused">
+        <div><b>A full refresh is ${Math.round((job.progress || 0) * 100)}% done</b><small>Started ${esc(relDate(job.since).toLowerCase())}${job.paused ? ", paused" : ""}. It picks up where it stopped.</small></div>
+        <button class="btn small" type="button" id="refresh-resume">Continue</button>
+        <button class="link" type="button" id="refresh-forget">Cancel it</button>
+      </div>` : ""}
       <div class="sync-sources">
         <label><input type="radio" name="rmode" value="missing" ${all ? "" : "checked"}><span>Fill in what's missing</span><small>Quick</small></label>
-        <label><input type="radio" name="rmode" value="all" ${all ? "checked" : ""}><span>Re-fetch for every game</span><small>${(est.games || 0).toLocaleString()} games, slower</small></label>
+        <label><input type="radio" name="rmode" value="all" ${all ? "checked" : ""}><span>Re-fetch for every game</span><small>${(est.games || 0).toLocaleString()} games, slower; carries on across sessions</small></label>
       </div>
+      ${est.unidentified ? `<p class="source-note">${est.unidentified.toLocaleString()} game${est.unidentified > 1 ? "s" : ""} couldn't be identified. “Re-fetch for every game” tries again, or open one and use Fix match.</p>` : ""}
+      ${!all && est.games && !REFRESH_STEPS.some((x) => est[x.id] && !((x.need === "igdb" && !est.igdb) || (x.need === "opencritic" && !est.opencritic))) ? `<p class="source-note">Everything is filled in. Choose “Re-fetch for every game” to pull the latest info anyway.</p>` : ""}
+      ${finished}
+      </div>
+      <div class="job-side">
       <div class="field-label">Steps, in the order they run</div>
       <div class="toggles refresh-steps">
         ${REFRESH_STEPS.map((x) => {
@@ -2299,25 +2382,30 @@ function renderJobDialog() {
           return `<label class="${off ? "off" : ""}"><input type="checkbox" name="rstep" value="${x.id}" ${off ? "disabled" : "checked"}><span>${x.label}<small>${x.hint}</small></span><em>${note}</em></label>`;
         }).join("")}
       </div>
-      ${est.unidentified ? `<p class="source-note">${est.unidentified.toLocaleString()} game${est.unidentified > 1 ? "s" : ""} couldn't be identified. “Re-fetch for every game” tries again, or open one and use Fix match.</p>` : ""}
-      ${finished}
-      ${!all && est.games && !REFRESH_STEPS.some((x) => est[x.id] && !((x.need === "igdb" && !est.igdb) || (x.need === "opencritic" && !est.opencritic))) ? `<p class="source-note">Everything is filled in. Choose “Re-fetch for every game” to pull the latest info anyway.</p>` : ""}
-      <div class="dialog-actions"><button class="btn ghost" value="close">Close</button><button class="btn" type="button" id="refresh-start" ${est.games ? "" : "disabled"}>Start refresh</button></div>`;
+      </div>
+      </div>
+      <div class="dialog-actions"><button class="btn ghost" value="close">Close</button><button class="btn" type="button" id="refresh-start" ${est.games ? "" : "disabled"}>${all && job ? "Start over" : "Start refresh"}</button></div>`;
     return;
   }
 
   const sources = syncSources();
   const anyReady = sources.some((x) => x.ok);
   body.innerHTML = `
+    <div class="job-cols">
+    <div class="job-main">
     <p class="lede">Pulls your games, playtime and last played from your stores. Games that are new to your library also get their details, art and time to beat.</p>
     <div class="sync-sources">
       ${sources.map((x) => `<label class="${x.ok ? "" : "off"}"><input type="checkbox" name="src" value="${x.id}" ${x.ok ? "checked" : "disabled"}><span>${x.name}</span><small>${x.ok ? "Ready" : `<button type="button" class="link" data-setup="${x.id}">Set up</button>`}</small></label>`).join("")}
     </div>
-    <div class="field-label">What happens</div>
-    <div id="sync-preview"></div>
     <div class="sync-sources"><label class="shots-row"><span>Nintendo Switch</span><small><button type="button" class="link" data-open-shots>Import from a screen recording</button></small></label></div>
     <p class="source-note">Games already in your library only get their playtime and last played updated. To update their details or art, use Refresh assets.</p>
     ${finished}
+    </div>
+    <div class="job-side">
+    <div class="field-label">What happens</div>
+    <div id="sync-preview"></div>
+    </div>
+    </div>
     <div class="dialog-actions"><button class="btn ghost" value="close">Close</button><button class="btn" type="button" id="sync-start" ${anyReady ? "" : "disabled"}>Start sync</button></div>`;
   syncPreview();
 }
@@ -2357,12 +2445,42 @@ $("#sync-body").addEventListener("click", async (e) => {
     } catch (err) { toast(err.message, true); }
   }
   if (e.target.id === "sync-cancel") {
-    await api("/api/sync/cancel", { method: "POST", body: {} });
-    toast("Stopping after the current game");
+    const forget = e.target.dataset.forget === "1";
+    if (forget && !confirm("Cancel the full refresh? What it already updated stays; the rest won't be re-fetched.")) return;
+    await api("/api/sync/cancel", { method: "POST", body: { forget } });
+    toast(forget ? "Cancelling the full refresh after the current game" : state.sync?.mode === "all" ? "Pausing after the current game. Continue it from Refresh assets." : "Stopping after the current game");
+  }
+  if (e.target.id === "refresh-resume") {
+    try {
+      state.sync = await api("/api/refresh", { method: "POST", body: { resume: true } });
+      renderJobDialog();
+      startPolling();
+    } catch (err) { toast(err.message, true); }
+  }
+  if (e.target.id === "refresh-forget") {
+    if (!confirm("Cancel the full refresh? What it already updated stays; the rest won't be re-fetched.")) return;
+    await api("/api/refresh/forget", { method: "POST", body: {} });
+    state.estimate = await api("/api/refresh/estimate");
+    renderJobDialog();
+    toast("Full refresh cancelled");
   }
   const setup = e.target.closest("[data-setup]");
   if (setup) { $("#sync-dialog").close(); openSettings(setup.dataset.setup); }
 });
+
+// A full refresh that was interrupted (the app closed or the PC shut down) carries on by itself.
+// One you paused waits for you to continue it from Refresh assets.
+async function resumeRefresh() {
+  let job;
+  try { job = (await api("/api/refresh/job")).job; } catch { return false; }
+  if (!job || job.paused) return false;
+  try {
+    state.sync = await api("/api/refresh", { method: "POST", body: { resume: true } });
+    startPolling();
+    toast(`Continuing the full refresh (${Math.round((job.progress || 0) * 100)}% done)`);
+    return true;
+  } catch { return false; }
+}
 
 // Opening the app more than a day after the last sync starts one by itself: every
 // library that's set up, the XGP and PS+ lists, and your wishlists (prices and sales too).
@@ -2941,7 +3059,7 @@ async function receiveUbisoft() {
     state.sync = await api("/api/sync");
     if (location.hash.startsWith("#ubisoft=")) await receiveUbisoft();
     if (state.sync.running) startPolling();
-    else maybeAutoSync();
+    else if (!(await resumeRefresh())) maybeAutoSync();
     setInterval(() => { if (!state.sync?.running) api("/api/sync").then((st) => { state.sync = st; maybeAutoSync(); }).catch(() => {}); }, 60 * 60 * 1000);
   } catch (e) {
     toast(`Couldn't reach ${APP}. Start it again from its shortcut or the Start ${APP} file.`, true);

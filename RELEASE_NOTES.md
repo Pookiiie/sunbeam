@@ -1,3 +1,6 @@
-- Sunbeam opens at the size and place you left it (or maximised, if it was).
-- The window's title bar takes the app's dark colour instead of a light Windows bar.
-- "What's new" and other links to websites open in your browser again.
+- **What's new** opens a list of changes with their dates, right in Sunbeam.
+- Settings: **Updates** is at the top (always visible), with **Shortcuts** just below.
+- The Sync and Refresh assets windows use two columns: choices on the left, the steps on the right.
+- A full refresh (Re-fetch for every game) is remembered: if Sunbeam closes, it carries on where it stopped next time. While it runs you can **Pause** it (continue later from Refresh assets) or **Cancel** it.
+- Darker window frame.
+- Links to websites (store pages, What's new on GitHub) open in your browser reliably.

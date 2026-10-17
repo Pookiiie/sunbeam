@@ -27,6 +27,7 @@ from .paths import APP_DIR, DATA_DIR, ROOT_DIR
 
 REPO = brand.REPO
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
+RELEASES = f"https://api.github.com/repos/{REPO}/releases"
 CHECK_EVERY = 6 * 3600
 KEEP = {"data", "runtime"}  # never replaced by an update
 
@@ -60,11 +61,23 @@ def check(force: bool = False) -> dict:
             return {"current": __version__, "error": str(e), "newer": False}
         asset = next((a for a in rel.get("assets") or [] if a.get("name", "").lower().endswith(".zip")), None)
         info = {"at": time.time(), "latest": (rel.get("tag_name") or "").lstrip("v"), "notes": rel.get("body") or "",
+                "date": rel.get("published_at"),
                 "url": rel.get("html_url") or f"https://github.com/{REPO}/releases",
                 "zip": asset and asset.get("browser_download_url"), "size": asset and asset.get("size")}
+        # Every release since this version, for "What's new" (newest first).
+        try:
+            rels = net.get_json(RELEASES, params={"per_page": 20}, headers={"Accept": "application/vnd.github+json"},
+                                retries=0, timeout=15) or []
+            info["changes"] = [{"version": (r.get("tag_name") or "").lstrip("v"), "date": r.get("published_at"),
+                                "notes": r.get("body") or ""}
+                               for r in rels if not r.get("draft") and not r.get("prerelease")]
+        except Exception:
+            info["changes"] = [{"version": info["latest"], "date": info["date"], "notes": info["notes"]}]
         db.set_meta("update_check", json.dumps(info))
     newer = bool(info.get("latest")) and _ver(info["latest"]) > _ver(__version__)
+    changes = [c for c in info.get("changes") or [] if _ver(c.get("version", "")) > _ver(__version__)]
     return {"current": __version__, "latest": info.get("latest"), "newer": newer, "notes": info.get("notes", ""),
+            "date": info.get("date"), "changes": changes,
             "url": info.get("url"), "can_install": newer and bool(info.get("zip")) and desktop.packaged(),
             "packaged": desktop.packaged(), **{k: v for k, v in _state.items() if k != "busy"}, "busy": _state["busy"]}
 
