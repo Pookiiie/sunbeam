@@ -328,7 +328,24 @@ def _run_sync(sources: list[str]):
             ([f"{cat} new on XGP or PS+"] if cat else []) + \
             ([f"{wish} new on your wishlists"] if wish else [])
     _log(f"{' and '.join(parts)}. Fetching their info.")
-    enrich(min_id=before + 1)
+    try:
+        enrich(min_id=before + 1)
+    finally:
+        if mine:
+            _check_duplicates(before)
+
+
+def _check_duplicates(before: int) -> None:
+    """New games that look like one already in the library: the page asks about them
+    (nothing is combined without your OK)."""
+    from . import duplicates
+    try:
+        n = duplicates.flag_new(before)
+    except Exception as e:
+        _log(f"Couldn't check the new games for duplicates: {e}")
+        return
+    if n:
+        _log(f"{n} new game{'s look' if n != 1 else ' looks'} like a game you already have. Have a look in the duplicates window.")
 
 
 def _run_refresh(mode: str, steps: list[str], since: int | None = None):

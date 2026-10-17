@@ -186,6 +186,18 @@ def get_duplicates(req, body, query):
     return {"groups": duplicates.find()}
 
 
+@route("GET", "/api/duplicates/review")
+def get_dup_review(req, body, query):
+    """Whether a sync found new games that look like duplicates (the page then asks)."""
+    return {"pending": len(duplicates.review_ids())}
+
+
+@route("POST", "/api/duplicates/review")
+def post_dup_review(req, body, query):
+    duplicates.reviewed()
+    return {"ok": True}
+
+
 @route("POST", "/api/duplicates/combine")
 def post_combine(req, body, query):
     keep = int(body.get("keep") or 0)

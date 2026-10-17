@@ -6,6 +6,10 @@ Two kinds of evidence:
 - Titles: once edition words are removed, one title is the start of the other
   ("Disco Elysium" / "Disco Elysium: The Final Cut", "The Ship" / "The Ship Tutorial").
 Nothing is combined without you confirming it.
+
+After a sync brings in new games, the ones that look like a game you already have are
+remembered (meta "dup_review") and the page opens the duplicates window by itself, with
+those groups first. Each group still needs your OK (Combine, or Not duplicates).
 """
 
 from __future__ import annotations
@@ -45,6 +49,28 @@ def dismiss(game_ids: list[int]) -> None:
     pairs = [sorted(p) for p in _dismissed()] + [sorted(int(i) for i in game_ids)]
     with db.tx() as c:
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('dup_dismissed', ?)", (json.dumps(pairs),))
+
+
+def review_ids() -> set[int]:
+    """New games waiting for you to look at them in the duplicates window."""
+    try:
+        return {int(x) for x in json.loads(db.get_meta("dup_review") or "[]")}
+    except (ValueError, TypeError):
+        return set()
+
+
+def flag_new(after_id: int) -> int:
+    """After a sync: remember new games (id > after_id) that look like a game already
+    listed, so the page asks about them. Returns how many groups need a look."""
+    groups = [g for g in find() if any(x["id"] > after_id for x in g["games"])]
+    if groups:
+        ids = review_ids() | {x["id"] for g in groups for x in g["games"] if x["id"] > after_id}
+        db.set_meta("dup_review", json.dumps(sorted(ids)))
+    return len(groups)
+
+
+def reviewed() -> None:
+    db.set_meta("dup_review", "")
 
 
 def find() -> list[dict]:
@@ -126,7 +152,13 @@ def find() -> list[dict]:
                 "reason": next(iter(links[x].values())) if x != keep else "",
             } for x in sorted(members, key=lambda m: (m != keep, by_id[m]["title"]))],
         })
-    groups.sort(key=lambda g: by_id[g["keep"]]["title"].lower())
+    # Groups with games that just arrived (and wait for a look) come first, marked "fresh".
+    fresh = review_ids()
+    for g in groups:
+        for x in g["games"]:
+            x["fresh"] = x["id"] in fresh
+        g["fresh"] = any(x["fresh"] for x in g["games"])
+    groups.sort(key=lambda g: (not g["fresh"], by_id[g["keep"]]["title"].lower()))
     return groups
 
 

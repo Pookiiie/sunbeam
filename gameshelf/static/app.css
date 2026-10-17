@@ -569,6 +569,11 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 .dup-text { min-width: 0; }
 .dup-text b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .dup-text small { color: var(--muted); font-size: 13px; }
+.dup-group.fresh { border-color: rgba(255,92,158,.45); }
+.dup-fresh { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  vertical-align: 2px; color: #fff; background: linear-gradient(90deg, #ff5c9e, #ff9348); }
+.dup-new-note { margin: 0 0 10px; padding: 10px 12px; border-radius: var(--radius-m); background: rgba(255,92,158,.08);
+  border: 1px solid rgba(255,92,158,.25); font-size: 14px; }
 .dup-keep { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .dup-keep input { accent-color: var(--accent); margin: 0; }
 .dup-actions { display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 6px 6px 2px; }

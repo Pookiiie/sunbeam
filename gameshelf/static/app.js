@@ -2670,6 +2670,7 @@ function startPolling() {
       const name = state.sync.kind === "refresh" ? "Refresh" : "Sync";
       const errs = (state.sync.errors || []).length;
       toast(errs ? `${name} finished with ${errs} problem${errs > 1 ? "s" : ""}. Open ${name === "Refresh" ? "Refresh assets" : "Sync"} for details.` : `${name} finished`, errs > 0);
+      if (state.sync.kind === "sync") maybeReviewDups();
     }
   }, 1500);
 }
@@ -2915,18 +2916,39 @@ $("#library").addEventListener("contextmenu", (e) => {
 
 /* ------------------------------------------------------------ duplicates */
 
-const dups = { groups: null };
+const dups = { groups: null, auto: false };
+
+const dupGroups = (res) => res.groups.map((gr) => ({ ...gr, picked: new Set(gr.games.map((x) => x.id)) }));
 
 async function openDups() {
   const dlg = $("#dup-dialog");
+  dups.auto = false;
   $("#dup-body").innerHTML = `<p class="lede">Looking for games listed more than once…</p><div class="progress indeterminate"><i></i></div>`;
   if (!dlg.open) dlg.showModal();
   try {
-    const res = await api("/api/duplicates");
-    dups.groups = res.groups.map((gr) => ({ ...gr, picked: new Set(gr.games.map((x) => x.id)) }));
+    dups.groups = dupGroups(await api("/api/duplicates"));
   } catch (e) { $("#dup-body").innerHTML = `<p class="test-result err">${esc(e.message)}</p>`; return; }
   renderDups();
 }
+
+// After a sync brings in games that look like ones you already have, the window opens by
+// itself (new ones first). Nothing is combined until you say so, group by group.
+async function maybeReviewDups() {
+  try {
+    if (!(await api("/api/duplicates/review")).pending || $("#dup-dialog").open) return;
+    const groups = dupGroups(await api("/api/duplicates"));
+    if (!groups.some((gr) => gr.fresh)) { api("/api/duplicates/review", { method: "POST", body: {} }).catch(() => {}); return; }
+    dups.groups = groups;
+    dups.auto = true;
+    renderDups();
+    $("#dup-dialog").showModal();
+  } catch { /* it can wait for the next sync */ }
+}
+
+$("#dup-dialog").addEventListener("close", () => {
+  // Seen: it won't open by itself again for these (More › Find duplicate games still lists any left).
+  api("/api/duplicates/review", { method: "POST", body: {} }).catch(() => {});
+});
 
 function renderDups() {
   const body = $("#dup-body");
@@ -2936,14 +2958,16 @@ function renderDups() {
       <div class="dialog-actions"><button class="btn" data-close-dialog>Done</button></div>`;
     return;
   }
+  const fresh = groups.filter((gr) => gr.fresh).length;
   body.innerHTML = `
+    ${dups.auto && fresh ? `<p class="dup-new-note"><b>New games just arrived${fresh === 1 ? " and one looks" : ` and ${fresh} look`} like ${fresh === 1 ? "a game" : "games"} you already have.</b> Check ${fresh === 1 ? "it" : "each one"} below: nothing is combined until you say so.</p>` : ""}
     <p class="lede">These look like the same game listed more than once: editions, store versions, tutorials or add-ons. Combining keeps one entry, adds up the playtime and keeps every copy. Untick anything that's really a different game.</p>
     <div class="dup-groups">
-      ${groups.map((gr, gi) => `<div class="dup-group" data-g="${gi}">
+      ${groups.map((gr, gi) => `<div class="dup-group ${gr.fresh ? "fresh" : ""}" data-g="${gi}">
         ${gr.games.map((x) => `<label class="dup-row ${gr.picked.has(x.id) ? "" : "off"}">
           <input type="checkbox" data-pick="${x.id}" ${gr.picked.has(x.id) ? "checked" : ""} aria-label="Include ${esc(x.title)}">
           <span class="dup-cover">${x.cover ? `<img src="${esc(x.cover)}" alt="" loading="lazy" data-fallbacks="">` : ""}</span>
-          <span class="dup-text"><b>${esc(x.title)}</b><small>${x.platforms.map((p) => esc(PLATFORM_SHORT[p] || p)).join(", ")}${x.hours ? `, ${fmtHours(x.hours)}` : ""}${x.reason ? ` · ${esc(x.reason)}` : ""}</small></span>
+          <span class="dup-text"><b>${esc(x.title)}${x.fresh ? ` <span class="dup-fresh">New</span>` : ""}</b><small>${x.platforms.map((p) => esc(PLATFORM_SHORT[p] || p)).join(", ")}${x.hours ? `, ${fmtHours(x.hours)}` : ""}${x.reason ? ` · ${esc(x.reason)}` : ""}</small></span>
           <span class="dup-keep"><input type="radio" name="keep-${gi}" value="${x.id}" ${x.id === gr.keep ? "checked" : ""}> Keep this name</span>
         </label>`).join("")}
         <div class="dup-actions">
@@ -2952,8 +2976,8 @@ function renderDups() {
         </div>
       </div>`).join("")}
     </div>
-    <div class="dialog-actions"><button class="btn ghost" data-close-dialog>Close</button>
-      ${groups.length > 1 ? `<button class="btn" data-combine-all>Combine all ${groups.length} groups</button>` : ""}</div>`;
+    <div class="dialog-actions"><button class="btn ghost" data-close-dialog>${dups.auto ? "Decide later" : "Close"}</button>
+      ${groups.length > 1 && !dups.auto ? `<button class="btn" data-combine-all>Combine all ${groups.length} groups</button>` : ""}</div>`;
 }
 
 async function combineGroup(gi) {
@@ -3166,7 +3190,10 @@ async function receiveUbisoft() {
     state.sync = await api("/api/sync");
     if (location.hash.startsWith("#ubisoft=")) await receiveUbisoft();
     if (state.sync.running) startPolling();
-    else if (!(await resumeRefresh())) maybeAutoSync();
+    else {
+      maybeReviewDups();  // a sync that ran while the window was closed may have found some
+      if (!(await resumeRefresh())) maybeAutoSync();
+    }
     setInterval(() => { if (!state.sync?.running) api("/api/sync").then((st) => { state.sync = st; maybeAutoSync(); }).catch(() => {}); }, 60 * 60 * 1000);
   } catch (e) {
     toast(`Couldn't reach ${APP}. Start it again from its shortcut or the Start ${APP} file.`, true);
