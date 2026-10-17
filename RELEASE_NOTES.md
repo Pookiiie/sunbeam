@@ -1,1 +1,3 @@
-- **Duplicate check after a sync:** when a sync brings in a game that looks like one you already have (another edition, store version, tutorial or add-on), the Duplicate games window opens by itself with the new ones first and marked **New**. Nothing is combined automatically: each group still needs **Combine** or **Not duplicates** from you, and there's no "Combine all" in this window. **Decide later** closes it; the groups stay under Library › More › Find duplicate games.
+- **Library:** the filter menus now sit on the same row as Sort by, and the pink filter tags are gone (the menus already show what's filtered, and Clear all is still there). The game count only shows up when filters or a search narrow the list, as "836 of 1,546".
+- **Wishlist:** a cover size slider, like the library's (they share the same size).
+- **Settings** checks for updates every time you open it.

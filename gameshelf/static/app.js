@@ -667,6 +667,7 @@ function renderWishlist() {
             ${[["release", "Release date"], ["added", "Date added"], ["discount", "Biggest discount"], ["reviews", "Reviews"], ["title", "Title"]]
               .map(([k, l]) => `<option value="${k}" ${p.wishSort === k ? "selected" : ""}>${l}</option>`).join("")}
           </select></label>
+        <input type="range" class="wish-size" min="120" max="260" step="10" value="${p.size}" aria-label="Cover size" title="Cover size">
       </div>
     </div>
     ${groups || `<div class="empty"><h2>Nothing matches</h2><p>No wishlist games fit ${p.wishSale ? "“On sale”" : "these choices"}${state.q ? ` and the search “${esc(state.q)}”` : ""}.</p></div>`}`);
@@ -924,11 +925,10 @@ function renderFilters() {
   const f = filterFacts(), sum = filterSummaries(f), p = state.prefs;
   const chip = (id, label, empty = "Any") => `<button type="button" class="fchip ${sum[id] ? "on" : ""} ${state.openFilter === id ? "open" : ""}" data-fopen="${id}" aria-expanded="${state.openFilter === id}">
       ${label} <b>${esc(sum[id] || empty)}</b><i aria-hidden="true">▾</i></button>`;
-  const tags = Object.entries(sum).filter(([, v]) => v).map(([id, v]) =>
-    `<button type="button" class="ftag" data-fclear="${id}" title="Clear this filter">${esc(v)}<span aria-hidden="true">✕</span></button>`).join("");
+  const any = Object.values(sum).some(Boolean);
   bar.innerHTML = `
     ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("more", "More", "")}
-    ${tags ? `<span class="fsep"></span>${tags}<button type="button" class="link fclear-all" data-fclear="all">Clear all</button>` : ""}
+    ${any ? `<button type="button" class="link fclear-all" data-fclear="all">Clear all</button>` : ""}
     ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""}" role="dialog">${filterMenu(state.openFilter, f)}</div>` : ""}`;
   const pop = $(".fpop", bar), anchor = $(`[data-fopen="${state.openFilter}"]`, bar);
   if (pop && anchor) {
@@ -1057,9 +1057,9 @@ function render() {
   }
   const list = visibleGames();
   const shown = state.games.filter((g) => !g.isHidden || state.prefs.showHidden).length;
-  $("#result-count").innerHTML = list.length === shown
-    ? `<b>${list.length.toLocaleString()}</b> games`
-    : `<b>${list.length.toLocaleString()}</b> of ${shown.toLocaleString()} games`;
+  // Only when filters or a search narrow the list (the totals are in the stats above).
+  $("#result-count").innerHTML = list.length === shown ? ""
+    : `<b>${list.length.toLocaleString()}</b> of ${shown.toLocaleString()}`;
   if (!list.length) {
     lib.innerHTML = "";
     empty.hidden = false;
@@ -1990,6 +1990,18 @@ async function openSettings(openId) {
   await loadSettings();
   renderSettings(openId);
   $("#settings-dialog").showModal();
+  refreshUpdates();  // a fresh look at GitHub every time Settings opens
+}
+
+// Check for a newer release and redraw just the Updates block (the rest of Settings keeps
+// whatever you're typing or have open).
+async function refreshUpdates() {
+  const status = $("#pc-update"), btn = $('#settings-dialog [data-pc="check"]');
+  if (status) { status.className = "test-result"; status.textContent = "Checking for updates…"; }
+  if (btn) btn.disabled = true;
+  await checkUpdate(true);
+  const block = $("#settings-dialog .pc-block");
+  if (block) block.outerHTML = updatesBlock();
 }
 
 // Save and test / Sign out, in Settings or in the first-run setup (rerender redraws that one).
@@ -2216,13 +2228,7 @@ function shortcutsSection(openId) {
   </details>`;
 }
 async function onThisPc(b) {
-  if (b.dataset.pc === "check") {
-    b.disabled = true;
-    b.textContent = "Checking…";
-    await checkUpdate(true);
-    renderSettings();
-    return;
-  }
+  if (b.dataset.pc === "check") { await refreshUpdates(); return; }
   if (b.dataset.pc === "notes") { showReleaseNotes(); return; }
   if (b.dataset.pc === "install") { startUpdate(); return; }
   try {
@@ -2903,6 +2909,13 @@ $("#page-wishlist").addEventListener("click", (e) => {
   }
   const card = e.target.closest("[data-id]");
   if (card) openGame(Number(card.dataset.id));
+});
+// Cover size: the same setting as the library's slider.
+$("#page-wishlist").addEventListener("input", (e) => {
+  if (!e.target.classList.contains("wish-size")) return;
+  state.prefs.size = Number(e.target.value); savePrefs();
+  document.documentElement.style.setProperty("--cover", e.target.value + "px");
+  $("#size").value = e.target.value;
 });
 $("#page-wishlist").addEventListener("change", (e) => {
   if (e.target.id === "wish-sort") { state.prefs.wishSort = e.target.value; savePrefs(); renderWishlist(); }

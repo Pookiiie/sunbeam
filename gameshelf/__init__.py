@@ -1,3 +1,3 @@
 """The app: a local, private library of every game you own."""
 
-__version__ = "1.0.7"
+__version__ = "1.0.8"
