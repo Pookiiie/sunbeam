@@ -107,7 +107,9 @@ jobs:
       - name: Title bar is dark (informational)
         continue-on-error: true
         shell: pwsh
-        run: if ([int]"${{ steps.window.outputs.titlebar }}" -gt 240) { throw "light title bar (${{ steps.window.outputs.titlebar }})" }
+        run: |
+          Write-Host "::notice::title bar brightness (r+g+b) ${{ steps.window.outputs.titlebar }}"
+          if ([int]"${{ steps.window.outputs.titlebar }}" -gt 240) { throw "light title bar" }
 
       - name: Zip
         shell: pwsh

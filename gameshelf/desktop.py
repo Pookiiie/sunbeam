@@ -137,6 +137,8 @@ def open_window(url: str) -> None:
         subprocess.Popen([
             exe, f"--app={url}", f"--user-data-dir={profile}", *_window_args(),
             "--no-first-run", "--no-default-browser-check", "--disable-sync",
+            # dark window frame (title bar), whatever the Windows theme, to match the app
+            "--force-dark-mode",
             # keep the "still here" pings going while the window is minimised or covered
             "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
             "--disable-backgrounding-occluded-windows",
