@@ -25,20 +25,13 @@ jobs:
         with:
           python-version: "3.12"   # same minor version as the bundled Python (for wheels)
 
-      - name: Check the version
+      - name: Check the version and name
         id: ver
         shell: pwsh
         run: |
-          $ver = python -c "import re; print(re.search(r'__version__ = \"(.+?)\"', open('gameshelf/__init__.py').read()).group(1))"
-          if ("${{ github.ref_type }}" -eq "tag" -and "v$ver" -ne "${{ github.ref_name }}") {
-            throw "Tag ${{ github.ref_name }} doesn't match gameshelf/__init__.py ($ver)"
-          }
-          "version=$ver" >> $env:GITHUB_OUTPUT
-          # The app's name and repository live in gameshelf/brand.py.
-          $name = python -c "import sys; sys.path.insert(0, 'gameshelf'); import brand; print(brand.NAME)"
-          $repo = python -c "import sys; sys.path.insert(0, 'gameshelf'); import brand; print(brand.REPO)"
-          "name=$name" >> $env:GITHUB_OUTPUT
-          "repo=$repo" >> $env:GITHUB_OUTPUT
+          python tools/buildinfo.py | Tee-Object -Variable info
+          if ($LASTEXITCODE) { throw "version check failed" }
+          $info | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
 
       - name: Assemble the app with its own Python
         shell: pwsh
