@@ -117,7 +117,8 @@ def _install(httpd) -> None:
         db.set_meta("update_check", "")
         _state["stage"] = "Restarting"
         # Start the new version (it waits for this one to let go of the port), then stop.
-        subprocess.Popen([desktop.pythonw(), "-m", "gameshelf", "--app", "--no-browser", "--wait-port"],
+        port = str(httpd.server_address[1])
+        subprocess.Popen([desktop.pythonw(), "-m", "gameshelf", "--app", "--no-browser", "--wait-port", "--port", port],
                          cwd=str(ROOT_DIR), creationflags=desktop.NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0),
                          close_fds=True)
         time.sleep(0.5)
