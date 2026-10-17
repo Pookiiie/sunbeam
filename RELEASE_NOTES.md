@@ -1,2 +1,2 @@
-- Curator: each section (Keep playing, Try something new, From your wishlist, Recently played) sits in its own soft panel, so they're easier to tell apart.
-- Friendlier descriptions for the Keep playing and Try something new lists.
+- **Update now** works the same from the update bar, What's new and Settings, and closes those windows so you can watch the update in the bar at the top.
+- Curator's Recently released row shows just the date (no "Out").

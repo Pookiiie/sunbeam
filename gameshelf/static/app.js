@@ -699,7 +699,7 @@ function renderWishRows() {
     <section class="cur-section">
       <div class="cur-title"><h2 class="cur-h">From your wishlist</h2></div>
       <div class="cur-wish-split">
-        ${row("Recently released", `the last ${WISH_DAYS} days`, recent, (g) => `${esc(wishWhen(g))}${recReview(g) != null ? ` · ${recScoreTag(g)}` : ""}`,
+        ${row("Recently released", `the last ${WISH_DAYS} days`, recent, (g) => `${esc(fmtRelease(g.rel))}${recReview(g) != null ? ` · ${recScoreTag(g)}` : ""}`,
           `Nothing from your wishlist came out in the last ${WISH_DAYS} days.`)}
         ${row("Coming out soon", `the next ${WISH_DAYS} days`, soon, (g) => esc(wishWhen(g, { soonDays: true })),
           `Nothing on your wishlist has a release date in the next ${WISH_DAYS} days.`)}
@@ -1986,11 +1986,21 @@ $("#update-bar").addEventListener("click", async (e) => {
   if (!b) return;
   if (b.dataset.upd === "later") { state.updateDismissed = state.update?.latest; renderUpdateBar(); return; }
   if (b.dataset.upd === "notes") { showReleaseNotes(); return; }
+  startUpdate();
+});
+
+// Install the update: from the bar, What's new or Settings. Open windows close so the progress
+// (in the bar at the top) is in view; GameShelf reloads itself once the new version is up.
+async function startUpdate() {
+  if (state.update?.busy) return;
   if (state.sync?.running && !confirm("A sync is running. Update anyway? It stops the sync; the next one picks up where it left off.")) return;
   try {
     state.update = await api("/api/update", { method: "POST", body: {} });
-    renderUpdateBar();
   } catch (err) { toast(err.message, true); return; }
+  for (const d of $$("dialog[open]")) d.close();
+  state.updateDismissed = null;
+  renderUpdateBar();
+  scrollTo({ top: 0 });
   // Wait for the app to come back as the new version, then reload.
   const from = state.update.current;
   const poll = setInterval(async () => {
@@ -2005,7 +2015,7 @@ $("#update-bar").addEventListener("click", async (e) => {
       if (p.version && p.version !== from) { clearInterval(poll); location.reload(); }
     } catch { /* not back yet */ }
   }, 1500);
-});
+}
 
 // Release notes (GitHub's Markdown, the simple parts): bullets, bold, code, paragraphs.
 function notesHTML(md) {
@@ -2042,8 +2052,7 @@ function showReleaseNotes() {
 }
 $("#notes-body").addEventListener("click", (e) => {
   if (e.target.id === "notes-install") {
-    $("#notes-dialog").close();
-    $('#update-bar [data-upd="install"]')?.click();
+    startUpdate();
   }
 });
 
@@ -2089,7 +2098,7 @@ async function onThisPc(b) {
     return;
   }
   if (b.dataset.pc === "notes") { showReleaseNotes(); return; }
-  if (b.dataset.pc === "install") { $("#settings-dialog").close(); $('#update-bar [data-upd="install"]')?.click(); return; }
+  if (b.dataset.pc === "install") { startUpdate(); return; }
   try {
     await api("/api/desktop/shortcuts", { method: "POST", body: { which: [b.dataset.pc] } });
     await loadDesktop();
