@@ -1,1 +1,2 @@
-- On wishlist game pages, the scores come first and time to beat sits on the right: OpenCritic, Steam reviews, then HowLongToBeat.
+- **Wishlist and prices:** when you already own the game on Steam or PlayStation, that store's box stays and says **Owned** instead of showing a price (and that price is never the one on the card).
+- The XGP and PS+ boxes use the regular Xbox and PlayStation icons.

@@ -577,10 +577,10 @@ function wishPrice(g) {
   if (!x) return tags;
   return `<span class="wp-store">${storeMark(x.store, false)}</span><span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}${tags ? ` · ${tags}` : ""}`;
 }
-// XGP / PS+ marks for the game page boxes (PS+: the PlayStation icon with a +; XGP: its initials).
+// XGP / PS+ marks for the game page boxes: the platform's regular icon (Xbox, PlayStation).
 function subMark(sv) {
-  if (sv === "psplus") return `<span class="smark plus" title="PS+"><i style="--icon:url('${iconUrl(PLATFORM_ICON.playstation)}')"></i><b>PS</b><em>+</em></span>`;
-  return `<span class="smark text" title="XGP">XGP</span>`;
+  const p = SUB_PLATFORM[sv];
+  return `<span class="smark" title="${esc(SUB_SHORT[sv])}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[p])}')"></i><b>${p === "xbox" ? "X" : "PS"}</b></span>`;
 }
 // A store's mark: the heart version when the game is on that store's wishlist, else its plain icon.
 function storeMark(store, wished) {
@@ -730,7 +730,9 @@ function renderWishRows() {
 function wishBox(g) {
   if (!g.wish) return "";
   const w = g.wish;
-  const tags = (g.wish.owned_on || []).filter((p) => p !== "xbox").map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`);  // XGP / PS+ have their own boxes
+  // Owned on Steam / PlayStation: that store's box says so. Other stores (Switch, Epic…) are listed below the boxes.
+  const ownedStores = ["steam", "psn"].filter((st) => (w.owned_on || []).includes(WISH_PLATFORM[st]));
+  const tags = (w.owned_on || []).filter((p) => p !== "xbox" && !["steam", "playstation"].includes(p)).map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`);
   const when = (x) => {
     if (!x || x.released === 1 || g.rel.state === "out") return "";  // out already: the date doesn't matter
     if (x.release_ts) return `Coming ${fmtRelease({ ts: x.release_ts, prec: x.precision || "day" })}`;
@@ -751,7 +753,11 @@ function wishBox(g) {
   const boxes = [
     // the cheapest outlined, only when it really is cheaper
     ...prices.map((x, i) => box(x, i === 0 && prices.length > 1 && x.price_cents < prices[1].price_cents)),
-    ...(w.stores || []).filter((s) => !prices.some((x) => x.store === s.store)).map((s) => box({ store: s.store, url: s.url }, false)),
+    ...(w.stores || []).filter((s) => !prices.some((x) => x.store === s.store) && !ownedStores.includes(s.store)).map((s) => box({ store: s.store, url: s.url }, false)),
+    ...ownedStores.map((st) => `<${listed[st]?.url ? `a href="${esc(listed[st].url)}" target="_blank" rel="noopener" title="Open the store page"` : "div"} class="pbox owned">
+      <span class="pbox-top">${storeMark(st, !!listed[st])}<b>${esc(WISH_STORE[st])}</b></span>
+      <span class="pbox-price">Owned</span><small>It's in your library</small>
+      ${listed[st]?.added_at ? `<small class="pbox-added">Wishlisted ${esc(fmtDate(listed[st].added_at))}</small>` : ""}</${listed[st]?.url ? "a" : "div"}>`),
     ...(w.missing || []).map((st) => `<div class="pbox none"><span class="pbox-top">${storeMark(st, false)}<b>${esc(WISH_STORE[st])}</b></span><small>Not sold on ${st === "psn" ? "the PlayStation Store" : "Steam"}</small></div>`),
     ...["gamepass", "psplus"].map(subBox),
   ];

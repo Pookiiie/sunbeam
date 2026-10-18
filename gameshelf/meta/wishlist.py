@@ -531,10 +531,12 @@ def _summary(rows: list[dict], owned_on: list[str], others: list[dict] | None = 
     } for r in sorted(rows, key=lambda x: x["store"])]
     # Every price we know, cheapest first: the wishlists' own and the other store's ("wished": False).
     # Both stores are asked for Canadian prices; written the same way ("C$38.99") so they compare at a glance.
+    # A store where you own it shows "Owned" on the game page instead of a price, and isn't the card's price.
+    owned_stores = {st for st, plat in (("steam", "steam"), ("psn", "playstation")) if plat in owned_on}
     prices = []
     for wished, rs in ((True, rows), (False, others)):
         for r in rs:
-            if not r["price_text"]:
+            if not r["price_text"] or r["store"] in owned_stores:
                 continue
             cents = r["price_cents"] if r["price_cents"] is not None else _cents(r["price_text"])
             base = (r["base_cents"] if r["base_cents"] is not None else _cents(r["base_text"])) if r["discount_pct"] else None

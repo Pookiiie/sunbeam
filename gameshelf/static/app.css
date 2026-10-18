@@ -891,9 +891,7 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .more-pop .ico { width: 15px; height: 15px; color: var(--muted); }
 .pbox-top b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pbox small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pbox.sub.in .pbox-price { color: var(--done); }
+.pbox.sub.in .pbox-price, .pbox.owned .pbox-price { color: var(--done); }
 .pbox.sub.none { border-style: dashed; }
 .pbox .dim { color: var(--faint); font-weight: 600; }
 .pbox small.leaving { color: var(--accent); }
-.smark.text { font: 800 7px/1 var(--body); letter-spacing: .02em; color: var(--text); }
-.smark.plus em { position: absolute; right: -1px; top: -3px; font: 800 11px/1 var(--body); font-style: normal; color: var(--text); }
