@@ -520,7 +520,141 @@ function renderUpNext() {
     </section>`);
   renderWishRows();
   renderRecent();
+  renderShelfRows();
+  applyCuratorLayout();
 }
+
+/* ------------------------------------------------------------ Curator: Your shelves, and arranging the sections */
+
+// The sections, in their default order. "Customize" (top right of Curator) reorders them and
+// switches them off; saved in settings (curator_layout).
+const CUR_SECTIONS = [
+  ["picks", "Picks", "Keep playing and Try something new"],
+  ["wishlist", "From your wishlist", "Coming out soon, Recently released, On sale"],
+  ["recent", "Recently played", "Your latest games"],
+  ["shelves", "Your shelves", "The lists you make"],
+];
+function curatorLayout() {
+  const saved = state.settings?.settings?.curator_layout || {};
+  const keys = CUR_SECTIONS.map(([k]) => k);
+  const order = [...(saved.order || []).filter((k) => keys.includes(k)), ...keys.filter((k) => !(saved.order || []).includes(k))];
+  return { order, hidden: (saved.hidden || []).filter((k) => keys.includes(k)) };
+}
+function applyCuratorLayout() {
+  const { order, hidden } = curatorLayout();
+  for (const el of $$("#page-curator [data-cur]")) {
+    el.style.order = String(order.indexOf(el.dataset.cur) + 2);
+    el.hidden = hidden.includes(el.dataset.cur) || !!state.curEdit;
+  }
+  $("#cur-edit").hidden = !state.curEdit;
+  $("#cur-tools").hidden = !!state.curEdit;
+}
+async function saveCuratorLayout(layout) {
+  state.settings.settings.curator_layout = layout;  // at once, so the list redraws without waiting
+  renderCuratorEdit(); applyCuratorLayout();
+  try { await api("/api/settings", { method: "POST", body: { curator_layout: layout } }); } catch (e) { toast(e.message, true); }
+}
+function renderCuratorEdit() {
+  const { order, hidden } = curatorLayout();
+  const info = Object.fromEntries(CUR_SECTIONS.map(([k, n, d]) => [k, [n, d]]));
+  const n = (state.shelves || []).length;
+  $("#cur-edit").innerHTML = `<div class="cur-edit-head"><h2 class="cur-h">Arrange ${esc(CURATOR)}</h2>
+      <span>Drag or use the arrows; switch off what you don't need.</span><span class="spacer"></span>
+      <button type="button" class="btn" data-cedit="done">Done</button></div>
+    ${order.map((k, i) => `<div class="cur-bar ${hidden.includes(k) ? "off" : ""}" draggable="true" data-ckey="${k}">
+      <span class="grip" aria-hidden="true">⋮⋮</span>
+      <div><b>${esc(info[k][0])}</b><span>${k === "shelves" ? (n ? `${n} shel${n === 1 ? "f" : "ves"}` : "No shelves yet: add games to a shelf from their page") : esc(info[k][1])}</span></div>
+      <span class="spacer"></span>
+      <button type="button" class="btn icon ghost" data-cedit="up" ${i ? "" : "disabled"} aria-label="Move ${esc(info[k][0])} up">↑</button>
+      <button type="button" class="btn icon ghost" data-cedit="down" ${i < order.length - 1 ? "" : "disabled"} aria-label="Move ${esc(info[k][0])} down">↓</button>
+      <label class="cur-switch"><input type="checkbox" data-cedit="show" ${hidden.includes(k) ? "" : "checked"}><i></i><span>${hidden.includes(k) ? "Hidden" : "Shown"}</span></label>
+    </div>`).join("")}`;
+}
+$("#cur-customize").addEventListener("click", () => { state.curEdit = true; renderCuratorEdit(); applyCuratorLayout(); scrollTo({ top: 0 }); });
+$("#cur-edit").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cedit]");
+  if (!b || b.dataset.cedit === "show") return;
+  if (b.dataset.cedit === "done") { state.curEdit = false; applyCuratorLayout(); renderUpNext(); return; }
+  const { order, hidden } = curatorLayout(), k = b.closest("[data-ckey]").dataset.ckey, i = order.indexOf(k);
+  const j = b.dataset.cedit === "up" ? i - 1 : i + 1;
+  if (j < 0 || j >= order.length) return;
+  [order[i], order[j]] = [order[j], order[i]];
+  saveCuratorLayout({ order, hidden });
+});
+$("#cur-edit").addEventListener("change", (e) => {
+  if (e.target.dataset.cedit !== "show") return;
+  const { order, hidden } = curatorLayout(), k = e.target.closest("[data-ckey]").dataset.ckey;
+  saveCuratorLayout({ order, hidden: e.target.checked ? hidden.filter((x) => x !== k) : [...hidden, k] });
+});
+// Drag a bar onto another to put it there.
+$("#cur-edit").addEventListener("dragstart", (e) => {
+  const bar = e.target.closest("[data-ckey]");
+  if (!bar) return;
+  state.curDrag = bar.dataset.ckey; bar.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", bar.dataset.ckey);
+});
+$("#cur-edit").addEventListener("dragover", (e) => {
+  const bar = e.target.closest("[data-ckey]");
+  if (!bar || !state.curDrag) return;
+  e.preventDefault();
+  $$("#cur-edit .cur-bar").forEach((x) => x.classList.toggle("drop-here", x === bar && x.dataset.ckey !== state.curDrag));
+});
+$("#cur-edit").addEventListener("dragend", () => { state.curDrag = null; $$("#cur-edit .cur-bar").forEach((x) => x.classList.remove("dragging", "drop-here")); });
+$("#cur-edit").addEventListener("drop", (e) => {
+  const bar = e.target.closest("[data-ckey]");
+  if (!bar || !state.curDrag) return;
+  e.preventDefault();
+  const { order, hidden } = curatorLayout(), from = state.curDrag;
+  state.curDrag = null;
+  const rest = order.filter((k) => k !== from);
+  rest.splice(rest.indexOf(bar.dataset.ckey) + (order.indexOf(from) < order.indexOf(bar.dataset.ckey) ? 1 : 0), 0, from);
+  saveCuratorLayout({ order: rest, hidden });
+});
+
+// Your shelves: a card per shelf with a mosaic of its covers (default), or a row per shelf
+// (Settings › Display). A card or "See all" opens the Library on that shelf.
+function renderShelfRows() {
+  const el = $("#shelfrows");
+  const shelves = (state.shelves || []).map((s) => ({ ...s, games: state.games.filter((g) => g.shelves.includes(s.id) && !g.isHidden) }))
+    .filter((s) => s.games.length);
+  if (!shelves.length) { setHTML(el, ""); return; }
+  const rows = (state.settings?.settings?.curator_shelves || "cards") === "rows";
+  const body = rows
+    ? shelves.map((s) => `<div class="shelf-line">
+        <div class="shelf-line-name"><b>${esc(s.name)}</b><span>${s.games.length} game${s.games.length === 1 ? "" : "s"}</span><button type="button" class="link" data-shelf-open="${s.id}">See all ›</button></div>
+        <div class="shelf-strip" data-count="${s.games.length}">${s.games.map((g) => `<button class="shelf-cover" data-id="${g.id}" title="${esc(g.title)}"><div class="cover">${coverHTML(g)}${instMark(g)}</div></button>`).join("")}</div>
+      </div>`).join("")
+    : `<div class="shelf-cards">${shelves.map((s) => `<button type="button" class="shelf-card" data-shelf-open="${s.id}" title="Open ${esc(s.name)} in the Library">
+        <div class="shelf-mosaic">${s.games.slice(0, 8).map((g) => `<div class="cover">${coverHTML(g)}</div>`).join("")}</div>
+        <b>${esc(s.name)}</b><span>${s.games.length} game${s.games.length === 1 ? "" : "s"}</span></button>`).join("")}</div>`;
+  setHTML(el, `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">Your shelves</h2></div>${body}</section>`);
+  if (rows) requestAnimationFrame(fitShelfStrips);
+}
+// A row shows the covers that fit; when some don't, the last place says "+N".
+function fitShelfStrips() {
+  for (const strip of $$("#shelfrows .shelf-strip")) {
+    strip.querySelector(".shelf-more")?.remove();
+    const items = [...strip.querySelectorAll(".shelf-cover")];
+    items.forEach((x) => { x.hidden = false; });
+    const w = items[0]?.getBoundingClientRect().width || 84, gap = 10;
+    const fit = Math.max(1, Math.floor((strip.clientWidth + gap) / (w + gap)));
+    if (items.length <= fit) continue;
+    items.forEach((x, i) => { x.hidden = i >= fit - 1; });
+    const id = strip.closest(".shelf-line").querySelector("[data-shelf-open]").dataset.shelfOpen;
+    strip.insertAdjacentHTML("beforeend", `<button type="button" class="shelf-more" data-shelf-open="${id}">+${items.length - fit + 1}</button>`);
+  }
+}
+addEventListener("resize", () => { if (state.page === "curator") fitShelfStrips(); });
+function openShelf(id) {
+  state.prefs.shelves = [id];
+  savePrefs();
+  showPage("library");
+  renderFilters(); render();
+}
+$("#shelfrows").addEventListener("click", (e) => {
+  const sh = e.target.closest("[data-shelf-open]");
+  if (sh) { e.stopPropagation(); openShelf(Number(sh.dataset.shelfOpen)); }
+}, true);
 
 // The last games you played, as library covers, under the picks.
 function renderRecent() {
@@ -2537,11 +2671,11 @@ $("#settings-body").addEventListener("click", (e) => {
 $("#settings-body").addEventListener("change", async (e) => {
   if (e.target.dataset.sub) { await saveSub(e.target); renderSettings("subs"); return; }
   const display = { "set-hide-vr": ["hide_vr", (t) => t.checked], "set-hide-ea": ["hide_early_access", (t) => t.checked],
-    "set-start": ["start_page", (t) => t.value] }[e.target.id];
+    "set-start": ["start_page", (t) => t.value], "set-shelves": ["curator_shelves", (t) => t.value] }[e.target.id];
   if (display) {
     await api("/api/settings", { method: "POST", body: { [display[0]]: display[1](e.target) } });
     await loadSettings();
-    renderSettings(e.target.id === "set-start" ? undefined : "hidden-types");
+    renderSettings(["set-start", "set-shelves"].includes(e.target.id) ? undefined : "hidden-types");
     renderAll();
     return;
   }
@@ -2735,6 +2869,12 @@ function displayBlock() {
       <span class="spacer"></span>
       <select id="set-start" aria-label="Open ${esc(APP)} on">${[["curator", CURATOR], ["library", "Library"], ["wishlist", "Wishlist"], ["year", "Stats"]].map(([v, l]) =>
         `<option value="${v}" ${(s.start_page || "curator") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+    </div>
+    <div class="pc-row display-row">
+      <div><p>Your shelves in ${esc(CURATOR)}</p></div>
+      <span class="spacer"></span>
+      <select id="set-shelves" aria-label="Your shelves in ${esc(CURATOR)}">${[["cards", "Cards"], ["rows", "Rows"]].map(([v, l]) =>
+        `<option value="${v}" ${(s.curator_shelves || "cards") === v ? "selected" : ""}>${l}</option>`).join("")}</select>
     </div>
   </div>`;
 }
