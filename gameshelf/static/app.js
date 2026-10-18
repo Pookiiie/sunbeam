@@ -35,7 +35,7 @@ const PLATFORM_SHORT = { steam: "Steam", playstation: "PS", switch2: "Switch 2",
 
 const DEFAULT_PREFS = {
   sort: "last_played", dir: "desc", view: "grid", size: 170, showHidden: false,
-  hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], showVR: false, showEA: false,
+  hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], showVR: false, showEA: false, onlyEA: false,
   subTags: [], wishSort: "release", wishStore: "all", wishSale: false,
 };
 
@@ -329,6 +329,7 @@ function visibleGames() {
     // Settings › Display hides these from the library and Curator; More › Show … brings them back here.
     if (g.vr && hideVR() && !p.showVR) return false;
     if (g.isEA && hideEA() && !p.showEA) return false;
+    if (p.onlyEA && eaShown() && !g.isEA) return false;  // More › Early access only
     if (q && !g._search.includes(q)) return false;
     if (hidden.size && !g.platforms.some((x) => !hidden.has(x))) return false;
     if (!statuses.has(g.status || "")) return false;
@@ -600,6 +601,7 @@ async function saveSub(input) {
 // Settings › Display: VR games are hidden unless you say otherwise; early access games are shown.
 const hideEA = () => !!state.settings?.settings?.hide_early_access;
 const hideVR = () => state.settings?.settings?.hide_vr !== false;
+const eaShown = () => !hideEA() || state.prefs.showEA;  // early access games are in the library view
 // The price to show: the sale if there is one, else the lowest listed price.
 // Followed by where you can already play it: "C$ 38.99 · On XGP".
 // The lowest price across Steam and PlayStation (wishlist.py looks up the store whose wishlist
@@ -978,7 +980,7 @@ function renderStats() {
 const STATUS_NAMES = { "": "Not marked", completed: "Completed", dnf: "Did not finish" };
 const PLAYED_NAMES = { played: "Played", never: "Never played" };
 const SUBTAG_NAMES = { new: "Recently added", leaving: "Leaving soon" };
-const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], showVR: false, showEA: false, subTags: [], showHidden: false });
+const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], showVR: false, showEA: false, onlyEA: false, subTags: [], showHidden: false });
 state.openFilter = null;
 state.genreQuery = "";
 
@@ -1013,7 +1015,7 @@ function filterSummaries(f) {
   const st = p.status.length === 3 ? null : !p.status.length ? "None" : p.status.map((x) => STATUS_NAMES[x]).join(", ");
   const pl = p.played.length === 2 ? null : !p.played.length ? "None" : PLAYED_NAMES[p.played[0]];
   const gen = !p.genres.length ? null : p.genres.length <= 2 ? p.genres.map(genreLabel).join(", ") : `${p.genres.length} genres`;
-  const more = [...p.subTags.map((t) => SUBTAG_NAMES[t]), ...(p.showVR && hideVR() ? ["VR shown"] : []), ...(p.showEA && hideEA() ? ["Early access shown"] : []), ...(p.showHidden ? ["Hidden shown"] : [])];
+  const more = [...p.subTags.map((t) => SUBTAG_NAMES[t]), ...(p.showVR && hideVR() ? ["VR shown"] : []), ...(p.showEA && hideEA() ? ["Early access shown"] : []), ...(p.onlyEA && eaShown() ? ["Early access only"] : []), ...(p.showHidden ? ["Hidden shown"] : [])];
   return { platform: plat, status: st, played: pl, genre: gen, more: more.length ? more.join(", ") : null };
 }
 
@@ -1063,6 +1065,7 @@ function filterMenu(id, f) {
     + `<div class="fpop-head"><span>Also</span></div>
       ${f.vr && hideVR() ? `<div class="frow"><label><input type="checkbox" data-fflag="showVR" ${p.showVR ? "checked" : ""}><span>Show VR games</span></label><em>${f.vr}</em></div>` : ""}
       ${f.ea && hideEA() ? `<div class="frow"><label><input type="checkbox" data-fflag="showEA" ${p.showEA ? "checked" : ""}><span>Show early access games</span></label><em>${f.ea}</em></div>` : ""}
+      ${f.ea && eaShown() ? `<div class="frow"><label><input type="checkbox" data-fflag="onlyEA" ${p.onlyEA ? "checked" : ""}><span>Early access only</span></label><em>${f.ea}</em></div>` : ""}
       ${f.hidden ? `<div class="frow"><label><input type="checkbox" data-fflag="showHidden" ${p.showHidden ? "checked" : ""}><span>Show hidden games</span></label><em>${f.hidden}</em></div>` : ""}
       <div class="fpop-foot"><button type="button" class="link" data-fdups>Find duplicate games</button></div>`;
   return "";
@@ -1093,7 +1096,7 @@ function clearFilter(id) {
   if (id === "status") p.status = d.status;
   if (id === "played") p.played = d.played;
   if (id === "genre") p.genres = d.genres;
-  if (id === "more") Object.assign(p, { subTags: d.subTags, showVR: d.showVR, showEA: d.showEA, showHidden: d.showHidden });
+  if (id === "more") Object.assign(p, { subTags: d.subTags, showVR: d.showVR, showEA: d.showEA, onlyEA: d.onlyEA, showHidden: d.showHidden });
   savePrefs(); renderFilters(); render();
 }
 
