@@ -50,11 +50,11 @@ For Nintendo Switch and Switch 2 games, use **Sync › Nintendo Switch › Impor
 - **Sync** pulls your games, playtime and last played from your stores. Games new to your library also get their details, art, reviews and time to beat. The first sync of a big Steam library can take 10–20 minutes (mostly time-to-beat lookups); later syncs take seconds unless you've bought new games.
 - **Refresh assets** updates details, artwork, Steam reviews and time to beat for games you already have, either filling in only what's missing or re-fetching everything. Use it after setting up IGDB or SteamGridDB for the first time.
 - Both windows list their steps in order, and show which are done and what's left while they run.
-- Open a game to mark it **Completed** or **Did not finish**, add notes, fix a wrong match, or **Change art** (pick a cover, banner or logo from Steam, IGDB, PlayStation and SteamGridDB, or paste a link). Art you pick stays when you refresh assets.
+- Open a game to mark it **Completed** or **Did not finish**, fix a wrong match, or **Change art** (pick a cover, banner or logo from Steam, IGDB, PlayStation and SteamGridDB, or paste a link). Art you pick stays when you refresh assets.
 - **Right-click** any game for a quick menu: open it, play it, set its status, add it to a shelf, change art, fix the match or hide it.
 - **Play:** games installed through Steam, Epic, Ubisoft Connect, Battle.net or the Xbox app have a **Play** button on their page (and a small ▶ on their cover); it starts the game through its launcher. Installed in more than one place? The ▾ next to it picks which. Games you have but haven't installed offer **Install** instead, which opens the store's launcher. Sunbeam reads what's installed from the launchers themselves when it starts, after every sync and when you come back to its window.
 - **Shelves** are lists you make ("Couch co-op", "Comfort games"…): add a game from its page (**+ Add to shelf**) or by right-clicking its cover, and pick shelves in the Library's **Shelves** filter. Rename or delete a shelf from that menu.
-- **More like this** on a game's page: games IGDB lists as similar that you own or can play on XGP / PS+.
+- **More like this** at the bottom of a game's page: games IGDB lists as similar that you own or can play on XGP / PS+.
 - **Your year** looks back at a year of play: games played, games seen to the credits, the ones you started, your most played and the genres you played, with ‹ › for earlier years. It goes by what your stores report: a game counts as finished on the date of its finishing achievement or trophy, or else the day you last played it (so games you marked Completed during setup land in the year you actually played them). Hours within a year are counted from Sunbeam's own daily record, so they start when you started using Sunbeam (Switch play history counts in full).
 - **Undo:** after changing a game's status, hiding it or a Curator mark, the message at the bottom offers **Undo** for a few seconds.
 - **Finished games are spotted for you.** Each sync checks the achievements and trophies of games you've played since the last check: a Platinum, every achievement, or one for finishing the story, rolling the credits or beating the final boss marks the game Completed. The game's page says which achievement did it. Open-ended games (multiplayer, sandbox, MMOs) are never marked, and an achievement only counts when it plainly means the whole game or story ("Complete the story", not "Complete a story case"). A status you set yourself is never changed. To check your whole library once, use Refresh assets with "Finished games" ticked.
@@ -75,13 +75,13 @@ For Nintendo Switch and Switch 2 games, use **Sync › Nintendo Switch › Impor
 ## Your data
 
 Everything lives in the `data` folder next to the app:
-- `library.db`: your library, statuses and notes
+- `library.db`: your library and statuses
 - `settings.json`: your keys and tokens
 - `window`: the app window's own browser profile (its size and position)
 - `gameshelf.log`: messages from the last runs, useful if something goes wrong
 - `backups`: copies of `library.db`, made before each new version of Sunbeam starts and once a week (the newest 6 are kept). To go back to one, quit Sunbeam and copy it over `library.db`.
 
-Back up that folder to keep your statuses and notes. Delete it to start fresh.
+Back up that folder to keep your statuses. Delete it to start fresh.
 
 ## Known limits
 

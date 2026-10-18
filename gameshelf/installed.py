@@ -31,6 +31,7 @@ SCAN_EVERY = 120  # seconds between focus-triggered scans
 _lock = threading.Lock()
 _last = {"at": 0.0}
 errors: dict[str, str] = {}
+last_found: list[dict] = []  # what the last scan saw, matched or not (GET /api/installed?details=1)
 
 
 # ------------------------------------------------------------------ small parsers (testable anywhere)
@@ -232,6 +233,17 @@ def scan_ubisoft() -> list[dict]:
     return out
 
 
+# Battle.net's install id (the uninstaller's --uid=) → the product code Sunbeam's Battle.net
+# import uses (account.battle.net's list). Windows' name for a game is often shorter than the
+# store's ("Warcraft III" for Warcraft III: Reforged), so the code is what matches.
+BNET_UIDS = {
+    "w3": "W3", "prometheus": "PRO", "fenris": "FEN", "diablo3": "D3", "osi": "OSI", "s1": "S1", "s2": "S2",
+    "hs_beta": "WTCG", "heroes": "HERO", "wow": "WOW", "wow_classic": "WOW", "wow_classic_era": "WOW",
+    "anbs": "ANBS", "gryphon": "GRY", "odin": "ODIN", "viper": "VIPR", "zeus": "ZEUS", "fore": "FORE",
+    "auks": "AUKS", "lazarus": "LAZR", "rtro": "RTRO", "wlby": "WLBY", "destiny2": "DST2", "aqua": "AQUA",
+}
+
+
 def scan_battlenet() -> list[dict]:
     out = []
     for sub, vals in _uninstall_entries():
@@ -242,7 +254,8 @@ def scan_battlenet() -> list[dict]:
         if not from_bnet or not name or name.lower().startswith("battle.net"):
             continue
         uid = re.search(r"--uid=([\w-]+)", vals.get("UninstallString") or "")
-        out.append({"platform": "battlenet", "ref": uid.group(1) if uid else sub, "name": name,
+        ref = uid.group(1) if uid else sub
+        out.append({"platform": "battlenet", "ref": ref, "name": name, "code": BNET_UIDS.get(ref.lower(), ""),
                     "launch": None, "dir": vals.get("InstallLocation") or ""})
     return out
 
@@ -292,9 +305,19 @@ def match(found: list[dict]) -> list[tuple[int, dict]]:
         titles.setdefault(r["norm_title"], []).append((r["id"], plats.get(r["id"], set())))
 
     def by_name(name: str, platform: str) -> int | None:
-        cands = titles.get(db.normalize_title(db.strip_pc_tags(name or ""))) or []
+        key = db.normalize_title(db.strip_pc_tags(name or ""))
+        cands = titles.get(key) or []
         own = [gid for gid, p in cands if platform in p]
-        return (own or [gid for gid, _ in cands] or [None])[0]
+        if own or cands:
+            return (own or [gid for gid, _ in cands])[0]
+        # Windows' shorter name for a game on that store: "Warcraft III" → "Warcraft III: Reforged"
+        if len(key) >= 4:
+            pre = [gid for t, lst in titles.items() if t.startswith(key + " ") for gid, p in lst if platform in p]
+            if len(pre) == 1:
+                return pre[0]
+        return None
+
+    by_code = {str(e["external_id"]).upper(): e["game_id"] for e in entries if e["platform"] == "battlenet"}
 
     out = []
     for f in found:
@@ -302,6 +325,8 @@ def match(found: list[dict]) -> list[tuple[int, dict]]:
         gid = by_ext.get((p, ref))
         if gid is None and p == "steam":
             gid = by_appid.get(ref)
+        if gid is None and p == "battlenet" and f.get("code"):
+            gid = by_code.get(f["code"]) or next((g for c, g in by_code.items() if c.split("_")[0] == f["code"]), None)
         if gid is None and p == "xbox":
             gid = by_ext.get(("xbox", f.get("title_id") or "")) or by_ext.get(("xbox", "xgp:" + (f.get("store_id") or "")))
         if gid is None and p in ("epic", "ubisoft", "battlenet", "xbox"):
@@ -323,13 +348,16 @@ def scan() -> dict:
             except Exception as e:  # one launcher's oddity never stops the others
                 errs[name] = str(e)[:200]
         pairs = match(found)
+        matched = {id(f): gid for gid, f in pairs}
+        last_found[:] = [{"platform": f["platform"], "ref": str(f["ref"]), "name": f["name"], "game_id": matched.get(id(f)),
+                          "can_play": bool(f.get("launch")) or f["platform"] == "battlenet"} for f in found]
         codes = {r["game_id"]: r["external_id"] for r in db.query("SELECT game_id, external_id FROM entries WHERE platform='battlenet'")}
         with db.tx() as c:
             c.execute("DELETE FROM installs")
             for gid, f in pairs:
                 launch = f["launch"]
                 if f["platform"] == "battlenet":
-                    code = codes.get(gid)
+                    code = codes.get(gid) or f.get("code")
                     launch = f"battlenet://{code}" if code else None
                 c.execute("INSERT OR REPLACE INTO installs(game_id, platform, ref, name, launch, dir, seen_at) VALUES (?,?,?,?,?,?,?)",
                           (gid, f["platform"], str(f["ref"]), f["name"], launch, f.get("dir") or "", db.now()))
@@ -361,8 +389,8 @@ def scan_if_stale() -> bool:
 
 def by_game() -> dict[int, list[dict]]:
     out: dict[int, list[dict]] = {}
-    for r in db.query("SELECT game_id, platform, launch FROM installs"):
-        out.setdefault(r["game_id"], []).append({"platform": r["platform"], "can_play": bool(r["launch"])})
+    for r in db.query("SELECT game_id, platform, MAX(launch IS NOT NULL) AS can FROM installs GROUP BY game_id, platform"):
+        out.setdefault(r["game_id"], []).append({"platform": r["platform"], "can_play": bool(r["can"])})
     return out
 
 

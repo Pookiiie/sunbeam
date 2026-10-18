@@ -498,7 +498,7 @@ function renderUpNext() {
   const L = recLists();
   const card = (g, i) => `
     <button class="rec" data-id="${g.id}" title="${esc(g.title)}: ${esc(recReason(g))}">
-      <div class="cover">${coverHTML(g)}<span class="rec-n">${i + 1}</span>${interestMark(g)}</div>
+      <div class="cover">${coverHTML(g)}<span class="rec-n">${i + 1}</span>${interestMark(g)}${instMark(g)}</div>
       <div class="rec-title">${esc(g.title)}</div>
       <div class="rec-why">${recShort(g)}</div>
     </button>`;
@@ -957,7 +957,7 @@ function renderGrid(list) {
         ${g.isEA ? eaPill(g).replace('class="ea-pill"', `class="ea-pill corner${subPill(g) ? " below" : ""}"`) : ""}
         ${g.status === "completed" ? `<span class="stamp completed check" title="Completed" aria-label="Completed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>` : g.status === "dnf" ? `<span class="stamp dnf" title="Did not finish">DNF</span>` : ""}
         <div class="badges">${badgesHTML(g)}</div>
-        ${g.canPlay ? `<span class="inst-mark" title="Installed on this PC" aria-label="Installed">${PLAY_SVG}</span>` : ""}
+        ${instMark(g)}
       </div>
       ${meter(g)}
       <div class="card-title">${esc(g.title)}</div>
@@ -1448,11 +1448,14 @@ function renderDetail(g) {
           </div>
         </div>
       </div>
-      ${shelfRow(g)}
-      ${(g.subs || []).length && !g.wish ? `<p class="sub-note">${g.isCatalog ? "Not in your library. " : ""}${g.subs.map((x) => `${x.leaving ? "Leaving" : "Included with"} ${SUB_NAME[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}.${storeLink(x.s)}`).join(" ")}</p>` : ""}
+      <div class="detail-notes">
+        ${shelfRow(g)}
+        ${(g.subs || []).length && !g.wish ? `<div class="sub-line">${g.isCatalog ? `<span>Not in your library</span>` : ""}${g.subs.map((x) =>
+          `<span title="${esc(SUB_NAME[x.s])}">${x.leaving ? "Leaving" : "Included with"} ${SUB_SHORT[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}${storeLink(x.s)}</span>`).join("")}</div>` : ""}
+        ${g.isEA ? `<p class="sub-note">In early access${g.eaFull ? `, full release ${esc(fmtDate(g.eaFull))}` : ""}: time to beat and progress may still change, and it won't be marked completed automatically.</p>` : ""}
+        ${g.status === "completed" && g.status_auto ? `<p class="auto-note">✓ Marked completed automatically: ${esc(g.status_auto)}${g.status_at ? `, ${esc(fmtDate(g.status_at))}` : ""}. Not right? Pick another status above.</p>` : ""}
+      </div>
       ${wishBox(g)}
-      ${g.isEA ? `<p class="sub-note">In early access${g.eaFull ? `, full release ${esc(fmtDate(g.eaFull))}` : ""}: time to beat and progress may still change, and it won't be marked completed automatically.</p>` : ""}
-      ${g.status === "completed" && g.status_auto ? `<p class="auto-note">✓ Marked completed automatically: ${esc(g.status_auto)}${g.status_at ? `, ${esc(fmtDate(g.status_at))}` : ""}. Not right? Pick another status above.</p>` : ""}
       <div class="facts">
         ${g.isWishOnly ? "" : fact("You've played", g.hoursUnknown ? "?" : fmtHours(g.played_h, { empty: "0 h" }), g.last_played ? `Last played ${esc(relDate(g.last_played).toLowerCase())}${g.hoursUnknown ? ". The store doesn't say for how long" : ""}` : g.playtime_min ? "Date unknown" : "Not played yet")}
         ${g.isWishOnly ? "" : fact("Progress", progressText, progressSmall, `<div class="bar">${meter(g)}</div><div class="endless-row">${endlessToggle}</div>`)}
@@ -1499,7 +1502,6 @@ function renderDetail(g) {
 
       ${(g.screenshots || []).length ? `<section class="section"><h2>Screenshots</h2><div class="shots">${g.screenshots.map((s, i) => `<img data-shot="${i}" src="${esc(s)}" alt="" loading="lazy" data-fallbacks="">`).join("")}</div></section>` : ""}
 
-      ${similarSection(g)}
 
       ${g.summary ? `<section class="section"><h2>About</h2><p class="summary clamp" id="summary">${esc(g.summary)}${g.storyline ? "\n\n" + esc(g.storyline) : ""}</p><button class="link" id="more">Read more</button></section>` : ""}
 
@@ -1511,10 +1513,7 @@ function renderDetail(g) {
         ${g.igdb_url ? `<div><dt>More</dt><dd><a href="${esc(g.igdb_url)}" target="_blank" rel="noopener">IGDB page</a>${g.steam_appid ? ` and <a href="https://store.steampowered.com/app/${g.steam_appid}" target="_blank" rel="noopener">Steam store page</a>` : ""}</dd></div>` : ""}
       </dl></section>` : ""}
 
-      <section class="section">
-        <h2>Notes</h2>
-        <textarea id="notes" placeholder="Anything to remember about this one">${esc(g.notes || "")}</textarea>
-      </section>
+      ${similarSection(g)}
     </div>`;
 
   const more = $("#more");
@@ -1573,6 +1572,8 @@ async function setStatus(id, status) {
 /* ------------------------------------------------------------ Play, Install and shelves */
 
 const PLAY_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>`;
+// The ▶ on the cover of a game that's installed on this PC (library, Curator, Your year…).
+const instMark = (g) => g.canPlay ? `<span class="inst-mark" title="Installed on this PC" aria-label="Installed">${PLAY_SVG}</span>` : "";
 const DL_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>`;
 const PC_STORES = ["steam", "epic", "xbox", "ubisoft", "battlenet"];
 
@@ -1598,18 +1599,23 @@ function installOrder(g) {
   }
   return out;
 }
+// "Steam" with Steam's icon, for the Play / Install buttons and their menus.
+const storeWithIcon = (p, full = false) => {
+  const icon = PLATFORM_ICON[p];
+  return `${icon ? `<i class="pico" style="--icon:url('${iconUrl(icon)}')" aria-hidden="true"></i>` : ""}${esc((full ? PLATFORM_NAME[p] : PLATFORM_SHORT[p]) || p)}`;
+};
 function playBlock(g) {
   if (g.isWishOnly) return "";
   const can = playOrder(g);
   const menu = (items) => `<div class="play-pop" hidden>${items}</div>`;
   if (can.length) return `<div class="play-row">
-      <span class="play-split"><button class="play-btn" data-act="play" data-v="${can[0]}">${PLAY_SVG}Play <small>on ${esc(PLATFORM_SHORT[can[0]] || can[0])}</small></button>${can.length > 1 ? `<button class="play-caret" data-act="play-menu" aria-label="Choose which copy" aria-expanded="false">▾</button>` : ""}</span>
-      ${can.length > 1 ? menu(can.map((x) => `<button data-act="play" data-v="${x}">Play on ${esc(PLATFORM_NAME[x] || x)}</button>`).join("")) : ""}
+      <span class="play-split"><button class="play-btn" data-act="play" data-v="${can[0]}">${PLAY_SVG}Play <small>on ${storeWithIcon(can[0])}</small></button>${can.length > 1 ? `<button class="play-caret" data-act="play-menu" aria-label="Choose which copy" aria-expanded="false">▾</button>` : ""}</span>
+      ${can.length > 1 ? menu(can.map((x) => `<button data-act="play" data-v="${x}">Play on ${storeWithIcon(x, true)}</button>`).join("")) : ""}
     </div>`;
   const inst = installOrder(g);
   if (inst.length) return `<div class="play-row">
-      <span class="play-split ghost"><button class="install-btn" data-act="install" data-v="${inst[0]}">${DL_SVG}Install <small>on ${esc(PLATFORM_SHORT[inst[0]] || inst[0])}</small></button>${inst.length > 1 ? `<button class="play-caret" data-act="play-menu" aria-label="Choose which store" aria-expanded="false">▾</button>` : ""}</span>
-      ${inst.length > 1 ? menu(inst.map((x) => `<button data-act="install" data-v="${x}">Install on ${esc(PLATFORM_NAME[x] || x)}</button>`).join("")) : ""}
+      <span class="play-split ghost"><button class="install-btn" data-act="install" data-v="${inst[0]}">${DL_SVG}Install <small>on ${storeWithIcon(inst[0])}</small></button>${inst.length > 1 ? `<button class="play-caret" data-act="play-menu" aria-label="Choose which store" aria-expanded="false">▾</button>` : ""}</span>
+      ${inst.length > 1 ? menu(inst.map((x) => `<button data-act="install" data-v="${x}">Install on ${storeWithIcon(x, true)}</button>`).join("")) : ""}
     </div>`;
   return "";
 }
@@ -1727,7 +1733,7 @@ function similarSection(g) {
   return `<section class="section similar"><h2>More like this</h2>
     <p class="source-note">${subsLabel() ? `Similar games you own or can play on ${esc(subsLabel())}` : "Similar games you own"}, from IGDB.</p>
     <div class="similar-row">${list.map((x) => `<button class="rec" data-open="${x.id}" title="${esc(x.title)}">
-      <div class="cover">${coverHTML(x)}<div class="badges">${badgesHTML(x)}</div></div>
+      <div class="cover">${coverHTML(x)}<div class="badges">${badgesHTML(x)}</div>${instMark(x)}</div>
       <div class="rec-title">${esc(x.title)}</div><div class="rec-why">${esc(why(x))}</div></button>`).join("")}</div>
   </section>`;
 }
@@ -1770,7 +1776,7 @@ async function renderYear() {
   const months = Array(12).fill(0);
   for (const g of finished) months[new Date(at[g.id] * 1000).getMonth()]++;
   const mmax = Math.max(1, ...months);
-  const card = (g, why) => `<button class="rec mini" data-id="${g.id}" title="${esc(g.title)}"><div class="cover">${coverHTML(g)}</div>
+  const card = (g, why) => `<button class="rec mini" data-id="${g.id}" title="${esc(g.title)}"><div class="cover">${coverHTML(g)}${instMark(g)}</div>
     <div class="rec-title">${esc(g.title)}</div><div class="rec-why">${why}</div></button>`;
   const years = d.years || [thisYear];
   const prev = years.includes(y - 1), next = y < thisYear;
@@ -3049,7 +3055,7 @@ function renderJobDialog() {
     body.innerHTML = `
       <div class="job-cols">
       <div class="job-main">
-      <p class="lede">Updates details, artwork, reviews and time to beat for games already in your library. Your playtime, notes and the statuses you set aren't touched.</p>
+      <p class="lede">Updates details, artwork, reviews and time to beat for games already in your library. Your playtime and the statuses you set aren't touched.</p>
       ${job ? `<div class="job-paused">
         <div><b>A full refresh is ${Math.round((job.progress || 0) * 100)}% done</b><small>Started ${esc(relDate(job.since).toLowerCase())}${job.paused ? ", paused" : ""}. It picks up where it stopped.</small></div>
         <button class="btn small" type="button" id="refresh-resume">Continue</button>
@@ -3402,10 +3408,6 @@ function bind() {
   $("#detail-wrap").addEventListener("change", async (e) => {
     const id = state.openId;
     if (e.target.id === "ttb-range") { setTtb(id, Number(e.target.value)); return; }
-    if (e.target.id === "notes") {
-      try { upsertLocal(await api(`/api/games/${id}`, { method: "PATCH", body: { notes: e.target.value } })); toast("Notes saved"); }
-      catch (err) { toast(err.message, true); }
-    }
     const row = e.target.closest("[data-entry]");
     if (row && e.target.dataset.field) {
       const f = e.target.dataset.field;

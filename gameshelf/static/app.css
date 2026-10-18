@@ -281,7 +281,6 @@ input[type=range] { accent-color: var(--accent); width: 110px; }
 .copies input[type=date] { width: 150px; }
 .shots { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
 .shots img { height: 170px; border-radius: var(--radius-m); scroll-snap-align: start; cursor: zoom-in; background: var(--ink-3); }
-textarea { width: 100%; min-height: 90px; background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 12px; resize: vertical; }
 .source-note { color: var(--faint); font-size: 13px; }
 
 /* ---------- dialogs */
@@ -932,7 +931,12 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .play-btn, .install-btn, .play-caret { border: 0; font: 700 16px/1 var(--body); cursor: pointer; display: inline-flex; align-items: center; gap: 10px; }
 .play-btn { background: var(--grad); color: var(--accent-ink); padding: 12px 22px 12px 18px; border-radius: 999px; }
 .play-btn svg { width: 16px; height: 16px; fill: currentColor; }
-.play-btn small, .install-btn small { font-weight: 600; font-size: 13px; opacity: .75; }
+.play-btn small, .install-btn small { font-weight: 600; font-size: 13px; opacity: .75; display: inline-flex; align-items: center; gap: 5px; }
+.pico { width: 14px; height: 14px; display: inline-block; flex: none; background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+.play-btn small .pico, .install-btn small .pico { margin-left: 1px; }
+.play-pop .pico { margin-left: 2px; }
+.no-icons .pico { display: none; }
 .play-split .play-caret { background: #ff8a5f; color: var(--accent-ink); padding: 0 13px; border-radius: 0 999px 999px 0; margin-left: 1px; font-size: 13px; }
 .play-split:has(.play-caret) .play-btn, .play-split:has(.play-caret) .install-btn { border-radius: 999px 0 0 999px; }
 .install-btn { background: rgba(10, 8, 16, .45); color: var(--text); border: 1px solid rgba(255,255,255,.18); padding: 11px 20px 11px 16px; border-radius: 999px;
@@ -944,13 +948,19 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .play-pop { position: absolute; bottom: calc(100% + 6px); left: 0;  /* upwards: the header clips anything below it */
   z-index: 20; min-width: 220px; padding: 6px; border-radius: 12px; background: #221d31;
   border: 1px solid var(--line); box-shadow: 0 18px 40px rgba(0,0,0,.5); }
-.play-pop button { display: block; width: 100%; text-align: left; padding: 9px 10px; border: 0; background: none; border-radius: 8px; color: var(--text); font: 500 14px/1.2 var(--body); cursor: pointer; }
+.play-pop button { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 9px 10px; border: 0; background: none; border-radius: 8px; color: var(--text); font: 500 14px/1.2 var(--body); cursor: pointer; }
 .play-pop button:hover { background: var(--ink-3); }
 .copy-inst { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 12px; font-weight: 600; color: #9be3b0; }
 .copy-inst svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---------- Shelves */
-.shelf-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -22px 0 0; }  /* close under the action row (the page's gap is 34px) */
+.shelf-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+/* Shelves, XGP / PS+ and other short notes: one compact block close under the action row (the page's gap is 34px) */
+.detail-notes { display: flex; flex-direction: column; gap: 10px; margin-top: -22px; }
+.detail-notes:not(:has(*)) { display: none; }
+.detail-notes .sub-note, .detail-notes .auto-note { margin: 0; }
+.sub-line { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 14px; color: var(--muted); }
+.sub-line a { margin-left: 6px; }
 .shelf-label { color: var(--muted); font-size: 13px; margin-right: 2px; }
 .shelf-pill { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 12px; border-radius: 999px; background: rgba(255, 92, 158, .2); color: #ffe3ee; font-size: 13px; font-weight: 600; }
 .shelf-pill button { border: 0; background: none; color: inherit; opacity: .65; cursor: pointer; font-size: 11px; width: 20px; height: 20px; border-radius: 50%; }

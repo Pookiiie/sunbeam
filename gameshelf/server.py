@@ -103,7 +103,10 @@ def patch_game(req, body, query, game_id):
 def get_installed(req, body, query):
     """Called when the window comes back into focus: looks again (at most every couple of minutes)."""
     started = installed.scan_if_stale() if query.get("look") else False
-    return {"at": int(db.get_meta("installs_at", "0") or 0), "looking": started, "errors": installed.errors}
+    out = {"at": int(db.get_meta("installs_at", "0") or 0), "looking": started, "errors": installed.errors}
+    if query.get("details"):
+        out["found"] = installed.last_found  # for checking a game that should have been found
+    return out
 
 
 @route("POST", r"/api/games/(\d+)/play")
