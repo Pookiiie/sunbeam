@@ -757,6 +757,11 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .pc-row p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
 .pc-row .spacer { flex: 1; }
 .pc-block > .source-note { margin: 10px 0 0; }
+/* a newer version: one line with its two buttons, under the Updates heading */
+.upd-new { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; padding: 8px 8px 8px 14px; border-radius: var(--radius-m);
+  background: rgba(116, 214, 160, .07); border: 1px solid rgba(116, 214, 160, .22); }
+.upd-new .test-result { margin: 0; }
+.upd-new .spacer { flex: 1; }
 
 /* ------------------------------------------------------------ Curator: each section in a soft panel */
 .curator .cur-section { background: rgba(255,255,255,.025); border: 1px solid rgba(255,255,255,.06);

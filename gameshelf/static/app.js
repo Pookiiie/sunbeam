@@ -2842,13 +2842,17 @@ function updatesBlock() {
     : "";
   return `<div class="pc-block">
     <div class="pc-row">
-      <div><h3>Updates</h3><p>You have ${esc(APP)} ${esc(d.version || "")}${isBetaVer(d.version) ? " " + BETA_TAG : ""}.</p></div>
+      <div><h3>Updates</h3><p>You have ${esc(APP)} ${esc(d.version || "")}${isBetaVer(d.version) ? " " + BETA_TAG : "."}</p></div>
       <span class="spacer"></span>
-      <span class="test-result ${u?.newer ? "ok" : ""}" id="pc-update">${status}</span>
-      ${u?.newer ? `<button class="btn small ghost" data-pc="notes">What's new</button>` : ""}
-      ${u?.newer && u.can_install ? `<button class="btn small" data-pc="install">Update now</button>` : ""}
+      ${u?.newer ? "" : `<span class="test-result" id="pc-update">${status}</span>`}
       <button class="btn small ghost" data-pc="check">Check for updates</button>
     </div>
+    ${u?.newer ? `<div class="upd-new">
+      <span class="test-result ok" id="pc-update">${status}</span>
+      <span class="spacer"></span>
+      <button class="btn small ghost" data-pc="notes">What's new</button>
+      ${u.can_install ? `<button class="btn small" data-pc="install">Update now</button>` : ""}
+    </div>` : ""}
     <div class="pc-row channel-row">
       <div><p><b>Get updates from</b></p></div>
       <select id="set-channel" aria-label="Get updates from">
