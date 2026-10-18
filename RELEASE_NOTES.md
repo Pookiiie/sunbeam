@@ -1,2 +1,1 @@
-- **Library checks moved to the Sync window** (and Refresh assets): **Find duplicates** and **Unidentified games** (with how many there are) now live under "Library checks", instead of in the library's filter menu where they looked like filters.
-- The last filter menu is now named after your subscriptions (**XGP / PS+**), holds their "Recently added" and "Leaving soon" filters, and disappears if you have neither.
+- Groundwork for a Ubisoft Connect import that works on its own (no bookmark): a diagnostics endpoint, used by Claude to see how the Ubisoft Connect app on your PC keeps its sign-in. Nothing visible changes yet.
