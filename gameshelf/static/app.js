@@ -565,7 +565,8 @@ function saleText(x) {
 }
 // The sale badge on the cover ("On XGP" and the like sit next to the price instead).
 function wishPills(g, { sale = true } = {}) {
-  const x = isPlayable(g) ? null : g.wish?.sale;  // you can already play it: its price doesn't matter
+  // You can already play it: no sale badge, except on the Wishlist page while "On sale" is picked.
+  const x = isPlayable(g) && !(state.prefs.wishSale && state.page === "wishlist") ? null : g.wish?.sale;
   return sale && x ? `<div class="wpills"><span class="wpill sale" title="${esc(`${WISH_STORE[x.store]}: ${saleText(x)}`)}">-${x.discount_pct}%</span></div>` : "";
 }
 // The price to show: the sale if there is one, else the lowest listed price.
@@ -611,7 +612,7 @@ function wishVisible() {
   return allWish().filter((g) => (!g.isHidden || p.showHidden)
     && (!q || g._search.includes(q))
     && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))
-    && (!p.wishSale || (g.wish.sale && !isPlayable(g))));
+    && (!p.wishSale || g.wish.sale));  // the On sale filter includes games you can already play
 }
 
 const PREC_RANK = { day: 0, month: 1, quarter: 2, year: 3 };
@@ -669,7 +670,7 @@ function renderWishlist() {
   const list = wishVisible();
   const counts = { steam: all.filter((g) => g.wish.stores.some((x) => x.store === "steam")).length,
     psn: all.filter((g) => g.wish.stores.some((x) => x.store === "psn")).length };
-  const onSale = all.filter((g) => g.wish.sale && !isPlayable(g) && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))).length;
+  const onSale = all.filter((g) => g.wish.sale && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))).length;
   const groups = [["out", "Out now"], ["soon", "Coming soon"], ["tba", "No date yet"]].map(([k, label]) => {
     const gs = list.filter((g) => g.rel.state === k).sort(wishSorter(k));
     return gs.length ? `<section class="wish-group"><h2 class="wish-h">${label} <span>${gs.length}</span></h2><div class="grid">${wishCards(gs)}</div></section>` : "";

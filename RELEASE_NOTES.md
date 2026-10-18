@@ -1,1 +1,1 @@
-- **Wishlist cards:** when you can already play a game (you own it, or it's on XGP or PS+), the card shows just that, in short: **Owned**, **XGP**, **PS+**, with no price or sale badge. Those games also stay out of "On sale" (the filter and the Curator row). Their prices are still on the game page.
+- The Wishlist page's **On sale** filter includes games you already own or can play on XGP or PS+ again; while it's on, their sale badge shows on the cover. Everywhere else they still show just Owned, XGP or PS+, and Curator's On sale row leaves them out.
