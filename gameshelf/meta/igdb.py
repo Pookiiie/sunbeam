@@ -104,10 +104,20 @@ SEARCH_FIELDS = (
 
 
 def search(title: str, limit: int = 12) -> list[dict]:
+    """Games by name, the games themselves first: IGDB also lists a live game's updates, seasons
+    and events as games of their own ("Genshin Impact: Roses and Muskets"…), and those can fill
+    every result before the game itself shows up."""
     title = title.strip()
     if not title:
         return []
-    return q("games", f"search {_quote(title)}; fields {SEARCH_FIELDS}; limit {limit};")
+    main = q("games", f"search {_quote(title)}; fields {SEARCH_FIELDS}; "
+                      f"where parent_game = null & version_parent = null; limit {limit};")
+    rest = q("games", f"search {_quote(title)}; fields {SEARCH_FIELDS}; limit {limit};")
+    seen, out = set(), []
+    for r in main + rest:
+        if r["id"] not in seen:
+            seen.add(r["id"]); out.append(r)
+    return out[:limit]
 
 
 def best_match(title: str, platforms: list[str]) -> tuple[dict | None, float]:
