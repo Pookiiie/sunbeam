@@ -554,28 +554,31 @@ function wishWhen(g, { soonDays = false } = {}) {
   if (r.state === "soon") return fmtRelease(r) + (soonDays && r.prec === "day" && r.ts - nowS() < 45 * 86400 ? ` · ${inDays(r.ts)}` : "");
   return r.text || "No date yet";
 }
-// Already playable: on XGP / PS+, or yours on another store.
+// Already playable: yours on another store ("Owned"), or on XGP / PS+. Short, for card lines.
 function playableTags(g) {
-  return [...(g.subs || []).map((x) => `On ${SUB_SHORT[x.s]}`),
-    ...(g.wish?.owned_on || []).filter((p) => p !== "xbox").map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`)];  // see wishlist.by_game
+  const owned = (g.wish?.owned_on || []).some((p) => p !== "xbox");  // see wishlist.by_game
+  return [...(owned ? ["Owned"] : []), ...[...new Set((g.subs || []).map((x) => x.s))].map((s) => SUB_SHORT[s])];
 }
+const isPlayable = (g) => playableTags(g).length > 0;
 function saleText(x) {
   return `${x.discount_pct}% off${x.sale_note ? ` ${x.sale_note}` : ""}${x.sale_ends ? ` until ${fmtDate(x.sale_ends)}` : ""}: ${x.price_text}${x.base_text ? `, usually ${x.base_text}` : ""}`;
 }
 // The sale badge on the cover ("On XGP" and the like sit next to the price instead).
 function wishPills(g, { sale = true } = {}) {
-  const x = g.wish?.sale;
+  const x = isPlayable(g) ? null : g.wish?.sale;  // you can already play it: its price doesn't matter
   return sale && x ? `<div class="wpills"><span class="wpill sale" title="${esc(`${WISH_STORE[x.store]}: ${saleText(x)}`)}">-${x.discount_pct}%</span></div>` : "";
 }
 // The price to show: the sale if there is one, else the lowest listed price.
 // Followed by where you can already play it: "C$ 38.99 · On XGP".
 // The lowest price across Steam and PlayStation (wishlist.py looks up the store whose wishlist
 // doesn't have it), with that store's plain icon in front (the hearts on the cover say which wishlists).
+// Already playable (owned, XGP, PS+): just that, no price.
 function wishPrice(g) {
+  const tags = playableTags(g);
+  if (tags.length) return tags.map((t) => `<span class="wtag">${esc(t)}</span>`).join(" · ");
   const x = g.wish?.best;
-  const tags = playableTags(g).map((t) => `<span class="wtag">${esc(t)}</span>`).join(" · ");
-  if (!x) return tags;
-  return `<span class="wp-store">${storeMark(x.store, false)}</span><span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}${tags ? ` · ${tags}` : ""}`;
+  if (!x) return "";
+  return `<span class="wp-store">${storeMark(x.store, false)}</span><span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}`;
 }
 // XGP / PS+ marks for the game page boxes: the platform's regular icon (Xbox, PlayStation).
 function subMark(sv) {
@@ -608,7 +611,7 @@ function wishVisible() {
   return allWish().filter((g) => (!g.isHidden || p.showHidden)
     && (!q || g._search.includes(q))
     && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))
-    && (!p.wishSale || g.wish.sale));
+    && (!p.wishSale || (g.wish.sale && !isPlayable(g))));
 }
 
 const PREC_RANK = { day: 0, month: 1, quarter: 2, year: 3 };
@@ -666,7 +669,7 @@ function renderWishlist() {
   const list = wishVisible();
   const counts = { steam: all.filter((g) => g.wish.stores.some((x) => x.store === "steam")).length,
     psn: all.filter((g) => g.wish.stores.some((x) => x.store === "psn")).length };
-  const onSale = all.filter((g) => g.wish.sale && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))).length;
+  const onSale = all.filter((g) => g.wish.sale && !isPlayable(g) && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))).length;
   const groups = [["out", "Out now"], ["soon", "Coming soon"], ["tba", "No date yet"]].map(([k, label]) => {
     const gs = list.filter((g) => g.rel.state === k).sort(wishSorter(k));
     return gs.length ? `<section class="wish-group"><h2 class="wish-h">${label} <span>${gs.length}</span></h2><div class="grid">${wishCards(gs)}</div></section>` : "";
@@ -699,7 +702,7 @@ function renderWishRows() {
     .sort((a, b) => b.rel.ts - a.rel.ts || a.title.localeCompare(b.title));
   const soon = gs.filter((g) => g.rel.state === "soon" && g.rel.prec === "day" && g.rel.ts - now <= win && g.rel.ts > now - 86400)
     .sort((a, b) => a.rel.ts - b.rel.ts || a.title.localeCompare(b.title));
-  const sale = gs.filter((g) => g.wish.sale)
+  const sale = gs.filter((g) => g.wish.sale && !isPlayable(g))
     .sort((a, b) => b.wish.sale.discount_pct - a.wish.sale.discount_pct || (recReview(b) ?? -1) - (recReview(a) ?? -1) || a.title.localeCompare(b.title));
   const mini = (g, line, opts) => `
     <button class="rec mini" data-id="${g.id}" title="${esc(g.title)}">
