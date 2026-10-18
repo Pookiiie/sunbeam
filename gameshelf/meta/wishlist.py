@@ -92,7 +92,8 @@ def _steam_ea(item: dict) -> dict:
 def _steam_price(item: dict) -> dict:
     p = item.get("best_purchase_option") or {}
     if not p.get("formatted_final_price"):
-        return {}
+        # Free games (The Looker, prologues…) have no purchase option, only is_free.
+        return {"price_text": "Free", "price_cents": 0, "base_cents": 0} if item.get("is_free") else {}
     pct = p.get("discount_pct") or 0
     ends = max([d.get("discount_end_date") or 0 for d in p.get("active_discounts") or []] or [0]) or None
     return {

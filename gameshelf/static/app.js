@@ -781,6 +781,7 @@ function wishPrice(g) {
   if (tags.length) return `<span class="wtags">${tags.map((t) => `<span class="wtag ${t === "Owned" ? "owned" : "sub"}">${esc(t)}</span>`).join("")}</span>`;
   const x = g.wish?.best;
   if (!x) return "";
+  if (x.price_cents === 0) return `<span class="wtags"><span class="wtag free" title="Free on ${esc(WISH_STORE[x.store] || x.store)}">Free</span></span>`;
   return `<span class="wp-store">${storeMark(x.store, false)}</span><span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}`;
 }
 // XGP / PS+ marks for the game page boxes: the platform's regular icon (Xbox, PlayStation).
@@ -2748,7 +2749,7 @@ function renderUpdateBar() {
   bar.hidden = false;
   bar.innerHTML = u.busy
     ? `<span>Updating to ${APP} ${esc(u.latest)}: ${esc((u.stage || "working").toLowerCase())}…</span>`
-    : `<span><b>${APP} ${esc(u.latest)}</b>${u.beta ? " " + BETA_TAG : ""} is out (you have ${esc(u.current)}).</span>
+    : `<span><b>${APP} ${esc(u.latest)}</b>${u.beta ? BETA_TAG : ""} is out (you have ${esc(u.current)}).</span>
        <button class="link" data-upd="notes">What's new</button>
        ${u.can_install ? `<button class="btn small" data-upd="install">Update now</button>` : `<a class="btn small" href="${esc(u.url)}" target="_blank" rel="noopener">Download</a>`}
        ${u.error ? `<span class="err">${esc(u.error)}</span>` : ""}
@@ -2812,7 +2813,7 @@ function showReleaseNotes() {
   $("#notes-body").innerHTML = `
     <p class="lede">You have ${esc(APP)} ${esc(u.current || "")}. Here's what's changed since:</p>
     ${changes.map((c) => `<section class="release">
-      <h3>${esc(APP)} ${esc(c.version)}${c.beta ? " " + BETA_TAG : ""}<span>${c.date ? esc(fmtDate(Date.parse(c.date) / 1000)) : ""}</span></h3>
+      <h3>${esc(APP)} ${esc(c.version)}${c.beta ? BETA_TAG : ""}<span>${c.date ? esc(fmtDate(Date.parse(c.date) / 1000)) : ""}</span></h3>
       <div class="release-notes">${notesHTML(c.notes)}</div>
     </section>`).join("")}
     <div class="dialog-actions">
@@ -2835,14 +2836,14 @@ const isBetaVer = (v) => /-?(beta|b)\.?\d+$/i.test(v || "");
 function updatesBlock() {
   const d = state.desktop || {}, u = state.update;
   const beta = (state.settings?.settings?.update_channel || "stable") === "beta";
-  const status = !u ? "" : u.newer ? `${esc(APP)} ${esc(u.latest)}${u.beta ? " " + BETA_TAG : ""} is available.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.";
+  const status = !u ? "" : u.newer ? `${esc(APP)} ${esc(u.latest)}${u.beta ? BETA_TAG : ""} is available.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.";
   const note = beta
     ? `Test builds of new features, before they reach everyone. They can have rough edges: your library is copied to <code>data/backups</code> before every new version.`
     : isBetaVer(d.version) ? `You're on a test build. You'll stay on it until the next stable version is out, then get that as usual.`
     : "";
   return `<div class="pc-block">
     <div class="pc-row">
-      <div><h3>Updates</h3><p>You have ${esc(APP)} ${esc(d.version || "")}${isBetaVer(d.version) ? " " + BETA_TAG : "."}</p></div>
+      <div><h3>Updates</h3><p>You have ${esc(APP)} ${esc(d.version || "")}${isBetaVer(d.version) ? BETA_TAG : "."}</p></div>
       <span class="spacer"></span>
       ${u?.newer ? "" : `<span class="test-result" id="pc-update">${status}</span>`}
       <button class="btn small ghost" data-pc="check">Check for updates</button>

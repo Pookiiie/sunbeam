@@ -1,3 +1,4 @@
-Test build 5 of Sunbeam 1.3 (Beta).
+Test build 6 of Sunbeam 1.3 (Beta).
 
-- **Tidier Settings › Updates.** When a new version is out, it gets its own line with **What's new** and **Update now** beside it, instead of everything squeezing onto one row and wrapping.
+- **Free games on your wishlist** (like The Looker) now show a **Free** tag instead of no price. Steam lists them without a price, only as free; your next sync fills it in.
+- **A quieter Beta tag:** a thin pink outline instead of the filled pill, which looked like a button.

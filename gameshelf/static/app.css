@@ -381,8 +381,9 @@ input[type=range] { accent-color: var(--accent); width: 110px; }
 }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { background: var(--error); color: #34110c; }
-.beta-tag { display: inline-block; vertical-align: 2px; margin-left: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .02em;
-  color: #1b0f17; background: linear-gradient(90deg, #ff5c9e, #ff9348); }
+.beta-tag { display: inline-flex; align-items: center; justify-content: center; vertical-align: 1px; height: 18px; margin: 0 4px 0 4px; padding: 0 7px;
+  border-radius: 999px; font-size: 11px; line-height: 1; font-weight: 600; letter-spacing: .02em;
+  color: #ff8fbb; background: none; box-shadow: inset 0 0 0 1px rgba(255, 92, 158, .6); }
 .channel-row { flex-wrap: wrap; margin-top: 10px; }
 .channel-row .channel-note { flex-basis: 100%; margin: 6px 0 0; }
 .toast.has-undo { pointer-events: auto; display: flex; align-items: center; gap: 14px; padding-right: 8px; }
@@ -876,6 +877,7 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .wprice .wtag, .rec-why .wtag { display: inline-block; padding: 2px 8px; border-radius: 999px; font: 700 11px/1.35 var(--body); letter-spacing: .01em; }
 .wtag.owned { background: rgba(116, 214, 160, .15); color: var(--done); box-shadow: inset 0 0 0 1px rgba(116, 214, 160, .35); }
 .wtag.sub { background: rgba(255, 92, 158, .14); color: #ff8fbb; box-shadow: inset 0 0 0 1px rgba(255, 92, 158, .35); }
+.wtag.free { background: rgba(120, 180, 255, .14); color: #a9cbff; box-shadow: inset 0 0 0 1px rgba(120, 180, 255, .35); }
 
 /* ------------------------------------------------------------ early access (1.2) */
 .ea-pill { display: inline-block; font-size: 10.5px; font-weight: 700; line-height: 1; padding: 4px 7px; border-radius: 5px;
