@@ -256,6 +256,11 @@ def _run_sync_all(sources: list[str]):
     _run_sync(sources)
     if not _cancel.is_set():
         _early_access()
+    try:
+        from . import installed
+        installed.scan()  # new games may already be installed
+    except Exception as e:
+        _log(f"Couldn't check which games are installed: {e}", "warn")
 
 
 def _early_access():

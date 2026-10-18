@@ -7,6 +7,8 @@ then copy its Client ID and generate a Client Secret.
 
 from __future__ import annotations
 
+import json
+
 import difflib
 import threading
 import time
@@ -148,7 +150,7 @@ DETAIL_FIELDS = (
     "rating,rating_count,genres.name,themes.name,game_modes.name,player_perspectives.name,"
     "involved_companies.company.name,involved_companies.developer,involved_companies.publisher,"
     "franchises.name,collections.name,platforms.abbreviation,platforms.name,cover.image_id,"
-    "artworks.image_id,screenshots.image_id,websites.url"
+    "artworks.image_id,screenshots.image_id,websites.url,similar_games"
 )
 
 
@@ -200,7 +202,7 @@ def apply_details(c, game_id: int, g: dict) -> None:
         """UPDATE games SET summary=?, storyline=?, genres=?, themes=?, modes=?, perspectives=?,
            developers=?, publishers=?, franchises=?, igdb_platforms=?, screenshots=?, release_date=?,
            critic_score=?, critic_count=?, user_score=?, user_count=?, igdb_url=?, igdb_cover=?,
-           igdb_artwork=?, meta_at=?, title=COALESCE(?, title) WHERE id=?""",
+           igdb_artwork=?, meta_at=?, title=COALESCE(?, title), similar=?, similar_at=? WHERE id=?""",
         (
             g.get("summary"), g.get("storyline"),
             db.set_json(_names(g.get("genres"))), db.set_json(_names(g.get("themes"))),
@@ -217,9 +219,42 @@ def apply_details(c, game_id: int, g: dict) -> None:
             image(artworks[0], "t_1080p") if artworks else (image(shots[0], "t_1080p") if shots else None),
             db.now(),
             g.get("name"),
+            json.dumps([int(x) for x in g.get("similar_games") or [] if isinstance(x, int)]),
+            db.now(),
             game_id,
         ),
     )
+
+
+def fill_similar(limit: int = 5000) -> int:
+    """IGDB's similar games for games looked up before More like this existed (500 per call)."""
+    rows = db.query("SELECT id, igdb_id FROM games WHERE igdb_id IS NOT NULL AND similar_at IS NULL LIMIT ?", (limit,))
+    done = 0
+    for i in range(0, len(rows), 500):
+        chunk = rows[i:i + 500]
+        ids = ",".join(str(r["igdb_id"]) for r in chunk)
+        found = {g["id"]: g.get("similar_games") or [] for g in q("games", f"fields similar_games; where id = ({ids}); limit 500;")}
+        with db.tx() as c:
+            for r in chunk:
+                sim = [int(x) for x in found.get(r["igdb_id"], []) if isinstance(x, int)]
+                c.execute("UPDATE games SET similar=?, similar_at=? WHERE id=?", (json.dumps(sim), db.now(), r["id"]))
+        done += len(chunk)
+    return done
+
+
+def similar_soon() -> None:
+    """At start-up, in the background: fill in similar games once IGDB is set up."""
+    import threading
+
+    def run():
+        try:
+            if configured():
+                fill_similar()
+        except Exception as e:
+            print(f"  Couldn't look up similar games: {e}")
+    t = threading.Timer(30, run)
+    t.daemon = True
+    t.start()
 
 
 def test() -> str:

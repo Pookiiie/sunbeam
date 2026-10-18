@@ -13,7 +13,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, brand, db, duplicates, settings, switch_import, switch_video, sync
+from . import __version__, brand, db, duplicates, installed, settings, switch_import, switch_video, sync
 from .meta import hltb, igdb, opencritic, sgdb, wishlist
 from .paths import DATA_DIR, STATIC_DIR
 from .sources import PLATFORMS, battlenet, epic, playstation, steam, ubisoft, xbox
@@ -39,7 +39,7 @@ class ApiError(Exception):
 @route("GET", "/api/library")
 def get_library(req, body, query):
     # Games only on a wishlist come too (wishlist_only): the Wishlist page and Curator's wishlist rows use them.
-    return {"games": db.library(with_wishlist=True), "platforms": PLATFORMS, "year": db.year_stats(),
+    return {"games": db.library(with_wishlist=True), "platforms": PLATFORMS, "year": db.year_stats(), "shelves": _shelves(),
             "wishlist_at": int(db.get_meta("wishlist_at", "0") or 0)}
 
 
@@ -95,6 +95,106 @@ def patch_game(req, body, query, game_id):
         if "title" in body and str(body["title"]).strip():
             c.execute("UPDATE games SET title=? WHERE id=?", (str(body["title"]).strip(), gid))
     return db.game_detail(gid)
+
+
+# ------------------------------------------------------------------ installed games, Play
+
+@route("GET", "/api/installed")
+def get_installed(req, body, query):
+    """Called when the window comes back into focus: looks again (at most every couple of minutes)."""
+    started = installed.scan_if_stale() if query.get("look") else False
+    return {"at": int(db.get_meta("installs_at", "0") or 0), "looking": started, "errors": installed.errors}
+
+
+@route("POST", r"/api/games/(\d+)/play")
+def post_play(req, body, query, game_id):
+    try:
+        return {"platform": installed.play(int(game_id), body.get("platform") or None)}
+    except LookupError as e:
+        raise ApiError(404, str(e))
+
+
+@route("POST", r"/api/games/(\d+)/install")
+def post_install(req, body, query, game_id):
+    try:
+        installed.install(int(game_id), str(body.get("platform") or ""))
+    except LookupError as e:
+        raise ApiError(404, str(e))
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ shelves
+
+def _shelves() -> list[dict]:
+    return [dict(r) for r in db.query(
+        """SELECT s.id, s.name, s.position, COUNT(sg.game_id) AS count FROM shelves s
+           LEFT JOIN shelf_games sg ON sg.shelf_id = s.id GROUP BY s.id ORDER BY s.position, s.id""")]
+
+
+def _shelf_name(body) -> str:
+    name = " ".join(str(body.get("name") or "").split())[:60]
+    if not name:
+        raise ApiError(400, "Give the shelf a name.")
+    return name
+
+
+@route("GET", "/api/shelves")
+def get_shelves(req, body, query):
+    return {"shelves": _shelves()}
+
+
+@route("POST", "/api/shelves")
+def post_shelf(req, body, query):
+    name = _shelf_name(body)
+    with db.tx() as c:
+        if c.execute("SELECT 1 FROM shelves WHERE lower(name)=lower(?)", (name,)).fetchone():
+            raise ApiError(400, f"There's already a shelf called {name}.")
+        pos = c.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM shelves").fetchone()[0]
+        cur = c.execute("INSERT INTO shelves(name, position, created_at) VALUES (?, ?, ?)", (name, pos, db.now()))
+        sid = cur.lastrowid
+        for gid in body.get("games") or []:
+            c.execute("INSERT OR IGNORE INTO shelf_games(shelf_id, game_id, added_at) VALUES (?, ?, ?)", (sid, int(gid), db.now()))
+    return {"id": sid, "shelves": _shelves()}
+
+
+@route("PATCH", r"/api/shelves/(\d+)")
+def patch_shelf(req, body, query, shelf_id):
+    with db.tx() as c:
+        if "name" in body:
+            name = _shelf_name(body)
+            if c.execute("SELECT 1 FROM shelves WHERE lower(name)=lower(?) AND id<>?", (name, int(shelf_id))).fetchone():
+                raise ApiError(400, f"There's already a shelf called {name}.")
+            c.execute("UPDATE shelves SET name=? WHERE id=?", (name, int(shelf_id)))
+    return {"shelves": _shelves()}
+
+
+@route("DELETE", r"/api/shelves/(\d+)")
+def delete_shelf(req, body, query, shelf_id):
+    with db.tx() as c:
+        c.execute("DELETE FROM shelf_games WHERE shelf_id=?", (int(shelf_id),))
+        c.execute("DELETE FROM shelves WHERE id=?", (int(shelf_id),))
+    return {"shelves": _shelves()}
+
+
+@route("POST", r"/api/shelves/(\d+)/games")
+def post_shelf_games(req, body, query, shelf_id):
+    """{"add": [game ids], "remove": [game ids]}"""
+    sid = int(shelf_id)
+    with db.tx() as c:
+        if not c.execute("SELECT 1 FROM shelves WHERE id=?", (sid,)).fetchone():
+            raise ApiError(404, "That shelf is gone.")
+        for gid in body.get("add") or []:
+            c.execute("INSERT OR IGNORE INTO shelf_games(shelf_id, game_id, added_at) VALUES (?, ?, ?)", (sid, int(gid), db.now()))
+        for gid in body.get("remove") or []:
+            c.execute("DELETE FROM shelf_games WHERE shelf_id=? AND game_id=?", (sid, int(gid)))
+    return {"shelves": _shelves()}
+
+
+# ------------------------------------------------------------------ your year in games
+
+@route("GET", r"/api/year/(\d{4})")
+def get_year(req, body, query, year):
+    return db.year_in_games(int(year))
 
 
 @route("POST", r"/api/games/(\d+)/match")

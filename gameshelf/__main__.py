@@ -63,6 +63,13 @@ def main():
         early_access.refresh_soon()
     except Exception as e:
         print(f"  Couldn't schedule the early access check: {e}")
+    try:
+        from . import installed
+        from .meta import igdb
+        installed.scan_soon(3)   # which games are installed on this PC
+        igdb.similar_soon()      # "More like this" for games looked up before it existed
+    except Exception as e:
+        print(f"  Couldn't schedule the installed-games check: {e}")
     httpd = serve(args.port)
     print(f"\n  {brand.NAME} {__version__} is running at {url}")
 

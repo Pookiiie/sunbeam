@@ -35,7 +35,7 @@ const PLATFORM_SHORT = { steam: "Steam", playstation: "PS", switch2: "Switch 2",
 const DEFAULT_PREFS = {
   sort: "last_played", dir: "desc", view: "grid", size: 170, types: null,
   hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], interests: ["more", "less", "skip", ""],
-  subTags: [], wishSort: "release", wishStore: "all", wishSale: false,
+  subTags: [], wishSort: "release", wishStore: "all", wishSale: false, installed: ["yes", "no"], shelves: [],
 };
 
 const state = {
@@ -65,6 +65,8 @@ function loadPrefs() {
     delete p.vr; delete p.showVR; delete p.showEA; delete p.onlyEA; delete p.showHidden;
     if (!Array.isArray(p.types)) p.types = null;
     if (!Array.isArray(p.interests)) p.interests = ["more", "less", "skip", ""];
+    if (!Array.isArray(p.installed)) p.installed = ["yes", "no"];
+    if (!Array.isArray(p.shelves)) p.shelves = [];
   if (!["steam", "psn"].includes(p.wishStore)) p.wishStore = "all";
     return p;
   } catch { return { ...DEFAULT_PREFS }; }
@@ -86,6 +88,7 @@ async function api(path, { method = "GET", body } = {}) {
 }
 
 let toastTimer;
+// undo: a function that takes the change back; the toast then shows an Undo button for a while.
 function toast(msg, isErr = false, undo = null) {
   const t = $("#toast");
   t.textContent = msg;
@@ -112,7 +115,6 @@ async function patchGame(id, body) {
 async function undoPatch(id, body, msg) {
   try { await patchGame(id, body); toast(msg); } catch (e) { toast(e.message, true); }
 }
-
 
 /* ------------------------------------------------------------ formatting */
 
@@ -256,6 +258,9 @@ function derive(g) {
   g.critic = g.oc_score != null ? g.oc_score : null;
   g.hiddenAuto = autoHidden(g);
   g.vr = isVR(g);
+  g.installed = g.installed || [];
+  g.canPlay = g.installed.some((x) => x.can_play);
+  g.shelves = g.shelves || [];
   g.isHidden = g.hidden === 1 ? true : g.hidden === 0 ? false : g.hiddenAuto;
   g.endlessAuto = autoEndless(g);
   g.isEndless = g.endless === 1 ? true : g.endless === 0 ? false : g.endlessAuto;
@@ -362,6 +367,8 @@ function visibleGames() {
     if (!p.played.includes(g.neverPlayed ? "never" : "played")) return false;
     if (p.genres.length && !(g.genres || []).some((x) => p.genres.includes(x))) return false;
     if (p.subTags.length && subsLabel() && !subMatch(g, p.subTags)) return false;  // (no menu without XGP or PS+)
+    if (anyInstalled() && !p.installed.includes(g.canPlay ? "yes" : "no")) return false;
+    if (p.shelves.length && !g.shelves.some((s) => p.shelves.includes(s))) return false;
     return true;
   };
   const list = state.games.filter(keep);
@@ -534,6 +541,7 @@ function showPage(page, { push = true } = {}) {
   $$(".page-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.page === page));
   if (push) history.replaceState(null, "", "#" + page);  // a reload stays on this tab; a fresh start uses Settings › Display
   scrollTo({ top: 0 });
+  if (page === "year") renderYear();
 }
 
 // The to-the-point version of recReason for Curator: "97% Steam · 4.3h to beat".
@@ -949,6 +957,7 @@ function renderGrid(list) {
         ${g.isEA ? eaPill(g).replace('class="ea-pill"', `class="ea-pill corner${subPill(g) ? " below" : ""}"`) : ""}
         ${g.status === "completed" ? `<span class="stamp completed check" title="Completed" aria-label="Completed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>` : g.status === "dnf" ? `<span class="stamp dnf" title="Did not finish">DNF</span>` : ""}
         <div class="badges">${badgesHTML(g)}</div>
+        ${g.canPlay ? `<span class="inst-mark" title="Installed on this PC" aria-label="Installed">${PLAY_SVG}</span>` : ""}
       </div>
       ${meter(g)}
       <div class="card-title">${esc(g.title)}</div>
@@ -1008,7 +1017,11 @@ function renderStats() {
 const STATUS_NAMES = { "": "Not marked", completed: "Completed", dnf: "Did not finish" };
 const PLAYED_NAMES = { played: "Played", never: "Never played" };
 const SUBTAG_NAMES = { new: "Recently added", leaving: "Leaving soon" };
-const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], types: null, interests: [...INTEREST_KEYS], subTags: [] });
+const INSTALLED_NAMES = { yes: "Installed", no: "Not installed" };
+const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], types: null, interests: [...INTEREST_KEYS], subTags: [], installed: ["yes", "no"], shelves: [] });
+// The Installed filter shows once Sunbeam has found an installed game (Windows, a launcher it knows).
+const anyInstalled = () => state.games.some((g) => g.canPlay);
+const shelfName = (id) => (state.shelves || []).find((s) => s.id === id)?.name || "";
 // Curator: what you told Curator about a game ("" = nothing).
 const INTEREST_KEYS = ["more", "less", "skip", ""];
 const INTEREST_FILTER_NAMES = { more: "More interested", less: "Less interested", skip: "Not right now", "": "Not marked" };
@@ -1025,16 +1038,18 @@ function filterFacts() {
   // Counts cover the games the Type filter lets through (hidden, VR… only when picked there).
   const types = new Set(typesSel());
   const visible = state.games.filter((g) => types.has(gameType(g)));
-  const plat = {}, status = {}, played = {}, genres = {}, subs = { new: 0, leaving: 0 };
+  const plat = {}, status = {}, played = {}, genres = {}, subs = { new: 0, leaving: 0 }, installed = { yes: 0, no: 0 }, shelves = {};
   for (const g of visible) for (const p of g.platforms) plat[p] = (plat[p] || 0) + 1;
   for (const g of visible) {
     status[g.status || ""] = (status[g.status || ""] || 0) + 1;
     played[g.neverPlayed ? "never" : "played"] = (played[g.neverPlayed ? "never" : "played"] || 0) + 1;
     for (const x of g.genres || []) genres[x] = (genres[x] || 0) + 1;
     for (const t of Object.keys(subs)) if (subMatch(g, [t])) subs[t]++;
+    installed[g.canPlay ? "yes" : "no"]++;
+    for (const s of g.shelves) shelves[s] = (shelves[s] || 0) + 1;
   }
   const platforms = Object.keys(state.platforms).filter((p) => plat[p]);
-  return { plat, platforms, status, played, genres, subs,
+  return { plat, platforms, status, played, genres, subs, installed, shelves,
     types: state.games.reduce((n, g) => { const t = gameType(g); n[t] = (n[t] || 0) + 1; return n; }, {}),
     interests: visible.reduce((n, g) => { const k = g.interest || ""; n[k] = (n[k] || 0) + 1; return n; }, {}) };
 }
@@ -1062,7 +1077,10 @@ function filterSummaries(f) {
   const ins = p.interests;
   const cur = ins.length === INTEREST_KEYS.length ? null : !ins.length ? "None"
     : ins.length === 1 ? `${INTEREST_FILTER_NAMES[ins[0]]} only` : INTEREST_KEYS.filter((x) => ins.includes(x)).map((x) => INTEREST_FILTER_NAMES[x]).join(", ");
-  return { platform: plat, status: st, played: pl, genre: gen, type, curator: cur, more: more.length ? more.join(", ") : null };
+  const inst = !anyInstalled() || p.installed.length === 2 ? null : !p.installed.length ? "None" : INSTALLED_NAMES[p.installed[0]];
+  const sh = p.shelves.filter((s) => shelfName(s));
+  const shelves = !sh.length ? null : sh.length === 1 ? shelfName(sh[0]) : `${sh.length} shelves`;
+  return { platform: plat, status: st, played: pl, genre: gen, type, curator: cur, more: more.length ? more.join(", ") : null, installed: inst, shelves };
 }
 
 function renderFilters() {
@@ -1073,9 +1091,9 @@ function renderFilters() {
       ${label} <b>${esc(sum[id] || empty)}</b><i aria-hidden="true">▾</i></button>`;
   const any = Object.values(sum).some(Boolean);
   bar.innerHTML = `
-    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${chip("curator", CURATOR)}${subsLabel() ? chip("more", subsLabel(), "Any") : ""}
+    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${chip("curator", CURATOR)}${subsLabel() ? chip("more", subsLabel(), "Any") : ""}${anyInstalled() ? chip("installed", "Installed") : ""}${chip("shelves", "Shelves")}
     ${any ? `<button type="button" class="link fclear-all" data-fclear="all">Clear all</button>` : ""}
-    ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""}" role="dialog" aria-label="Filter">${filterMenu(state.openFilter, f)}</div>` : ""}`;
+    ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""} ${state.openFilter === "shelves" ? "shelves-pop" : ""}" role="dialog" aria-label="Filter">${filterMenu(state.openFilter, f)}</div>` : ""}`;
   const pop = $(".fpop", bar), anchor = $(`[data-fopen="${state.openFilter}"]`, bar);
   if (pop && anchor) {
     const left = Math.min(anchor.offsetLeft, bar.clientWidth - pop.offsetWidth);
@@ -1113,6 +1131,17 @@ function filterMenu(id, f) {
     return head("Type", "type") + Object.entries(TYPE_NAMES).map(([v, l]) => row("type", v, l, f.types[v] || 0, sel.includes(v))).join("")
       + `<p class="fpop-note">${off.length ? `${off.join(" and ")} games are hidden by default (Settings › Hidden game types). ` : ""}Hidden: games you hid, and betas, demos and tools.</p>`;
   }
+  if (id === "installed") return head("On this PC", "installed") + Object.entries(INSTALLED_NAMES).map(([v, l]) => row("installed", v, l, f.installed[v] || 0, p.installed.includes(v))).join("")
+    + `<p class="fpop-note">Games installed through Steam, Epic, Ubisoft Connect, Battle.net or the Xbox app on this PC.</p>`;
+  if (id === "shelves") {
+    const list = state.shelves || [];
+    const rows = list.map((s) => `<div class="frow shelf-frow">
+      <label><input type="checkbox" data-fgroup="shelves" value="${s.id}" ${p.shelves.includes(s.id) ? "checked" : ""}><span>${esc(s.name)}</span></label>
+      <span class="shelf-tools"><button type="button" class="fonly" data-fonly="shelves" data-v="${s.id}" aria-label="Only ${esc(s.name)}">only</button><button type="button" class="fonly" data-shelf-rename="${s.id}">rename</button><button type="button" class="fonly" data-shelf-delete="${s.id}">delete</button></span><em>${f.shelves[s.id] || 0}</em></div>`).join("");
+    return `<div class="fpop-head"><span>${p.shelves.length > 1 ? "Games on any of the ticked shelves" : "Your shelves"}</span>${list.length ? `<span><button type="button" class="link" data-fnone="shelves">Clear</button></span>` : ""}</div>
+      ${rows || `<p class="fpop-note">Shelves are lists you make: "Couch co-op", "Comfort games"… Add games from a game's page or by right-clicking a cover.</p>`}
+      <form class="shelf-new" data-shelf-form><input type="text" name="name" placeholder="New shelf" maxlength="60" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore><button type="submit" class="btn small">Add</button></form>`;
+  }
   // (internally still "more": XGP / PS+ catalog changes)
   if (id === "more") return `<div class="fpop-head"><span>${subsLabel()} catalog</span></div>`
     + Object.entries(SUBTAG_NAMES).map(([v, l]) => row("subtags", v, l, f.subs[v], p.subTags.includes(v))).join("");
@@ -1128,16 +1157,18 @@ function setFilterGroup(group, values) {
   if (group === "subtags") p.subTags = values;
   if (group === "type") p.types = sameSet(values, defaultTypes()) ? null : values;
   if (group === "curator") p.interests = values;
+  if (group === "installed") p.installed = values;
+  if (group === "shelves") p.shelves = values.map(Number);
   savePrefs(); renderFilters(); render();
 }
 function groupValues(group) {
   const p = state.prefs, f = filterFacts();
   return { platform: f.platforms.filter((x) => !p.hiddenPlatforms.includes(x)), status: p.status, played: p.played,
-    genre: p.genres, subtags: p.subTags, type: typesSel(), curator: p.interests }[group];
+    genre: p.genres, subtags: p.subTags, type: typesSel(), curator: p.interests, installed: p.installed, shelves: p.shelves.map(String) }[group];
 }
 function allValues(group) {
   const f = filterFacts();
-  return { platform: f.platforms, status: Object.keys(STATUS_NAMES), played: Object.keys(PLAYED_NAMES), genre: [], subtags: [], type: Object.keys(TYPE_NAMES), curator: [...INTEREST_KEYS] }[group];
+  return { platform: f.platforms, status: Object.keys(STATUS_NAMES), played: Object.keys(PLAYED_NAMES), genre: [], subtags: [], type: Object.keys(TYPE_NAMES), curator: [...INTEREST_KEYS], installed: ["yes", "no"], shelves: [] }[group];
 }
 function clearFilter(id) {
   const d = FILTER_DEFAULTS(), p = state.prefs;
@@ -1149,6 +1180,8 @@ function clearFilter(id) {
   if (id === "type") p.types = d.types;
   if (id === "curator") p.interests = d.interests;
   if (id === "more") p.subTags = d.subTags;
+  if (id === "installed") p.installed = d.installed;
+  if (id === "shelves") p.shelves = d.shelves;
   savePrefs(); renderFilters(); render();
 }
 
@@ -1170,6 +1203,20 @@ function bindFilters() {
     if (all) { setFilterGroup(all.dataset.fall, allValues(all.dataset.fall)); return; }
     const none = t.closest("[data-fnone]");
     if (none) { setFilterGroup(none.dataset.fnone, []); return; }
+    const ren = t.closest("[data-shelf-rename]");
+    if (ren) { renameShelfInline(ren.closest(".frow"), Number(ren.dataset.shelfRename)); return; }
+    const del = t.closest("[data-shelf-delete]");
+    if (del) { deleteShelf(Number(del.dataset.shelfDelete)); return; }
+  });
+  bar.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    if (form.matches("[data-shelf-form]")) {
+      await newShelf(form.elements.name.value);  // (not picked: it's empty until you add games)
+    }
+    if (form.matches("[data-shelf-rename-form]")) {
+      await renameShelf(Number(form.dataset.shelfRenameForm), form.elements.name.value);
+    }
   });
   bar.addEventListener("change", (e) => {
     const t = e.target;
@@ -1251,6 +1298,7 @@ function renderAll() {
   renderWishlist();
   renderFilters();
   render();
+  if (state.page === "year") renderYear();
 }
 
 /* ------------------------------------------------------------ detail panel */
@@ -1323,7 +1371,8 @@ function renderDetail(g) {
   const versionCell = (e, extra = "") => {
     const store = e.platform === "steam" && /^\d+$/.test(e.external_id || "")
       ? ` <a class="copy-link" href="https://store.steampowered.com/app/${esc(e.external_id)}" target="_blank" rel="noopener">Store page</a>` : "";
-    return `<td><div class="copy-plat">${esc(state.platforms[e.platform] || e.platform)}${extra}</div>${showNames && e.name ? `<div class="copy-name">${esc(e.name)}${store}</div>` : ""}</td>`;
+    const inst = (g.installed || []).some((x) => x.platform === e.platform) ? `<span class="copy-inst" title="Installed on this PC"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>Installed</span>` : "";
+    return `<td><div class="copy-plat">${esc(state.platforms[e.platform] || e.platform)}${extra}${inst}</div>${showNames && e.name ? `<div class="copy-name">${esc(e.name)}${store}</div>` : ""}</td>`;
   };
 
   const notOut = g.rel && g.rel.state !== "out";  // a wishlist game that isn't released yet
@@ -1373,6 +1422,7 @@ function renderDetail(g) {
             ${year(g.release_date) ? `<span>${year(g.release_date)}</span>` : ""}
             ${devs ? `<span>${esc(devs)}</span>` : ""}
           </div>
+          ${playBlock(g)}
         </div>
       </div>
     </div>
@@ -1398,6 +1448,7 @@ function renderDetail(g) {
           </div>
         </div>
       </div>
+      ${shelfRow(g)}
       ${(g.subs || []).length && !g.wish ? `<p class="sub-note">${g.isCatalog ? "Not in your library. " : ""}${g.subs.map((x) => `${x.leaving ? "Leaving" : "Included with"} ${SUB_NAME[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}.${storeLink(x.s)}`).join(" ")}</p>` : ""}
       ${wishBox(g)}
       ${g.isEA ? `<p class="sub-note">In early access${g.eaFull ? `, full release ${esc(fmtDate(g.eaFull))}` : ""}: time to beat and progress may still change, and it won't be marked completed automatically.</p>` : ""}
@@ -1447,6 +1498,8 @@ function renderDetail(g) {
       </section>` : ""}
 
       ${(g.screenshots || []).length ? `<section class="section"><h2>Screenshots</h2><div class="shots">${g.screenshots.map((s, i) => `<img data-shot="${i}" src="${esc(s)}" alt="" loading="lazy" data-fallbacks="">`).join("")}</div></section>` : ""}
+
+      ${similarSection(g)}
 
       ${g.summary ? `<section class="section"><h2>About</h2><p class="summary clamp" id="summary">${esc(g.summary)}${g.storyline ? "\n\n" + esc(g.storyline) : ""}</p><button class="link" id="more">Read more</button></section>` : ""}
 
@@ -1516,6 +1569,257 @@ async function setStatus(id, status) {
       prev ? () => undoPatch(id, { restore_status: prev }, "Status put back") : null);
   } catch (e) { toast(e.message, true); }
 }
+
+/* ------------------------------------------------------------ Play, Install and shelves */
+
+const PLAY_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>`;
+const DL_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>`;
+const PC_STORES = ["steam", "epic", "xbox", "ubisoft", "battlenet"];
+
+// The copy Play starts by default: the installed one you played last (then the most played).
+function playOrder(g) {
+  const can = (g.installed || []).filter((x) => x.can_play).map((x) => x.platform);
+  const score = (p) => {
+    const es = (g.entries || []).filter((e) => e.platform === p);
+    return [Math.max(0, ...es.map((e) => e.last_played || 0)), Math.max(0, ...es.map((e) => e.playtime_min || 0))];
+  };
+  return [...new Set(can)].sort((a, b) => { const [la, pa] = score(a), [lb, pb] = score(b); return lb - la || pb - pa; });
+}
+// Copies you have on a PC store but haven't installed (XGP games count when you're subscribed).
+function installOrder(g) {
+  const have = new Set((g.installed || []).map((x) => x.platform));
+  const out = [];
+  for (const e of g.entries || []) {
+    if (!PC_STORES.includes(e.platform) || have.has(e.platform) || out.includes(e.platform)) continue;
+    if (e.ownership === "wishlist") continue;
+    if (e.platform === "xbox" && !String(e.external_id || "").startsWith("xgp:")) continue;  // no store id to install from
+    if (e.ownership === "catalog" && !(e.platform === "xbox" && subscribed("gamepass"))) continue;
+    out.push(e.platform);
+  }
+  return out;
+}
+function playBlock(g) {
+  if (g.isWishOnly) return "";
+  const can = playOrder(g);
+  const menu = (items) => `<div class="play-pop" hidden>${items}</div>`;
+  if (can.length) return `<div class="play-row">
+      <span class="play-split"><button class="play-btn" data-act="play" data-v="${can[0]}">${PLAY_SVG}Play <small>on ${esc(PLATFORM_SHORT[can[0]] || can[0])}</small></button>${can.length > 1 ? `<button class="play-caret" data-act="play-menu" aria-label="Choose which copy" aria-expanded="false">▾</button>` : ""}</span>
+      ${can.length > 1 ? menu(can.map((x) => `<button data-act="play" data-v="${x}">Play on ${esc(PLATFORM_NAME[x] || x)}</button>`).join("")) : ""}
+    </div>`;
+  const inst = installOrder(g);
+  if (inst.length) return `<div class="play-row">
+      <span class="play-split ghost"><button class="install-btn" data-act="install" data-v="${inst[0]}">${DL_SVG}Install <small>on ${esc(PLATFORM_SHORT[inst[0]] || inst[0])}</small></button>${inst.length > 1 ? `<button class="play-caret" data-act="play-menu" aria-label="Choose which store" aria-expanded="false">▾</button>` : ""}</span>
+      ${inst.length > 1 ? menu(inst.map((x) => `<button data-act="install" data-v="${x}">Install on ${esc(PLATFORM_NAME[x] || x)}</button>`).join("")) : ""}
+    </div>`;
+  return "";
+}
+async function playGame(id, platform) {
+  const g = byId(id);
+  try {
+    const r = await api(`/api/games/${id}/play`, { method: "POST", body: { platform } });
+    toast(`Starting ${g?.title || "the game"} on ${PLATFORM_NAME[r.platform] || r.platform}…`);
+  } catch (e) { toast(e.message, true); }
+}
+async function installGame(id, platform) {
+  try {
+    await api(`/api/games/${id}/install`, { method: "POST", body: { platform } });
+    toast(`Opening ${PLATFORM_NAME[platform] || platform} to install it`);
+  } catch (e) { toast(e.message, true); }
+}
+
+// Shelves: lists you make. Every change redraws the filter, the open game and any open picker.
+function afterShelves(shelves) {
+  if (shelves) state.shelves = shelves;
+  state.prefs.shelves = state.prefs.shelves.filter((s) => state.shelves.some((x) => x.id === s));
+  savePrefs();
+  renderFilters(); render();
+  if (state.openId) { const g = byId(state.openId); const row = $("#detail .shelf-row"); if (g && row) row.outerHTML = shelfRow(g); }
+  const pick = $("#ctx .shelf-picker");
+  if (pick && state.menuId) pick.outerHTML = shelfPicker(byId(state.menuId));
+}
+async function newShelf(name, gameId = null) {
+  name = (name || "").trim();
+  if (!name) return null;
+  try {
+    const r = await api("/api/shelves", { method: "POST", body: { name, games: gameId ? [gameId] : [] } });
+    if (gameId) { const g = byId(gameId); if (g && !g.shelves.includes(r.id)) g.shelves.push(r.id); }
+    afterShelves(r.shelves);
+    toast(gameId ? `Added to ${name}` : `New shelf: ${name}`);
+    return r.shelves.find((s) => s.id === r.id);
+  } catch (e) { toast(e.message, true); return null; }
+}
+async function toggleShelf(gameId, shelfId, on) {
+  const g = byId(gameId);
+  try {
+    const r = await api(`/api/shelves/${shelfId}/games`, { method: "POST", body: on ? { add: [gameId] } : { remove: [gameId] } });
+    if (g) g.shelves = on ? [...new Set([...g.shelves, shelfId])] : g.shelves.filter((s) => s !== shelfId);
+    afterShelves(r.shelves);
+    toast(on ? `Added to ${shelfName(shelfId)}` : `Taken off ${shelfName(shelfId)}`, false,
+      () => toggleShelf(gameId, shelfId, !on));
+  } catch (e) { toast(e.message, true); }
+}
+function renameShelfInline(row, id) {
+  row.innerHTML = `<form class="shelf-new" data-shelf-rename-form="${id}"><input type="text" name="name" value="${esc(shelfName(id))}" maxlength="60" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore><button type="submit" class="btn small">Save</button></form>`;
+  const input = $("input", row); input.focus(); input.select();
+}
+async function renameShelf(id, name) {
+  try {
+    const r = await api(`/api/shelves/${id}`, { method: "PATCH", body: { name } });
+    afterShelves(r.shelves);
+  } catch (e) { toast(e.message, true); }
+}
+async function deleteShelf(id) {
+  const name = shelfName(id);
+  const games = state.games.filter((g) => g.shelves.includes(id)).map((g) => g.id);
+  try {
+    const r = await api(`/api/shelves/${id}`, { method: "DELETE" });
+    for (const g of state.games) g.shelves = g.shelves.filter((s) => s !== id);
+    afterShelves(r.shelves);
+    toast(`Deleted the shelf ${name}`, false, async () => {
+      // Undo: the shelf comes back with the same games
+      try {
+        const r2 = await api("/api/shelves", { method: "POST", body: { name, games } });
+        for (const g of state.games) if (games.includes(g.id)) g.shelves.push(r2.id);
+        afterShelves(r2.shelves);
+        toast(`${name} is back`);
+      } catch (e) { toast(e.message, true); }
+    });
+  } catch (e) { toast(e.message, true); }
+}
+function shelfPicker(g) {
+  if (!g) return "";
+  const list = state.shelves || [];
+  return `<div class="shelf-picker" data-game="${g.id}">
+    ${list.map((s) => `<label class="shelf-opt"><input type="checkbox" data-shelf-toggle="${s.id}" ${g.shelves.includes(s.id) ? "checked" : ""}><span>${esc(s.name)}</span></label>`).join("")}
+    <form class="shelf-new" data-shelf-new><input type="text" name="name" placeholder="${list.length ? "New shelf" : "Name your first shelf"}" maxlength="60" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore><button type="submit" class="btn small">Add</button></form>
+  </div>`;
+}
+function shelfRow(g) {
+  if (g.isWishOnly) return "";
+  return `<div class="shelf-row">
+    ${g.shelves.length ? `<span class="shelf-label">Shelves</span>` : ""}
+    ${g.shelves.map((s) => `<span class="shelf-pill">${esc(shelfName(s))}<button type="button" data-shelf-off="${s}" aria-label="Take it off ${esc(shelfName(s))}">✕</button></span>`).join("")}
+    <span class="shelf-add"><button type="button" class="shelf-add-btn" data-act="shelf-add" aria-expanded="false">+ Add to shelf</button><div class="shelf-add-pop" hidden>${shelfPicker(g)}</div></span>
+  </div>`;
+}
+// Clicks and submits inside any shelf picker (game page or right-click menu).
+document.addEventListener("change", (e) => {
+  const box = e.target.closest("[data-shelf-toggle]");
+  if (!box) return;
+  const gid = Number(box.closest(".shelf-picker").dataset.game);
+  toggleShelf(gid, Number(box.dataset.shelfToggle), box.checked);
+});
+document.addEventListener("submit", async (e) => {
+  const form = e.target.closest("[data-shelf-new]");
+  if (!form) return;
+  e.preventDefault();
+  const gid = Number(form.closest(".shelf-picker").dataset.game);
+  await newShelf(form.elements.name.value, gid);
+});
+
+// More like this: IGDB's similar games that you own or can play (XGP / PS+ you subscribe to).
+function similarSection(g) {
+  const list = (g.similar_games || []).map((id) => state.games.find((x) => x.id === id))
+    .filter((x) => x && defaultTypes().includes(gameType(x))).slice(0, 6);
+  if (!list.length) return "";
+  const why = (x) => x.isCatalog ? (x.subs || []).map((s) => SUB_SHORT[s.s] || "").filter(Boolean).map((s) => `On ${s}`).join(" · ")
+    : x.status === "completed" ? "Completed" : x.neverPlayed ? "Not played yet" : `${fmtHours(x.played_h)} played`;
+  return `<section class="section similar"><h2>More like this</h2>
+    <p class="source-note">${subsLabel() ? `Similar games you own or can play on ${esc(subsLabel())}` : "Similar games you own"}, from IGDB.</p>
+    <div class="similar-row">${list.map((x) => `<button class="rec" data-open="${x.id}" title="${esc(x.title)}">
+      <div class="cover">${coverHTML(x)}<div class="badges">${badgesHTML(x)}</div></div>
+      <div class="rec-title">${esc(x.title)}</div><div class="rec-why">${esc(why(x))}</div></button>`).join("")}</div>
+  </section>`;
+}
+
+/* ------------------------------------------------------------ Your year in games */
+
+// One calendar year, from what the stores report (the server works out which games and when:
+// /api/year/<y>). A game counts as finished on its achievement's date when it was marked
+// automatically, else on the day you last played it, so games marked during setup land in
+// the year you actually played them.
+state.yearCache = {};
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+async function renderYear() {
+  const el = $("#year");
+  const thisYear = new Date().getFullYear();
+  const y = state.yearSel || thisYear;
+  let d = state.yearCache[y];
+  if (!d) {
+    if (!el.innerHTML) el.innerHTML = `<p class="source-note year-loading">Looking back at ${y}…</p>`;
+    try { d = await api(`/api/year/${y}`); } catch (e) { el.innerHTML = `<p class="notice">${esc(e.message)}</p>`; return; }
+    state.yearCache[y] = d;
+  }
+  if (state.page !== "year" || (state.yearSel || thisYear) !== y) return;
+  const types = defaultTypes();
+  const pick = (ids) => ids.map((id) => state.games.find((g) => g.id === id)).filter((g) => g && types.includes(gameType(g)));
+  const played = pick(d.played).sort((a, b) => (b.last_played || 0) - (a.last_played || 0));
+  const at = Object.fromEntries(d.finished.map((f) => [f.id, f.at]));
+  const finished = pick(d.finished.map((f) => f.id));
+  const started = pick(d.started);
+  const mins = d.minutes || {};
+  const genres = {};
+  for (const g of played) for (const x of g.genres || []) genres[x] = (genres[x] || 0) + 1;
+  const topGenres = Object.entries(genres).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 8);
+  const platforms = new Set(played.flatMap((g) => g.platforms));
+  const withHours = played.filter((g) => mins[g.id] > 0).sort((a, b) => mins[b.id] - mins[a.id]);
+  const most = (withHours.length >= 3 ? withHours : played.slice().sort((a, b) => b.playtime_min - a.playtime_min)).slice(0, 5);
+  // dates within the year being shown don't need the year
+  const day = (ts) => new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const mostThisYear = withHours.length >= 3;
+  const months = Array(12).fill(0);
+  for (const g of finished) months[new Date(at[g.id] * 1000).getMonth()]++;
+  const mmax = Math.max(1, ...months);
+  const card = (g, why) => `<button class="rec mini" data-id="${g.id}" title="${esc(g.title)}"><div class="cover">${coverHTML(g)}</div>
+    <div class="rec-title">${esc(g.title)}</div><div class="rec-why">${why}</div></button>`;
+  const years = d.years || [thisYear];
+  const prev = years.includes(y - 1), next = y < thisYear;
+  const tile = (n, label) => `<div class="ytile"><b>${n}</b><span>${label}</span></div>`;
+  const since = d.log_since ? new Date(d.log_since + "T00:00").toLocaleDateString(undefined, { month: "long", day: "numeric" }) : "";
+  setHTML(el, `
+    <div class="year-head">
+      <button class="btn icon ghost" data-year="${y - 1}" ${prev ? "" : "disabled"} aria-label="${y - 1}">‹</button>
+      <h1>Your <span>${y}</span> in games</h1>
+      <button class="btn icon ghost" data-year="${y + 1}" ${next ? "" : "disabled"} aria-label="${y + 1}">›</button>
+    </div>
+    <p class="year-lede">${y === thisYear ? "January to today" : `All of ${y}`}, from what your stores report.</p>
+    ${!played.length ? `<p class="notice">Nothing on record for ${y}: your stores don't report any play that year.</p>` : `
+    <div class="ytiles">
+      ${tile(played.length.toLocaleString(), `game${played.length === 1 ? "" : "s"} played`)}
+      ${tile(finished.length.toLocaleString(), "seen to the credits")}
+      ${started.length ? tile(started.length.toLocaleString(), "started for the first time") : tile(platforms.size, `platform${platforms.size === 1 ? "" : "s"} played on`)}
+      ${topGenres.length ? tile(esc(genreLabel(topGenres[0][0])), "the genre you played most") : ""}
+    </div>
+    ${finished.length ? `<section class="ysec"><h2>Seen to the credits <small>newest first</small></h2>
+      <div class="ygrid">${finished.map((g) => card(g, esc(day(at[g.id])))).join("")}</div></section>` : ""}
+    <div class="ycols">
+      <div>
+        ${finished.length >= 2 ? `<section class="ysec"><h2>Credits rolled, month by month</h2>
+          <div class="ymonths" role="img" aria-label="Games finished each month: ${months.map((n, i) => `${MONTHS[i]} ${n}`).join(", ")}">
+            ${months.map((n, i) => `<div class="ymonth" title="${MONTHS[i]}: ${n} game${n === 1 ? "" : "s"}"><em>${n || ""}</em><i style="height:${n ? Math.max(6, n / mmax * 100) : 0}%"></i><span>${MONTHS[i][0]}</span></div>`).join("")}
+          </div></section>` : ""}
+        <section class="ysec"><h2>Most played <small>${mostThisYear ? `hours in ${y}${since ? `, counted since ${esc(since)}` : ""}` : `of your ${y} games, all-time hours`}</small></h2>
+          <div class="ygrid small">${most.map((g) => card(g, esc(fmtHours(mostThisYear ? mins[g.id] / 60 : g.played_h)))).join("")}</div></section>
+      </div>
+      ${topGenres.length ? `<section class="ysec"><h2>Genres you played <small>games in each</small></h2>
+        <div class="ygenres">${topGenres.map(([n, c]) => `<div class="ygenre" title="${esc(genreLabel(n))}: ${c} game${c === 1 ? "" : "s"}"><span>${esc(genreLabel(n))}</span><i style="width:${c / topGenres[0][1] * 100}%"></i><em>${c}</em></div>`).join("")}</div></section>` : ""}
+    </div>
+    <section class="ysec"><h2>Everything you played in ${y} <small>most recent first</small></h2>
+      <div class="ygrid">${played.map((g) => card(g, g.last_played && new Date(g.last_played * 1000).getFullYear() === y ? `Last played ${esc(day(g.last_played))}` : esc(fmtHours(g.played_h)))).join("")}</div></section>`}
+  `);
+}
+$("#page-year").addEventListener("click", (e) => {
+  const yb = e.target.closest("[data-year]");
+  if (yb && !yb.disabled) { state.yearSel = Number(yb.dataset.year); renderYear(); scrollTo({ top: 0 }); return; }
+  const card = e.target.closest("[data-id]");
+  if (card) openGame(Number(card.dataset.id));
+});
+$("#page-year").addEventListener("contextmenu", (e) => {
+  const card = e.target.closest("[data-id]");
+  if (!card) return;
+  e.preventDefault();
+  openMenu(Number(card.dataset.id), e.clientX, e.clientY);
+});
 
 /* ------------------------------------------------------------ add game / fix match */
 
@@ -2423,7 +2727,7 @@ function displayBlock() {
     <div class="pc-row">
       <div><h3>Display</h3><p>The tab ${esc(APP)} opens on.</p></div>
       <span class="spacer"></span>
-      <select id="set-start" aria-label="Open ${esc(APP)} on">${[["curator", CURATOR], ["library", "Library"], ["wishlist", "Wishlist"]].map(([v, l]) =>
+      <select id="set-start" aria-label="Open ${esc(APP)} on">${[["curator", CURATOR], ["library", "Library"], ["wishlist", "Wishlist"], ["year", "Your year"]].map(([v, l]) =>
         `<option value="${v}" ${(s.start_page || "curator") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
     </div>
   </div>`;
@@ -2953,6 +3257,8 @@ async function reloadLibrary() {
   if (n !== libraryLoads) return;  // a newer reload already started: its answer wins
   state.platforms = data.platforms;
   state.wishlistAt = data.wishlist_at;
+  state.shelves = data.shelves || [];
+  state.yearCache = {};  // Your year is worked out again from the new data
   const seen = new Map();
   for (const g of data.games) { const k = g.title.toLowerCase(); seen.set(k, (seen.get(k) || 0) + 1); }
   state.sameNames = new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
@@ -3038,6 +3344,22 @@ function bind() {
     const st = e.target.closest(".status-picker button");
     if (st) { setStatus(id, st.dataset.s); return; }
     const act = e.target.closest("[data-act]")?.dataset.act;
+    const actV = e.target.closest("[data-act]")?.dataset.v;
+    if (act !== "play-menu" && !e.target.closest(".play-pop")) $$("#detail .play-pop").forEach((x) => { x.hidden = true; });
+    if (act === "play") { $$("#detail .play-pop").forEach((x) => { x.hidden = true; }); playGame(id, actV); return; }
+    if (act === "install") { $$("#detail .play-pop").forEach((x) => { x.hidden = true; }); installGame(id, actV); return; }
+    if (act === "play-menu") { const pop = $("#detail .play-pop"); if (pop) pop.hidden = !pop.hidden; e.target.closest("[data-act]").setAttribute("aria-expanded", String(!pop?.hidden)); return; }
+    if (act === "shelf-add") {
+      const pop = e.target.closest(".shelf-add").querySelector(".shelf-add-pop");
+      pop.hidden = !pop.hidden;
+      e.target.closest("[data-act]").setAttribute("aria-expanded", String(!pop.hidden));
+      if (!pop.hidden) $("input[type=text]", pop)?.focus();
+      return;
+    }
+    const off = e.target.closest("[data-shelf-off]");
+    if (off) { toggleShelf(id, Number(off.dataset.shelfOff), false); return; }
+    const other = e.target.closest("[data-open]");
+    if (other) { openGame(Number(other.dataset.open)); return; }
     if (act === "menu") { toggleMoreMenu(); return; }
     if (e.target.closest(".more-pop")) toggleMoreMenu(false);  // an action was picked
     if (act === "interest") { setInterest(id, e.target.closest("[data-act]").dataset.v); return; }
@@ -3114,11 +3436,13 @@ function openMenu(id, x, y) {
   m.innerHTML = `
     <div class="ctx-title">${esc(g.title)}</div>
     <button data-m="open">Open</button>
+    ${g.canPlay ? `<button data-m="play">Play</button>` : ""}
     <hr>
     ${g.isWishOnly ? "" : `${["completed", "dnf", ""].map((s) => `<button data-m="status" data-v="${s}" class="${st === s ? "on" : ""}">${st === s ? "✓ " : ""}${s === "" ? "Not marked" : statusLabel(s)}</button>`).join("")}
     <hr>
     ${Object.entries(INTEREST).map(([k, label]) => `<button data-m="interest" data-v="${k}" class="${g.interest === k ? "on" : ""}">${g.interest === k ? "✓ " : ""}${label}</button>`).join("")}
     <hr>`}
+    ${g.isWishOnly ? "" : `<button data-m="shelves">Add to shelf…</button>`}
     <button data-m="art">Change art…</button>
     <button data-m="fix">${g.match_state === "none" ? "Identify game…" : "Fix match…"}</button>
     <button data-m="hide">${g.isHidden ? "Unhide" : "Hide"}</button>`;
@@ -3133,9 +3457,16 @@ $("#ctx").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-m]");
   if (!b) return;
   const id = state.menuId, g = byId(id);
+  if (b.dataset.m === "shelves" && g) {
+    // the menu turns into the shelf picker, in place
+    $("#ctx").innerHTML = `<div class="ctx-title">Shelves for ${esc(g.title)}</div>${shelfPicker(g)}`;
+    ($("#ctx input[type=text]") || $("#ctx input"))?.focus({ preventScroll: true });
+    return;
+  }
   closeMenu();
   if (!g) return;
   const m = b.dataset.m;
+  if (m === "play") { playGame(id); return; }
   if (m === "open") openGame(id);
   else if (m === "status") setStatus(id, b.dataset.v);
   else if (m === "interest") setInterest(id, b.dataset.v);
@@ -3143,7 +3474,8 @@ $("#ctx").addEventListener("click", (e) => {
   else if (m === "fix") openFixMatch(g);
   else if (m === "hide") setHidden(id, !g.isHidden);
 });
-document.addEventListener("click", (e) => { if (!e.target.closest("#ctx")) closeMenu(); });
+// composedPath: a click that redrew the menu (Add to shelf…) has a detached target by now
+document.addEventListener("click", (e) => { if (!e.composedPath().includes($("#ctx"))) closeMenu(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#ctx").hidden) { e.stopImmediatePropagation(); closeMenu(); } }, true);
 window.addEventListener("scroll", () => { if (Math.abs(scrollY - (state.menuY || 0)) > 24) closeMenu(); }, { passive: true });
 window.addEventListener("resize", closeMenu);
@@ -3530,8 +3862,8 @@ async function receiveUbisoft() {
     await loadSettings();
     await reloadLibrary();
     // The tab in the address (after a reload), else the one picked in Settings › Display.
-    const start = ["curator", "library", "wishlist"].includes(state.settings?.settings?.start_page) ? state.settings.settings.start_page : "curator";
-    showPage(["#library", "#wishlist", "#curator"].includes(location.hash) ? location.hash.slice(1) : start, { push: false });
+    const start = ["curator", "library", "wishlist", "year"].includes(state.settings?.settings?.start_page) ? state.settings.settings.start_page : "curator";
+    showPage(["#library", "#wishlist", "#curator", "#year"].includes(location.hash) ? location.hash.slice(1) : start, { push: false });
     await startDesktop();
     state.sync = await api("/api/sync");
     if (location.hash.startsWith("#ubisoft=")) await receiveUbisoft();

@@ -23,7 +23,6 @@ BACKUP_DIR = DATA_DIR / "backups"
 BACKUPS_KEPT = 6
 BACKUP_EVERY = 7 * 86400
 
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS games (
     id              INTEGER PRIMARY KEY,
@@ -324,6 +323,24 @@ def _migrate(c: sqlite3.Connection) -> None:
             c.execute("ALTER TABLE games ADD COLUMN vr_only INTEGER")
         c.execute("UPDATE games SET ea_checked_at = NULL")  # so the next check fills it in
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '19')")
+    if version < 20:
+        # Installed games (installed.py), your own shelves, and IGDB's similar games.
+        c.execute("""CREATE TABLE IF NOT EXISTS installs (
+            game_id INTEGER NOT NULL, platform TEXT NOT NULL, ref TEXT NOT NULL, name TEXT,
+            launch TEXT, dir TEXT, seen_at INTEGER, PRIMARY KEY (platform, ref))""")
+        c.execute("CREATE INDEX IF NOT EXISTS installs_game ON installs(game_id)")
+        c.execute("""CREATE TABLE IF NOT EXISTS shelves (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, created_at INTEGER)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS shelf_games (
+            shelf_id INTEGER NOT NULL, game_id INTEGER NOT NULL, added_at INTEGER,
+            PRIMARY KEY (shelf_id, game_id))""")
+        c.execute("CREATE INDEX IF NOT EXISTS shelf_games_game ON shelf_games(game_id)")
+        cols = {r[1] for r in c.execute("PRAGMA table_info(games)")}
+        if "similar" not in cols:
+            c.execute("ALTER TABLE games ADD COLUMN similar TEXT")      # IGDB ids of similar games (JSON)
+        if "similar_at" not in cols:
+            c.execute("ALTER TABLE games ADD COLUMN similar_at INTEGER")
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '20')")
 
 
 @contextmanager
@@ -482,6 +499,10 @@ def merge_games(c: sqlite3.Connection, keep_id: int, drop_id: int) -> None:
     c.execute("UPDATE entries SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE sub_catalog SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE wishlist SET game_id=? WHERE game_id=?", (keep_id, drop_id))
+    c.execute("UPDATE installs SET game_id=? WHERE game_id=?", (keep_id, drop_id))
+    c.execute("INSERT OR IGNORE INTO shelf_games(shelf_id, game_id, added_at) SELECT shelf_id, ?, added_at FROM shelf_games WHERE game_id=?",
+              (keep_id, drop_id))
+    c.execute("DELETE FROM shelf_games WHERE game_id=?", (drop_id,))
     # Keep whichever personal data exists: the kept game's first, else the other one's.
     src = keep if keep["status"] or not drop["status"] else drop  # the status travels with its flags
     notes = "\n\n".join(n for n in (keep["notes"], drop["notes"]) if n)
@@ -506,6 +527,9 @@ def merge_games(c: sqlite3.Connection, keep_id: int, drop_id: int) -> None:
 
 def delete_orphans(c: sqlite3.Connection) -> None:
     c.execute("DELETE FROM games WHERE id NOT IN (SELECT DISTINCT game_id FROM entries)")
+    # (game ids can be reused, so nothing may point at a game that's gone)
+    c.execute("DELETE FROM shelf_games WHERE game_id NOT IN (SELECT id FROM games)")
+    c.execute("DELETE FROM installs WHERE game_id NOT IN (SELECT id FROM games)")
 
 
 # ---------------------------------------------------------------- reads
@@ -543,6 +567,7 @@ def game_to_dict(row: sqlite3.Row) -> dict:
         d["catalog_only"] = bool(d["catalog_only"]) and not d.get("wishlist_only")
     if "wishlist_only" in d:
         d["wishlist_only"] = bool(d["wishlist_only"])
+    d.pop("similar", None)  # only the game page needs it, worked out in game_detail
     if "playtime_min" in d and "modes" in d:
         from .rules import open_ended
         d["endless_auto"] = open_ended(d)
@@ -558,7 +583,20 @@ def library(with_wishlist: bool = False) -> list[dict]:
         games = [g for g in games if not g["wishlist_only"]]
     _attach_subs(games)
     _attach_wish(games)
+    _attach_mine(games)
     return games
+
+
+def _attach_mine(games: list[dict]) -> None:
+    """Installed copies (g["installed"]: [{platform, can_play}]) and your shelves (g["shelves"]: [ids])."""
+    from . import installed
+    inst = installed.by_game()
+    shelves: dict[int, list[int]] = {}
+    for r in query("SELECT shelf_id, game_id FROM shelf_games"):
+        shelves.setdefault(r["game_id"], []).append(r["shelf_id"])
+    for g in games:
+        g["installed"] = inst.get(g["id"], [])
+        g["shelves"] = shelves.get(g["id"], [])
 
 
 def _attach_wish(games: list[dict]) -> None:
@@ -598,12 +636,43 @@ def game_detail(game_id: int) -> dict | None:
     d["entries"] = [dict(r) for r in query("SELECT * FROM entries WHERE game_id=? ORDER BY platform", (game_id,))]
     _attach_subs([d])
     _attach_wish([d])
+    _attach_mine([d])
+    d["similar_games"] = similar_games({**d, "similar": rows[0]["similar"]})
     from .meta import catalogs
     d["store_links"] = catalogs.store_links(game_id)
     d["play_days"] = [dict(r) for r in query(
         """SELECT p.day, SUM(p.minutes) AS minutes FROM play_days p JOIN entries e ON e.id = p.entry_id
            WHERE e.game_id=? AND NOT COALESCE(e.excluded, 0) GROUP BY p.day ORDER BY p.day DESC LIMIT 60""", (game_id,))]
     return d
+
+
+def similar_games(g: dict, limit: int = 12) -> list[int]:
+    """Library games (yours, XGP or PS+) that IGDB lists as similar to this one, or that list
+    this one as similar to them: IGDB's own order first."""
+    if not g.get("igdb_id"):
+        return []
+    rows = query("""SELECT g.id, g.igdb_id, g.similar FROM games g WHERE g.igdb_id IS NOT NULL AND g.id <> ?
+                     AND EXISTS (SELECT 1 FROM entries e WHERE e.game_id = g.id AND COALESCE(e.ownership, '') <> 'wishlist')""",
+                 (g["id"],))
+    by_igdb = {r["igdb_id"]: r["id"] for r in rows}
+    try:
+        forward = [by_igdb[i] for i in json.loads(g.get("similar") or "[]") if i in by_igdb]
+    except (TypeError, ValueError):
+        forward = []
+    me = g["igdb_id"]
+    back = []
+    for r in rows:
+        if r["similar"] and str(me) in r["similar"]:
+            try:
+                if me in json.loads(r["similar"]):
+                    back.append(r["id"])
+            except ValueError:
+                pass
+    out = []
+    for gid in forward + back:
+        if gid not in out:
+            out.append(gid)
+    return out[:limit]
 
 
 def set_json(value) -> str | None:
@@ -657,3 +726,62 @@ def year_stats() -> dict:
         total_min += max(e["playtime_min"] - base, 0)
     start = query("SELECT MIN(day) d FROM playtime_log")[0]["d"]
     return {"hours": round(total_min / 60, 1), "since": start if start and start > jan1 else None, "year": year}
+
+
+# ---------------------------------------------------------------- your year in games
+
+def year_in_games(year: int) -> dict:
+    """What your stores say about one calendar year: games played (last or first played that year,
+    or days on the Switch's play history), games finished, and hours where Sunbeam's daily record
+    covers it. A game counts as finished on the date its achievement or trophy was earned when it
+    was marked automatically; otherwise on the day you last played it (marking a game Completed
+    later, during setup say, doesn't move it into that year). Unknown dates don't count."""
+    import datetime
+    start = int(datetime.datetime(year, 1, 1).timestamp())
+    end = int(datetime.datetime(year + 1, 1, 1).timestamp())
+    ds, de = f"{year}-01-01", f"{year + 1}-01-01"
+    rows = query("""SELECT e.id, e.game_id, e.platform, e.last_played, e.first_played, e.ownership
+                    FROM entries e WHERE NOT COALESCE(e.excluded, 0) AND COALESCE(e.ownership, '') NOT IN ('catalog', 'wishlist')""")
+    played, started = set(), set()
+    for r in rows:
+        if r["last_played"] and start <= r["last_played"] < end:
+            played.add(r["game_id"])
+        if r["first_played"] and start <= r["first_played"] < end:
+            played.add(r["game_id"])
+            started.add(r["game_id"])
+    minutes: dict[int, int] = {}
+    for r in query("""SELECT e.game_id, SUM(p.minutes) m FROM play_days p JOIN entries e ON e.id = p.entry_id
+                      WHERE p.day >= ? AND p.day < ? AND NOT COALESCE(e.excluded, 0) GROUP BY e.game_id""", (ds, de)):
+        played.add(r["game_id"])
+        minutes[r["game_id"]] = minutes.get(r["game_id"], 0) + (r["m"] or 0)
+    # Sunbeam's own daily record of lifetime playtime: the growth within the year.
+    for r in query("""SELECT e.game_id, MAX(l.playtime_min) - MIN(l.playtime_min) m
+                      FROM playtime_log l JOIN entries e ON e.id = l.entry_id
+                      WHERE l.day >= ? AND l.day < ? AND NOT COALESCE(e.excluded, 0) AND e.platform NOT IN ('switch', 'switch2')
+                      GROUP BY l.entry_id HAVING m > 0""", (ds, de)):
+        minutes[r["game_id"]] = minutes.get(r["game_id"], 0) + r["m"]
+        played.add(r["game_id"])
+    last_by_game: dict[int, int] = {}
+    for r in rows:
+        if r["last_played"]:
+            last_by_game[r["game_id"]] = max(last_by_game.get(r["game_id"], 0), r["last_played"])
+    finished = []
+    for g in query("SELECT id, status_at, status_auto FROM games WHERE status='completed'"):
+        if g["status_auto"]:
+            at = g["status_at"]
+        else:
+            last = last_by_game.get(g["id"])
+            at = min(last, g["status_at"]) if last and g["status_at"] else last
+        if at and start <= at < end:
+            finished.append({"id": g["id"], "at": at})
+            played.add(g["id"])
+    finished.sort(key=lambda x: -x["at"])
+    first = query("""SELECT MIN(x) y FROM (SELECT MIN(last_played) x FROM entries WHERE last_played >= 1072915200
+                     UNION SELECT MIN(first_played) FROM entries WHERE first_played >= 1072915200)""")[0]["y"]
+    this_year = datetime.date.today().year
+    first_year = datetime.date.fromtimestamp(first).year if first else this_year
+    log_start = query("SELECT MIN(day) d FROM playtime_log")[0]["d"]
+    return {"year": year, "years": list(range(this_year, first_year - 1, -1)),
+            "played": sorted(played), "started": sorted(started), "finished": finished,
+            "minutes": {str(k): v for k, v in minutes.items()},
+            "log_since": log_start if log_start and log_start > ds else None}
