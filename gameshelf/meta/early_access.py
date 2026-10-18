@@ -3,7 +3,10 @@
 Steam says so for every game with a Steam version (IStoreBrowseService/GetItems:
 is_early_access, plus release_from_early_access_date once the full release is announced;
 after it, the store's release date is the full release). Games without a Steam version use
-IGDB's game status (4 = early access), when IGDB is set up.
+IGDB's game status (4 = early access), when IGDB is set up. Xbox names them "… (Game
+Preview)" (in its library and the XGP list), which counts too.
+
+Runs at the end of every sync, and shortly after start-up when the last check is over a day old.
 
 Stored on the game as early_access (1 / 0 / NULL not known) and ea_full_date. The page tags
 these games, keeps them out of automatic "completed" marks and, if you ask in Settings,
@@ -13,12 +16,14 @@ out of the library and Curator.
 from __future__ import annotations
 
 import json
+import threading
 
 from .. import db, net
 from . import igdb
 
 STEAM_API = "https://api.steampowered.com"
 IGDB_EARLY_ACCESS = 4
+PREVIEW = "%(Game Preview)%"  # Xbox's word for early access
 
 
 def _steam(appids: list[int]) -> dict[int, tuple[int, int | None]]:
@@ -70,8 +75,31 @@ def refresh() -> int:
                     found[rest[igdb_id]] = (ea, None)
         except Exception:
             pass  # IGDB didn't answer: those games keep what they had
+    # Xbox's "(Game Preview)" in the game's name or a copy's name: early access whatever else says.
+    for r in db.query("""SELECT DISTINCT g.id FROM games g JOIN entries e ON e.game_id = g.id
+                         WHERE g.title LIKE ? OR e.name LIKE ?""", (PREVIEW, PREVIEW)):
+        found[r["id"]] = (1, (found.get(r["id"]) or (0, None))[1])
     now = db.now()
     with db.tx() as c:
         for gid, (ea, full) in found.items():
             c.execute("UPDATE games SET early_access=?, ea_full_date=?, ea_checked_at=? WHERE id=?", (ea, full, now, gid))
     return sum(1 for ea, _ in found.values() if ea)
+
+
+def refresh_soon() -> None:
+    """At start-up: check again in the background if the last check is over a day old (or never ran)."""
+    row = db.query("SELECT MAX(ea_checked_at) t FROM games")
+    last = row[0]["t"] if row else None
+    if last and db.now() - last < 20 * 3600:
+        return
+
+    def run():
+        try:
+            refresh()
+            from .. import sync
+            sync.recheck_auto_completions()  # undo automatic "completed" on games now known to be in early access
+        except Exception as e:
+            print(f"  Couldn't check for early access games: {e}")
+    t = threading.Timer(20, run)
+    t.daemon = True  # never keeps the app from quitting
+    t.start()

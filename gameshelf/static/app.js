@@ -221,7 +221,8 @@ function subMatch(g, tags) {
 // release year added, so they can be told apart everywhere.
 state.sameNames = new Set();
 function derive(g) {
-  if (g.base_title === undefined) g.base_title = g.title;
+  // Xbox's "(Game Preview)" is early access: the cover's tag says it, so the name doesn't need to.
+  if (g.base_title === undefined) g.base_title = g.title.replace(/\s*\(Game Preview\)\s*$/i, "");
   // XGP / PS+: only the services you're subscribed to count (Settings › Subscriptions).
   if (g.subsAll === undefined) g.subsAll = g.subs || [];
   g.subs = g.subsAll.filter((x) => subscribed(x.s));
@@ -758,7 +759,8 @@ function renderWishRows() {
         ${row("Recently released", `the last ${WISH_DAYS} days`, recent, (g) => `${esc(fmtRelease(g.rel))}${recReview(g) != null ? ` · ${recScoreTag(g)}` : ""}`,
           `Nothing from your wishlist came out in the last ${WISH_DAYS} days.`)}
       </div>
-      ${row("On sale", "biggest discount first", sale, (g) => wishPrice(g), "Nothing on your wishlist is on sale right now.", { sale: true })}
+      ${row("On sale", "biggest discount first", sale, (g) => `${wishPrice(g)}${recReview(g) != null ? `<span class="rec-why-line">${recScoreTag(g)} on ${g.steam_review_pct != null ? "Steam" : "OpenCritic"}</span>` : ""}`,
+        "Nothing on your wishlist is on sale right now.", { sale: true })}
     </section>`);
 }
 
@@ -1075,7 +1077,8 @@ function filterMenu(id, f) {
   }
   if (id === "more") return (["gamepass", "psplus"].some(subscribed) ? `<div class="fpop-head"><span>${["gamepass", "psplus"].filter(subscribed).map((x) => SUB_SHORT[x]).join(" and ")}</span></div>`
     + Object.entries(SUBTAG_NAMES).map(([v, l]) => row("subtags", v, l, f.subs[v], p.subTags.includes(v))).join("") : "")
-    + `<div class="fpop-foot"><button type="button" class="link" data-fdups>Find duplicate games</button></div>`;
+    + `<div class="fpop-foot"><button type="button" class="link" data-fdups>Find duplicate games</button>
+      ${unidentified().length ? `<button type="button" class="link" data-funid>Unidentified games (${unidentified().length})</button>` : ""}</div>`;
   return "";
 }
 
@@ -1128,6 +1131,7 @@ function bindFilters() {
     if (all) { setFilterGroup(all.dataset.fall, allValues(all.dataset.fall)); return; }
     const none = t.closest("[data-fnone]");
     if (none) { setFilterGroup(none.dataset.fnone, []); return; }
+    if (t.closest("[data-funid]")) { state.openFilter = null; renderFilters(); openUnid(); return; }
     if (t.closest("[data-fdups]")) { state.openFilter = null; renderFilters(); openDups(); }
   });
   bar.addEventListener("change", (e) => {
@@ -1450,7 +1454,7 @@ async function setHidden(id, v) {
     upsertLocal(g);
     if (state.openId === id) renderDetail(derive(g));
     const wishOnly = byId(id)?.isWishOnly;
-    toast(v ? (wishOnly ? "Hidden from your wishlist here" : "Hidden. Turn on “Show hidden games” in the filters to find it.")
+    toast(v ? (wishOnly ? "Hidden from your wishlist here" : "Hidden. Pick Hidden in the Type filter to find it.")
       : (wishOnly ? "Back on your wishlist" : "Back in your library"));
   } catch (err) { toast(err.message, true); }
 }
@@ -3150,6 +3154,132 @@ function lightboxShow() {
   if (c) c.textContent = `${i + 1} / ${list.length}`;
   for (const j of [i + 1, i - 1]) { const u = list[(j + list.length) % list.length]; if (u) new Image().src = bigShot(u); }  // ready for the next flip
 }
+
+/* ------------------------------------------------------------ unidentified games */
+
+// Games IGDB couldn't match automatically (match_state "none"): yours first, then XGP / PS+, then wishlist.
+// Hidden ones (betas, demos, tools, or hidden by you) are left out.
+const unidentified = () => [...state.games, ...state.wishGames].filter((g) => g.match_state === "none" && !g.isHidden)
+  .sort((a, b) => (a.isWishOnly - b.isWishOnly) || (a.isCatalog - b.isCatalog) || (b.playtime_min || 0) - (a.playtime_min || 0) || a.title.localeCompare(b.title));
+const unid = { rows: [], picks: new Map(), done: new Map(), queue: null };
+const normKey = (t) => (t || "").toLowerCase().replace(/[™®©:’'.,!?\-–—]/g, " ").replace(/\s+/g, " ").trim();
+
+function openUnid() {
+  if (!igdbReady()) { toast("Connect IGDB in Settings first", true); return; }
+  unid.rows = unidentified().map((g) => ({ id: g.id, title: g.base_title || g.title, g, sugg: null, searching: false }));
+  unid.picks = new Map(); unid.done = new Map();
+  renderUnid();
+  $("#unid-dialog").showModal();
+  loadSuggestions();
+}
+
+// Best guesses, a few at a time (IGDB allows 4 requests a second).
+async function loadSuggestions() {
+  const todo = unid.rows.filter((r) => r.sugg === null);
+  const worker = async () => {
+    while (todo.length && $("#unid-dialog").open) {
+      const r = todo.shift();
+      try {
+        const res = await api(`/api/igdb/search?clean=1&limit=4&q=${encodeURIComponent(r.title)}`);
+        r.sugg = res.results.slice(0, 3);
+        const exact = r.sugg.find((x) => normKey(x.name) === normKey(r.title.replace(/\s*\(.*?\)\s*$/, "")));
+        if (exact && !unid.picks.has(r.id)) unid.picks.set(r.id, { id: exact.id, name: exact.name });
+      } catch { r.sugg = []; }
+      renderUnidRow(r);
+      renderUnidFoot();
+    }
+  };
+  await Promise.all([worker(), worker()]);
+}
+
+function unidRowHTML(r) {
+  const g = r.g, done = unid.done.get(r.id), pick = unid.picks.get(r.id);
+  const where = g.isWishOnly ? "Wishlist" : g.isCatalog ? (g.subs || []).map((x) => `On ${SUB_SHORT[x.s]}`).join(", ") || "Catalog"
+    : g.platforms.map((p) => PLATFORM_SHORT[p] || p).join(", ");
+  const info = `${esc(where)}${g.playtime_min ? ` · ${fmtHours(g.played_h)}` : ""}`;
+  if (done) return `<div class="unid-row done" data-u="${r.id}"><span class="unid-cover"></span>
+    <span class="unid-text"><b>${esc(r.title)}</b><small>${esc(done)}</small></span></div>`;
+  const sugg = r.searching ? `<div class="unid-search"></div>`
+    : r.sugg === null ? `<span class="source-note">Looking for matches…</span>`
+    : `${r.sugg.map((x) => `<button type="button" class="unid-sugg ${pick?.id === x.id ? "on" : ""}" data-pick="${x.id}" data-name="${esc(x.name)}" title="${esc(x.name)}${x.year ? ` (${x.year})` : ""}">
+        ${x.cover ? `<img src="${esc(x.cover)}" alt="" loading="lazy" data-fallbacks="">` : `<span class="noimg"></span>`}
+        <span><b>${esc(x.name)}</b><small>${x.year || "Year unknown"}${x.is_edition ? " · edition/DLC" : ""}</small></span></button>`).join("")
+      || `<span class="source-note">No guesses.</span>`}
+      ${pick && !r.sugg.some((x) => x.id === pick.id) ? `<span class="unid-picked">Picked: <b>${esc(pick.name)}</b></span>` : ""}`;
+  return `<div class="unid-row" data-u="${r.id}">
+    <span class="unid-cover">${coverHTML(g)}</span>
+    <span class="unid-text"><b>${esc(r.title)}</b><small>${info}</small></span>
+    <div class="unid-suggs">${sugg}</div>
+    <div class="unid-acts">
+      <button class="btn small" data-use ${pick ? "" : "disabled"}>Use</button>
+      <button class="link" data-search>${r.searching ? "Close search" : "Search…"}</button>
+      <button class="link" data-hide title="Not a game (a tool, a beta, a demo…): hide it">Hide</button>
+    </div>
+  </div>`;
+}
+function renderUnidRow(r) {
+  const el = $(`#unid-body [data-u="${r.id}"]`);
+  if (!el) return;
+  el.outerHTML = unidRowHTML(r);
+  if (r.searching) {
+    const box = searchBox((p) => { unid.picks.set(r.id, p); const b = $(`#unid-body [data-u="${r.id}"] [data-use]`); if (b) b.disabled = false; }, r.title);
+    $(`#unid-body [data-u="${r.id}"] .unid-search`).append(box);
+  }
+}
+function renderUnidFoot() {
+  const n = unid.rows.filter((r) => !unid.done.has(r.id) && unid.picks.has(r.id)).length;
+  const left = unid.rows.filter((r) => !unid.done.has(r.id)).length;
+  $("#unid-foot").innerHTML = `<span class="source-note">${left ? `${left} left` : "All done"}</span><span class="spacer"></span>
+    <button class="btn ghost" data-close-dialog>Close</button>
+    <button class="btn" data-use-all ${n ? "" : "disabled"}>Use all picked${n ? ` (${n})` : ""}</button>`;
+}
+function renderUnid() {
+  const hidden = [...state.games, ...state.wishGames].filter((g) => g.match_state === "none" && g.isHidden).length;
+  $("#unid-body").innerHTML = unid.rows.length ? `
+    <p class="lede">IGDB couldn't tell which game these are, so they have no details, covers or time to beat. Pick the right one from the guesses, search for it, or hide it if it isn't a game. Nothing changes until you press Use.</p>
+    <div class="unid-list">${unid.rows.map(unidRowHTML).join("")}</div>
+    ${hidden ? `<p class="source-note">${hidden} hidden game${hidden === 1 ? " isn't" : "s aren't"} listed (betas, demos, tools and games you hid).</p>` : ""}
+    <div class="dialog-actions unid-foot" id="unid-foot"></div>`
+    : `<p class="lede">Every game is identified.</p><div class="dialog-actions"><button class="btn" data-close-dialog>Done</button></div>`;
+  if (unid.rows.length) renderUnidFoot();
+}
+
+async function useUnid(r) {
+  const pick = unid.picks.get(r.id);
+  if (!pick) return;
+  const row = $(`#unid-body [data-u="${r.id}"]`);
+  row?.classList.add("busy");
+  try {
+    await api(`/api/games/${r.id}/match`, { method: "POST", body: { igdb_id: pick.id } });
+    unid.done.set(r.id, `Matched to ${pick.name}. Its details and art are on the way.`);
+  } catch (e) { toast(`${r.title}: ${e.message}`, true); row?.classList.remove("busy"); return; }
+  renderUnidRow(r);
+}
+
+$("#unid-body").addEventListener("click", async (e) => {
+  const rowEl = e.target.closest("[data-u]");
+  const r = rowEl && unid.rows.find((x) => x.id === Number(rowEl.dataset.u));
+  if (e.target.closest("[data-use-all]")) {
+    e.target.closest("[data-use-all]").disabled = true;
+    for (const x of unid.rows) if (!unid.done.has(x.id) && unid.picks.has(x.id)) await useUnid(x);
+    renderUnidFoot(); await reloadLibrary(); toast("Matches updated");
+    return;
+  }
+  if (!r) return;
+  const s = e.target.closest("[data-pick]");
+  if (s) {
+    const id = Number(s.dataset.pick);
+    if (unid.picks.get(r.id)?.id === id) unid.picks.delete(r.id); else unid.picks.set(r.id, { id, name: s.dataset.name });
+    renderUnidRow(r); renderUnidFoot(); return;
+  }
+  if (e.target.closest("[data-use]")) { await useUnid(r); renderUnidFoot(); reloadLibrary(); return; }
+  if (e.target.closest("[data-search]")) { r.searching = !r.searching; renderUnidRow(r); return; }
+  if (e.target.closest("[data-hide]")) {
+    await setHidden(r.id, 1);
+    unid.done.set(r.id, "Hidden. Pick Hidden in the Type filter to find it.");
+    renderUnidRow(r); renderUnidFoot();
+  }
+});
 
 /* ------------------------------------------------------------ duplicates */
 

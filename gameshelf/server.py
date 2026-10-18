@@ -124,7 +124,9 @@ def post_art(req, body, query, game_id):
 @route("GET", "/api/igdb/search")
 def igdb_search(req, body, query):
     term = (query.get("q") or [""])[0]
-    results = igdb.search(term, limit=12)
+    if (query.get("clean") or [""])[0]:  # a store's title: without ™, "(PS5)", "PC Game Pass" and the like
+        term = db.clean_display_title(term)
+    results = igdb.search(term, limit=int((query.get("limit") or ["12"])[0]))
     out = []
     for r in results:
         out.append({

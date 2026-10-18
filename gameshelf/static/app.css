@@ -915,3 +915,34 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .display-set { display: grid; gap: 10px; }
 .pc-row select { width: auto; }
 .rec.mini .ea-pill { font-size: 9px; padding: 3px 5px; }
+
+/* ------------------------------------------------------------ Unidentified games (1.2.5) */
+.unid-list { display: grid; gap: 6px; max-height: 62vh; overflow-y: auto; margin: 6px 0 4px; padding-right: 4px; }
+.unid-row { display: grid; grid-template-columns: 34px minmax(140px, 220px) minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--ink-2); }
+.unid-row.busy { opacity: .5; pointer-events: none; }
+.unid-row.done { grid-template-columns: 34px minmax(0, 1fr); opacity: .6; }
+.unid-cover { width: 34px; height: 46px; border-radius: 4px; overflow: hidden; background: var(--ink-3); position: relative; }
+.unid-cover .cover-fallback, .unid-cover .fallback { font-size: 7px; }
+.unid-text { min-width: 0; display: flex; flex-direction: column; }
+.unid-text b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unid-text small { color: var(--muted); font-size: 12px; }
+.unid-suggs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.unid-sugg { display: flex; align-items: center; gap: 7px; max-width: 220px; padding: 4px 9px 4px 4px; border-radius: 8px; border: 1px solid var(--line);
+  background: none; color: var(--text); cursor: pointer; text-align: left; }
+.unid-sugg:hover { border-color: #4a4263; }
+.unid-sugg.on { border-color: rgba(255,92,158,.7); background: rgba(255,92,158,.10); }
+.unid-sugg img, .unid-sugg .noimg { width: 24px; height: 32px; border-radius: 3px; object-fit: cover; flex: none; background: var(--ink-3); }
+.unid-sugg span { min-width: 0; display: flex; flex-direction: column; }
+.unid-sugg b { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unid-sugg small { font-size: 11px; color: var(--muted); }
+.unid-picked { font-size: 12.5px; color: var(--muted); }
+.unid-search { width: 100%; }
+.unid-search .results { max-height: 220px; overflow-y: auto; }
+.unid-acts { display: flex; align-items: center; gap: 10px; }
+.unid-foot { align-items: center; }
+.rec-why-line { display: block; }
+#unid-dialog { width: min(1180px, calc(100% - 32px)); }
+.unid-suggs { flex-wrap: nowrap; }
+.unid-sugg { max-width: 210px; flex: 0 1 210px; }
+@media (max-width: 1000px) { .unid-suggs { flex-wrap: wrap; } }

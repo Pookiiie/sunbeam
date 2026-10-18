@@ -59,6 +59,11 @@ def main():
             print(f"  Unmarked {undone} game(s) that had been marked completed by mistake.")
     except Exception as e:  # never stop the app from starting
         print(f"  Couldn't re-check finished games: {e}")
+    try:
+        from .meta import early_access
+        early_access.refresh_soon()
+    except Exception as e:
+        print(f"  Couldn't schedule the early access check: {e}")
     httpd = serve(args.port)
     print(f"\n  {brand.NAME} {__version__} is running at {url}")
 

@@ -1,3 +1,4 @@
-- **New Type filter** in the library (between Genre and More): Regular games, Early access, VR and Hidden, with "only" on hover and All / None like the other filters. By default it shows what Settings › Hidden game types allows (VR and hidden games off). A game counts once: Hidden first, then VR, then early access.
-- **More** is trimmed to what's left there: XGP / PS+ "Recently added" and "Leaving soon" (only for services you're subscribed to) and Find duplicate games. The show-VR / show-early-access / show-hidden switches moved into Type.
-- **Curator:** "Coming out soon" is now on the left, only as wide as its games; "Recently released" uses the rest of the row.
+- **Unidentified games** (Library › Filters › More, and linked from the Sync log): one window listing every game IGDB couldn't identify, yours first. Each shows up to three guesses from IGDB (an exact name match is pre-picked); pick one, search by hand, or hide it if it isn't a game. Nothing changes until you press **Use** (per game) or **Use all picked**.
+- **Early access:** Xbox's "(Game Preview)" games count as early access (and the suffix is dropped from their names, since the tag says it), and the check also runs by itself shortly after Sunbeam starts, at most once a day, so you don't need a sync first.
+- **Curator › On sale** shows the review score under the price again.
+- The "Hidden" toast now points to the Type filter instead of the old "Show hidden games" switch.
