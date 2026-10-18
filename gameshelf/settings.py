@@ -32,7 +32,9 @@ FIELDS = {
     "sgdb_api_key": True,
     "opencritic_key": True,
     "hltb_enabled": False,
-    "hide_early_access": False,  # keep early access games out of the library and Curator
+    "hide_early_access": False,  # keep early access games out of the library and Curator (default: shown)
+    "hide_vr": False,            # keep VR games out of the library and Curator (default: hidden)
+    "start_page": False,         # the tab the app opens on: curator (default), library or wishlist
     "setup_done": False,       # finished (or skipped) the first-run setup
     "shortcuts_asked": False,  # answered the desktop / Start menu shortcut question
     "shortcuts_made": False,

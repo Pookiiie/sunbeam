@@ -909,3 +909,8 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .ea-pill.corner { position: absolute; left: 8px; top: 8px; }
 .ea-pill.corner.below { top: 30px; }
 .badge.ea-badge { background: rgba(120, 200, 255, .22); }
+
+/* Settings › Display */
+.display-set { display: grid; gap: 10px; }
+.start-page { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); margin-top: 4px; }
+.start-page select { width: auto; }

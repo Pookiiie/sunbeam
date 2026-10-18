@@ -35,7 +35,7 @@ const PLATFORM_SHORT = { steam: "Steam", playstation: "PS", switch2: "Switch 2",
 
 const DEFAULT_PREFS = {
   sort: "last_played", dir: "desc", view: "grid", size: 170, showHidden: false,
-  hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], vr: true,
+  hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], showVR: false, showEA: false,
   subTags: [], wishSort: "release", wishStore: "all", wishSale: false,
 };
 
@@ -62,6 +62,7 @@ function loadPrefs() {
     // Played used to be one choice: all / played / unplayed.
     if (!Array.isArray(p.played)) p.played = p.played === "played" ? ["played"] : p.played === "unplayed" ? ["never"] : ["played", "never"];
     delete p.subs; delete p.catalog;
+    delete p.vr;  // VR games are hidden (or not) in Settings now; More › Show VR games shows them anyway
   if (!["steam", "psn"].includes(p.wishStore)) p.wishStore = "all";
     return p;
   } catch { return { ...DEFAULT_PREFS }; }
@@ -317,13 +318,14 @@ function visibleGames() {
   const statuses = new Set(p.status);
   const keep = (g) => {
     if (g.isHidden && !p.showHidden) return false;
-    if (g.isEA && hideEA()) return false;  // Settings › Early access games
+    // Settings › Display hides these from the library and Curator; More › Show … brings them back here.
+    if (g.vr && hideVR() && !p.showVR) return false;
+    if (g.isEA && hideEA() && !p.showEA) return false;
     if (q && !g._search.includes(q)) return false;
     if (hidden.size && !g.platforms.some((x) => !hidden.has(x))) return false;
     if (!statuses.has(g.status || "")) return false;
     if (!p.played.includes(g.neverPlayed ? "never" : "played")) return false;
     if (p.genres.length && !(g.genres || []).some((x) => p.genres.includes(x))) return false;
-    if (!p.vr && g.vr) return false;
     if (p.subTags.length && !subMatch(g, p.subTags)) return false;
     return true;
   };
@@ -379,7 +381,7 @@ function recHoursLeft(g) {
   return g.remaining > 0.25 ? g.remaining : null;
 }
 
-const recEligible = (g) => !(g.isHidden || g.vr || g.status || g.isEndless || g.interest === "skip" || (g.isEA && hideEA()));
+const recEligible = (g) => !(g.isHidden || (g.vr && hideVR()) || g.status || g.isEndless || g.interest === "skip" || (g.isEA && hideEA()));
 
 // Reviews out of 100: Steam leads; few Steam reviews lean on OpenCritic, or towards a middling 65.
 function recReview(g) {
@@ -493,7 +495,7 @@ function showPage(page, { push = true } = {}) {
   document.body.dataset.page = page;
   $$(".page-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.page === page)));
   $$(".page-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.page === page));
-  if (push) history.replaceState(null, "", page === "curator" ? location.pathname : "#" + page);
+  if (push) history.replaceState(null, "", "#" + page);  // a reload stays on this tab; a fresh start uses Settings › Display
   scrollTo({ top: 0 });
 }
 
@@ -578,7 +580,9 @@ function wishPills(g, { sale = true } = {}) {
 }
 // "Early access" on a cover (top left).
 const eaPill = (g) => g.isEA ? `<span class="ea-pill" title="In early access${g.eaFull ? `: full release ${fmtDate(g.eaFull)}` : ": still being made"}">Early access</span>` : "";
+// Settings › Display: VR games are hidden unless you say otherwise; early access games are shown.
 const hideEA = () => !!state.settings?.settings?.hide_early_access;
+const hideVR = () => state.settings?.settings?.hide_vr !== false;
 // The price to show: the sale if there is one, else the lowest listed price.
 // Followed by where you can already play it: "C$ 38.99 · On XGP".
 // The lowest price across Steam and PlayStation (wishlist.py looks up the store whose wishlist
@@ -953,7 +957,7 @@ function renderStats() {
 const STATUS_NAMES = { "": "Not marked", completed: "Completed", dnf: "Did not finish" };
 const PLAYED_NAMES = { played: "Played", never: "Never played" };
 const SUBTAG_NAMES = { new: "Recently added", leaving: "Leaving soon" };
-const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], vr: true, subTags: [], showHidden: false });
+const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], showVR: false, showEA: false, subTags: [], showHidden: false });
 state.openFilter = null;
 state.genreQuery = "";
 
@@ -969,7 +973,7 @@ function filterFacts() {
   }
   const platforms = Object.keys(state.platforms).filter((p) => plat[p]);
   return { plat, platforms, status, played, genres, subs,
-    vr: visible.filter((g) => g.vr).length, hidden: state.games.filter((g) => g.isHidden).length };
+    vr: visible.filter((g) => g.vr).length, ea: visible.filter((g) => g.isEA).length, hidden: state.games.filter((g) => g.isHidden).length };
 }
 
 // IGDB calls platformers "Platform", which reads like the Platform filter.
@@ -988,7 +992,7 @@ function filterSummaries(f) {
   const st = p.status.length === 3 ? null : !p.status.length ? "None" : p.status.map((x) => STATUS_NAMES[x]).join(", ");
   const pl = p.played.length === 2 ? null : !p.played.length ? "None" : PLAYED_NAMES[p.played[0]];
   const gen = !p.genres.length ? null : p.genres.length <= 2 ? p.genres.map(genreLabel).join(", ") : `${p.genres.length} genres`;
-  const more = [...p.subTags.map((t) => SUBTAG_NAMES[t]), ...(p.vr ? [] : ["No VR"]), ...(p.showHidden ? ["Hidden shown"] : [])];
+  const more = [...p.subTags.map((t) => SUBTAG_NAMES[t]), ...(p.showVR && hideVR() ? ["VR shown"] : []), ...(p.showEA && hideEA() ? ["Early access shown"] : []), ...(p.showHidden ? ["Hidden shown"] : [])];
   return { platform: plat, status: st, played: pl, genre: gen, more: more.length ? more.join(", ") : null };
 }
 
@@ -1036,7 +1040,8 @@ function filterMenu(id, f) {
   if (id === "more") return `<div class="fpop-head"><span>XGP and PS+</span></div>`
     + Object.entries(SUBTAG_NAMES).map(([v, l]) => row("subtags", v, l, f.subs[v], p.subTags.includes(v))).join("")
     + `<div class="fpop-head"><span>Also</span></div>
-      ${f.vr ? `<div class="frow"><label><input type="checkbox" data-fflag="vr" ${p.vr ? "checked" : ""}><span>Include VR games</span></label><em>${f.vr}</em></div>` : ""}
+      ${f.vr && hideVR() ? `<div class="frow"><label><input type="checkbox" data-fflag="showVR" ${p.showVR ? "checked" : ""}><span>Show VR games</span></label><em>${f.vr}</em></div>` : ""}
+      ${f.ea && hideEA() ? `<div class="frow"><label><input type="checkbox" data-fflag="showEA" ${p.showEA ? "checked" : ""}><span>Show early access games</span></label><em>${f.ea}</em></div>` : ""}
       ${f.hidden ? `<div class="frow"><label><input type="checkbox" data-fflag="showHidden" ${p.showHidden ? "checked" : ""}><span>Show hidden games</span></label><em>${f.hidden}</em></div>` : ""}
       <div class="fpop-foot"><button type="button" class="link" data-fdups>Find duplicate games</button></div>`;
   return "";
@@ -1067,7 +1072,7 @@ function clearFilter(id) {
   if (id === "status") p.status = d.status;
   if (id === "played") p.played = d.played;
   if (id === "genre") p.genres = d.genres;
-  if (id === "more") Object.assign(p, { subTags: d.subTags, vr: d.vr, showHidden: d.showHidden });
+  if (id === "more") Object.assign(p, { subTags: d.subTags, showVR: d.showVR, showEA: d.showEA, showHidden: d.showHidden });
   savePrefs(); renderFilters(); render();
 }
 
@@ -2045,12 +2050,15 @@ function renderSettings(openId) {
       ${serviceBody(svc)}
     </details>`;
   }).join("") + `
-    <details class="service" ${openId === "early-access" ? "open" : ""}>
-      <summary><div><h3>Early access games</h3><p>Games that are still being made</p></div>
-      <span class="state ${s.hide_early_access ? "ok" : "later"}">${s.hide_early_access ? "Hidden" : "Shown"}</span></summary>
-      <div class="body">
-        <label class="switch"><input type="checkbox" id="ea-toggle" ${s.hide_early_access ? "checked" : ""}><span>Hide early access games from the library and ${CURATOR}</span></label>
-        <p class="source-note">They stay on the Wishlist page, in their own "In early access" group. Either way, they're tagged "Early access" and never marked completed automatically.</p>
+    <details class="service" ${openId === "display" ? "open" : ""}>
+      <summary><div><h3>Display</h3><p>What the library and ${CURATOR} show, and where ${APP} opens</p></div></summary>
+      <div class="body display-set">
+        <label class="switch"><input type="checkbox" id="set-hide-vr" ${hideVR() ? "checked" : ""}><span>Hide VR games from the library and ${CURATOR}</span></label>
+        <label class="switch"><input type="checkbox" id="set-hide-ea" ${hideEA() ? "checked" : ""}><span>Hide early access games from the library and ${CURATOR}</span></label>
+        <p class="source-note">Hidden ones can still be shown in the library from Filters › More. Early access games stay on the Wishlist page in their own group, their full release still shows in ${CURATOR}, and they're never marked completed automatically.</p>
+        <label class="start-page"><span>Open ${APP} on</span>
+          <select id="set-start">${[["curator", CURATOR], ["library", "Library"], ["wishlist", "Wishlist"]].map(([v, l]) =>
+            `<option value="${v}" ${(s.start_page || "curator") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
       </div>
     </details>
     <details class="service" ${openId === "hltb" ? "open" : ""}>
@@ -2129,10 +2137,12 @@ $("#settings-body").addEventListener("click", (e) => {
   onServiceClick(e, renderSettings);
 });
 $("#settings-body").addEventListener("change", async (e) => {
-  if (e.target.id === "ea-toggle") {
-    await api("/api/settings", { method: "POST", body: { hide_early_access: e.target.checked } });
+  const display = { "set-hide-vr": ["hide_vr", (t) => t.checked], "set-hide-ea": ["hide_early_access", (t) => t.checked],
+    "set-start": ["start_page", (t) => t.value] }[e.target.id];
+  if (display) {
+    await api("/api/settings", { method: "POST", body: { [display[0]]: display[1](e.target) } });
     await loadSettings();
-    renderSettings("early-access");
+    renderSettings("display");
     renderAll();
     return;
   }
@@ -3225,7 +3235,9 @@ async function receiveUbisoft() {
   try {
     await loadSettings();
     await reloadLibrary();
-    showPage(["#library", "#wishlist"].includes(location.hash) ? location.hash.slice(1) : "curator", { push: false });
+    // The tab in the address (after a reload), else the one picked in Settings › Display.
+    const start = ["curator", "library", "wishlist"].includes(state.settings?.settings?.start_page) ? state.settings.settings.start_page : "curator";
+    showPage(["#library", "#wishlist", "#curator"].includes(location.hash) ? location.hash.slice(1) : start, { push: false });
     await startDesktop();
     state.sync = await api("/api/sync");
     if (location.hash.startsWith("#ubisoft=")) await receiveUbisoft();
