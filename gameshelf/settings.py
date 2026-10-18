@@ -25,6 +25,7 @@ FIELDS = {
     "ubi_app": False,       # the Ubisoft site's app id that issued the pass
     "ubi_name": False,
     "ubi_expires": False,
+    "ubi_refreshed_at": False,  # when Ubisoft last answered a sync by itself (no bookmark)
     "bnet_games": True,     # what account.battle.net/api/games-and-subs (and classic-games) showed
     "xbl_xuid": False,      # your Xbox user id, so a sync needn't ask for it each time
     "igdb_client_id": False,

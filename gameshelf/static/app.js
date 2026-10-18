@@ -1959,10 +1959,15 @@ function ubiBookmarklet() {
       return;
     }
     const info = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i); if (!/^PROD/.test(k)) continue;
-      try { const v = JSON.parse(localStorage.getItem(k)); if (v && typeof v === "object")
-        for (const f of ["ticket", "rememberMeTicket", "sessionId", "userId", "profileId", "nameOnPlatform", "username", "expiration"]) if (v[f] && !info[f]) info[f] = v[f]; } catch (e) { /* not JSON */ }
+    const F = ["ticket", "rememberMeTicket", "sessionId", "userId", "profileId", "nameOnPlatform", "username", "expiration"];
+    // The sign-in lives in different places on Ubisoft's sites: PROD* keys on the login pages,
+    // reduxPersist:AuthenticationStore (nested) on the Connect web app. Look through all of them.
+    const dig = (v, d) => { if (!v || typeof v !== "object" || d > 5) return;
+      for (const f of F) if (typeof v[f] === "string" && v[f] && !info[f]) info[f] = v[f];
+      for (const k in v) dig(v[k], d + 1); };
+    for (const st of [localStorage, sessionStorage]) for (let i = 0; i < st.length; i++) {
+      const k = st.key(i); if (!/PROD|auth|login|session|user|remember|ticket/i.test(k)) continue;
+      try { dig(JSON.parse(st.getItem(k)), 0); } catch (e) { /* not JSON */ }
     }
     if (!info.ticket && !info.rememberMeTicket) {
       if (confirm(APPN + " couldn't find your Ubisoft sign-in on this page. Open Ubisoft Connect's sign-in page? Sign in there, then click the bookmark again.")) location.assign(LOGIN);
@@ -2022,12 +2027,22 @@ const ubiBookmarkHref = () => "javascript:" + encodeURIComponent("(" + ubiBookma
 SERVICES.push({
   id: "ubisoft", name: "Ubisoft Connect", blurb: "PC games you own, playtime and last played",
   ready: (s) => !!s.ubi_user,
-  steps: [
-    `Drag this button to your browser's bookmarks bar (drag it, don't click it): <a class="btn small bookmarklet" href="__UBI_BOOKMARK__" onclick="event.preventDefault(); toast('Drag the button to your bookmarks bar instead of clicking it')">Send to ${APP}</a>`,
-    `Open <a href="https://connect.ubisoft.com/login?appId=b8fde481-327d-4031-85ce-7c10a202a700&lang=en-US" target="_blank" rel="noopener">connect.ubisoft.com</a> and sign in as usual (two-step codes work there like always). Ubisoft only lets a real browser sign in, so ${APP} can't do this part itself.`,
-    `Once you're signed in, click the <b>Send to ${APP}</b> bookmark while you're on a connect.ubisoft.com page. If Ubisoft sent you to an error page or another site after signing in, open that link again first (you'll stay signed in), then click the bookmark. It reads your games and hours, then opens ${APP}, which adds them.`,
-    `Later syncs try to update Ubisoft by themselves; if Ubisoft says no, ${APP} keeps the last list and tells you to click the bookmark again for fresh hours. Last-played dates also come from the Ubisoft Connect app on this PC.`,
-  ],
+  // Signing in happens once, in your browser (Ubisoft only lets real browsers sign in, and it
+  // won't send a sign-in back to a local app); after that every sync refreshes by itself.
+  steps: () => {
+    const s = state.settings.settings;
+    const signedIn = !!s.ubi_user;
+    const auto = !!s.ubi_remember?.set;
+    const last = Number(s.ubi_refreshed_at || 0);
+    const status = !signedIn ? ""
+      : auto ? `<p class="ubi-status ok">Signed in${s.ubi_name ? ` as <b>${esc(s.ubi_name)}</b>` : ""}. ${APP} refreshes your Ubisoft games, hours and last played by itself at every sync${last ? ` (last refreshed ${esc(relDate(last).toLowerCase())})` : ""}.</p>`
+      : `<p class="ubi-status warn">Signed in${s.ubi_name ? ` as <b>${esc(s.ubi_name)}</b>` : ""}, but without a "stay signed in" pass, so ${APP} can't refresh by itself${last ? ` (last refreshed ${esc(relDate(last).toLowerCase())})` : ""}. Sign in once more, with <b>Remember me</b> ticked.</p>`;
+    const how = [
+      `Drag this button to your browser's bookmarks bar (drag it, don't click it): <a class="btn small bookmarklet" href="__UBI_BOOKMARK__" onclick="event.preventDefault(); toast('Drag the button to your bookmarks bar instead of clicking it')">Send to ${APP}</a>`,
+      `Open <a href="https://connect.ubisoft.com/login?appId=b8fde481-327d-4031-85ce-7c10a202a700&lang=en-US" target="_blank" rel="noopener">connect.ubisoft.com</a>, sign in with <b>Remember me</b> ticked (two-step codes work as usual), then click the bookmark on that page. It hands your games and the "stay signed in" pass to ${APP}, which refreshes by itself from then on.`,
+    ];
+    return signedIn && auto ? [status] : signedIn ? [status, ...how] : how;
+  },
   fields: [],
   clears: ["ubi_remember", "ubi_ticket", "ubi_session", "ubi_user"],
 });
@@ -2066,14 +2081,16 @@ async function loadSettings() {
 function serviceBody(svc) {
   const s = state.settings.settings;
   return `<div class="body">
-        <ol>${svc.steps.map((x) => `<li>${x.replace("__UBI_BOOKMARK__", esc(ubiBookmarkHref()))}</li>`).join("")}</ol>
+        ${(() => { const steps = typeof svc.steps === "function" ? svc.steps() : svc.steps;
+          const status = steps.filter((x) => x.startsWith("<p class=\"ubi-status")), rest = steps.filter((x) => !status.includes(x));
+          return status.join("") + (rest.length ? `<ol>${rest.map((x) => `<li>${x.replace("__UBI_BOOKMARK__", esc(ubiBookmarkHref()))}</li>`).join("")}</ol>` : ""); })()}
         ${svc.fields.map(([key, label, secret]) => `
           <label class="field"><span>${label}</span>
             <input type="text" class="${secret ? "secret" : ""}" name="${key}" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore
               value="${secret ? "" : esc(s[key] || "")}" placeholder="${secret && s[key].set ? `Saved (${esc(s[key].hint)}). Paste a new one to replace it.` : ""}">
           </label>`).join("")}
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <button class="btn small" data-save="${svc.id}">Save and test</button>
+          <button class="btn small" data-save="${svc.id}">${svc.fields.length ? "Save and test" : "Check"}</button>
           ${(svc.clears || []).some((k) => s[k]?.set) ? `<button class="link" data-clear="${svc.id}">Sign out</button>`
             : svc.fields.some(([k, , sec]) => sec && s[k].set) ? `<button class="link" data-clear="${svc.id}">${svc.id === "battlenet" ? "Remove saved list" : "Remove saved key"}</button>` : ""}
           <span class="test-result" data-result="${svc.id}"></span>

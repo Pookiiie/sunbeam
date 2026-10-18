@@ -950,3 +950,4 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .sync-sources.checks label > span { display: flex; flex-direction: column; gap: 1px; }
 .sync-sources.checks label > span small { color: var(--muted); font-size: 12px; font-weight: 400; }
 .sync-sources.checks label > small .link { white-space: nowrap; }
+.ubi-status { margin: 0 0 6px; } .ubi-status.ok { color: var(--done); } .ubi-status.warn { color: var(--accent); }

@@ -442,10 +442,11 @@ def _import(name: str):
         if hasattr(module, "after_import"):
             module.after_import(c)
         db.log_playtime(c)
-    _log(f"{label}: {len(items)} games imported.")
-    if getattr(module, "notice", None):
-        _log(f"{label}: {module.notice}", "warn")
-    _tl(f"import_{name}", state="done", note=f"{len(items):,} games")
+    notice = getattr(module, "notice", None)
+    _log(f"{label}: {len(items)} games imported." if not notice else f"{label}: {len(items)} games kept from last time.")
+    if notice:
+        _log(f"{label}: {notice}", "warn")
+    _tl(f"import_{name}", state="done", note=f"{len(items):,} games" if not notice else "Couldn't refresh, see below")
 
 
 # ------------------------------------------------------------------ enrichment

@@ -92,11 +92,11 @@ def _session_headers() -> dict:
     if not ticket or int(settings.get("ubi_expires") or 0) < time.time() + 120:
         remember = settings.get("ubi_remember")
         if not remember:
-            raise UbisoftError(f"Link Ubisoft Connect in Settings first (the Send to {brand.NAME} bookmark).")
+            raise UbisoftError("no \"stay signed in\" pass")
         try:
             _save_session(_post_session(f"rm_v1 t={remember}"))
         except UbisoftError:
-            raise UbisoftError(f"Ubisoft didn't let {brand.NAME} refresh by itself.") from None
+            raise UbisoftError("Ubisoft no longer accepts the \"stay signed in\" pass") from None
     return {**_base(), "Authorization": f"Ubi_v1 t={settings.get('ubi_ticket')}",
             "Ubi-SessionId": settings.get("ubi_session") or ""}
 
@@ -297,16 +297,17 @@ def fetch() -> list[dict]:
             times = list(ex.map(lambda g: _stats(headers, user, g["spaceId"]) if g.get("spaceId") else (0, None), games))
         items = _items(games, times)
         _save_snapshot(items, "sync")
-    except Exception:
+        settings.update({"ubi_refreshed_at": int(time.time())})
+    except Exception as e:
         snap = _load_snapshot()
         if not snap:
-            raise UbisoftError("Link Ubisoft Connect first: Settings › Ubisoft Connect explains the "
-                               f"Send to {brand.NAME} bookmark.") from None
+            raise UbisoftError("Sign in to Ubisoft Connect first (Settings › Ubisoft Connect).") from None
         items = snap["games"]
         age = (time.time() - snap.get("at", 0)) / 86400
-        if age >= 1:
-            notice = (f"Ubisoft hours are from {int(age)} day{'s' if int(age) != 1 else ''} ago (Ubisoft only lets "
-                      f"a browser sign in). Click the Send to {brand.NAME} bookmark on connect.ubisoft.com to update them.")
+        why = str(e) if isinstance(e, UbisoftError) else "Ubisoft didn't answer"
+        ago = "today" if age < 1 else f"{int(age)} day{'s' if int(age) != 1 else ''} ago"
+        notice = (f"Couldn't refresh ({why}): these are the games and hours from {ago}. "
+                  f"Sign in once more in Settings › Ubisoft Connect, with Remember me ticked.")
     local = local_last_played()
     for it in items:
         saved = local.get(db.normalize_title(it["name"]))
@@ -338,7 +339,7 @@ def test() -> str:
     hours = sum(g["playtime_min"] for g in games) / 60
     who = settings.get("ubi_name") or "your account"
     snap = _load_snapshot() or {}
-    when = "" if snap.get("source") == "sync" else f" (from the bookmark; Ubisoft didn't let {brand.NAME} refresh by itself)"
+    when = "" if snap.get("source") == "sync" else " (from the sign-in; Ubisoft hasn't answered a refresh by itself yet)"
     return f"Linked as {who}: {len(games)} games, {hours:,.0f} hours played{when}."
 
 
