@@ -123,7 +123,12 @@ def _playtime(xuid: str, title_ids: list[str]) -> dict[str, int]:
     return out
 
 
-GAME_DEVICES = {"pc", "win32", "xboxone", "xboxseries", "xbox360", "scarlett", "durango"}
+# Which Xbox play history to import: games that run on PC (the user's choice: PC play only, so
+# no Xbox 360 or console-only titles). Xbox's history lists the devices a title runs on, not where
+# you played it, so a game you only played on a Series console but that's also on PC still comes in.
+# Adding Xbox Series support one day: add "xboxseries" and "scarlett" here.
+IMPORT_DEVICES = {"pc", "win32"}
+_imported: set[str] = set()  # this sync's title ids, so after_import() can drop the rest
 
 
 def fetch(fresh: bool = False) -> list[dict]:
@@ -137,12 +142,14 @@ def fetch(fresh: bool = False) -> list[dict]:
         if (t.get("type") or "Game").lower() != "game":
             continue  # apps (Netflix, the Xbox app itself...)
         devices = {d.lower() for d in t.get("devices") or []}
-        if devices and not devices & GAME_DEVICES:
-            continue  # phone-only titles
+        if devices and not devices & IMPORT_DEVICES:
+            continue  # Xbox 360, console-only and phone titles
         tid = str(t.get("titleId") or "")
         if not tid or not t.get("name"):
             continue
         games.append(t)
+    _imported.clear()
+    _imported.update(str(t["titleId"]) for t in games)
     minutes = _playtime(me["xuid"], [str(t["titleId"]) for t in games])
     out = []
     for t in games:
@@ -159,6 +166,18 @@ def fetch(fresh: bool = False) -> list[dict]:
             "psn_image": t.get("displayImage") or None,  # store art, used when nothing better is found
         })
     return out
+
+
+def after_import(c) -> None:
+    """Copies imported before that this import leaves out (Xbox 360 and console-only games) go.
+    XGP list entries and copies you added by hand stay."""
+    if not _imported:
+        return  # nothing came back: keep what we had
+    marks = ",".join("?" * len(_imported))
+    c.execute(f"""DELETE FROM entries WHERE platform='xbox' AND COALESCE(ownership, '') <> 'catalog'
+                  AND NOT COALESCE(manual, 0) AND external_id NOT IN ({marks})""", tuple(_imported))
+    from .. import db
+    db.delete_orphans(c)
 
 
 def test() -> str:

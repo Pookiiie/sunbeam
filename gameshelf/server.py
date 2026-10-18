@@ -124,9 +124,23 @@ def post_art(req, body, query, game_id):
 @route("GET", "/api/igdb/search")
 def igdb_search(req, body, query):
     term = (query.get("q") or [""])[0]
-    if (query.get("clean") or [""])[0]:  # a store's title: without ™, "(PS5)", "PC Game Pass" and the like
-        term = db.clean_display_title(term)
-    results = igdb.search(term, limit=int((query.get("limit") or ["12"])[0]))
+    limit = int((query.get("limit") or ["12"])[0])
+    if (query.get("clean") or [""])[0]:
+        # A store's title: try it as is, then without the store's extra words until IGDB finds something.
+        # Up to three tries; a game whose name is exactly one of the tries goes first.
+        results, seen = [], set()
+        variants = _search_variants(term)
+        keys = {db.normalize_title(v) for v in variants}
+        for t in variants[:3]:
+            for r in igdb.search(t, limit=limit):
+                if r["id"] not in seen:
+                    seen.add(r["id"]); results.append(r)
+            if any(db.normalize_title(r.get("name") or "") in keys for r in results):
+                break
+        results.sort(key=lambda r: db.normalize_title(r.get("name") or "") not in keys)  # stable: IGDB's order otherwise
+        results = results[:limit]
+    else:
+        results = igdb.search(term, limit=limit)
     out = []
     for r in results:
         out.append({
@@ -137,6 +151,25 @@ def igdb_search(req, body, query):
             "is_edition": bool(r.get("version_parent") or r.get("parent_game")),
         })
     return {"results": out}
+
+
+def _search_variants(title: str) -> list[str]:
+    """ "Call of Duty: Black Ops 7 - Cross-Gen Bundle" -> itself, "Call of Duty: Black Ops 7", ...
+    Store names carry bundles, editions, platforms and years that IGDB's names don't."""
+    import re
+    t = db.clean_display_title(title)
+    t = re.sub(r"\s*\((game preview|\d{4}|old version|test.*?|beta)\)", "", t, flags=re.I).strip()
+    out = [t]
+    def add(x):
+        x = re.sub(r"\s+", " ", x).strip(" -–—:")
+        if len(x) >= 3 and x not in out:
+            out.append(x)
+    add(re.sub(r"\s+(xbox one|xbox series x\|s|xbox series|for windows( 10)?|windows( 10)?|pc)$", "", t, flags=re.I))
+    add(re.split(r"\s+[-–—]\s+", t)[0])  # before " - Cross-Gen Bundle"
+    add(re.sub(r"\b(standard|deluxe|gold|ultimate|complete|definitive|digital|game of the year|goty|anniversary|"
+               r"\d+(st|nd|rd|th)|cross-gen|campaign|premium|enhanced)\b.*$", "", out[-1], flags=re.I))
+    add(t.split(":")[0])  # the series name, last
+    return out[:5]
 
 
 def _year(ts):
