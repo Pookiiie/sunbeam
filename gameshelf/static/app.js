@@ -35,7 +35,7 @@ const PLATFORM_SHORT = { steam: "Steam", playstation: "PS", switch2: "Switch 2",
 
 const DEFAULT_PREFS = {
   sort: "last_played", dir: "desc", view: "grid", size: 170, types: null,
-  hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [],
+  hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], interests: ["more", "less", "skip", ""],
   subTags: [], wishSort: "release", wishStore: "all", wishSale: false,
 };
 
@@ -65,6 +65,7 @@ function loadPrefs() {
     // VR / early access / hidden games: the Type filter now (null = what Settings › Hidden game types allows).
     delete p.vr; delete p.showVR; delete p.showEA; delete p.onlyEA; delete p.showHidden;
     if (!Array.isArray(p.types)) p.types = null;
+    if (!Array.isArray(p.interests)) p.interests = ["more", "less", "skip", ""];
   if (!["steam", "psn"].includes(p.wishStore)) p.wishStore = "all";
     return p;
   } catch { return { ...DEFAULT_PREFS }; }
@@ -332,6 +333,7 @@ function visibleGames() {
   const keep = (g) => {
     // Type: regular / early access / VR / hidden (by default what Settings › Hidden game types allows).
     if (!types.has(gameType(g))) return false;
+    if (!p.interests.includes(g.interest || "")) return false;  // Curator filter
     if (q && !g._search.includes(q)) return false;
     if (hidden.size && !g.platforms.some((x) => !hidden.has(x))) return false;
     if (!statuses.has(g.status || "")) return false;
@@ -982,7 +984,10 @@ function renderStats() {
 const STATUS_NAMES = { "": "Not marked", completed: "Completed", dnf: "Did not finish" };
 const PLAYED_NAMES = { played: "Played", never: "Never played" };
 const SUBTAG_NAMES = { new: "Recently added", leaving: "Leaving soon" };
-const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], types: null, subTags: [] });
+const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], types: null, interests: [...INTEREST_KEYS], subTags: [] });
+// Curator: what you told Curator about a game ("" = nothing).
+const INTEREST_KEYS = ["more", "less", "skip", ""];
+const INTEREST_FILTER_NAMES = { more: "More interested", less: "Less interested", skip: "Not right now", "": "Not marked" };
 // Type: every game is one of these (a hidden game counts as Hidden, then VR, then early access).
 const TYPE_NAMES = { regular: "Regular games", ea: "Early access", vr: "VR", hidden: "Hidden" };
 const gameType = (g) => g.isHidden ? "hidden" : g.vr ? "vr" : g.isEA ? "ea" : "regular";
@@ -1004,7 +1009,8 @@ function filterFacts() {
   }
   const platforms = Object.keys(state.platforms).filter((p) => plat[p]);
   return { plat, platforms, status, played, genres, subs,
-    types: state.games.reduce((n, g) => { const t = gameType(g); n[t] = (n[t] || 0) + 1; return n; }, {}) };
+    types: state.games.reduce((n, g) => { const t = gameType(g); n[t] = (n[t] || 0) + 1; return n; }, {}),
+    interests: visible.reduce((n, g) => { const k = g.interest || ""; n[k] = (n[k] || 0) + 1; return n; }, {}) };
 }
 
 // IGDB calls platformers "Platform", which reads like the Platform filter.
@@ -1027,7 +1033,10 @@ function filterSummaries(f) {
   const type = sameSet(sel, defaultTypes()) ? null : !sel.length ? "None"
     : sel.length === 1 ? `${TYPE_NAMES[sel[0]]} only` : Object.keys(TYPE_NAMES).filter((x) => sel.includes(x)).map((x) => TYPE_NAMES[x]).join(", ");
   const more = p.subTags.map((t) => SUBTAG_NAMES[t]);
-  return { platform: plat, status: st, played: pl, genre: gen, type, more: more.length ? more.join(", ") : null };
+  const ins = p.interests;
+  const cur = ins.length === INTEREST_KEYS.length ? null : !ins.length ? "None"
+    : ins.length === 1 ? `${INTEREST_FILTER_NAMES[ins[0]]} only` : INTEREST_KEYS.filter((x) => ins.includes(x)).map((x) => INTEREST_FILTER_NAMES[x]).join(", ");
+  return { platform: plat, status: st, played: pl, genre: gen, type, curator: cur, more: more.length ? more.join(", ") : null };
 }
 
 function renderFilters() {
@@ -1038,7 +1047,7 @@ function renderFilters() {
       ${label} <b>${esc(sum[id] || empty)}</b><i aria-hidden="true">▾</i></button>`;
   const any = Object.values(sum).some(Boolean);
   bar.innerHTML = `
-    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${subsLabel() ? chip("more", subsLabel(), "Any") : ""}
+    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${chip("curator", CURATOR)}${subsLabel() ? chip("more", subsLabel(), "Any") : ""}
     ${any ? `<button type="button" class="link fclear-all" data-fclear="all">Clear all</button>` : ""}
     ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""}" role="dialog">${filterMenu(state.openFilter, f)}</div>` : ""}`;
   const pop = $(".fpop", bar), anchor = $(`[data-fopen="${state.openFilter}"]`, bar);
@@ -1071,6 +1080,8 @@ function filterMenu(id, f) {
       <div class="fcols">${list.length ? list.map((x) => row("genre", x, genreLabel(x), f.genres[x], p.genres.includes(x))).join("")
         : `<p class="source-note">${all.length ? "No genre matches." : "Genres appear once game details are in."}</p>`}</div>`;
   }
+  if (id === "curator") return head(CURATOR, "curator") + INTEREST_KEYS.map((v) => row("curator", v, INTEREST_FILTER_NAMES[v], f.interests[v] || 0, p.interests.includes(v))).join("")
+    + `<p class="fpop-note">What you told ${CURATOR} on a game's page.</p>`;
   if (id === "type") {
     const sel = typesSel(), off = ["vr", "ea"].filter((x) => !defaultTypes().includes(x)).map((x) => TYPE_NAMES[x]);
     return head("Type", "type") + Object.entries(TYPE_NAMES).map(([v, l]) => row("type", v, l, f.types[v] || 0, sel.includes(v))).join("")
@@ -1090,16 +1101,17 @@ function setFilterGroup(group, values) {
   if (group === "genre") p.genres = values;
   if (group === "subtags") p.subTags = values;
   if (group === "type") p.types = sameSet(values, defaultTypes()) ? null : values;
+  if (group === "curator") p.interests = values;
   savePrefs(); renderFilters(); render();
 }
 function groupValues(group) {
   const p = state.prefs, f = filterFacts();
   return { platform: f.platforms.filter((x) => !p.hiddenPlatforms.includes(x)), status: p.status, played: p.played,
-    genre: p.genres, subtags: p.subTags, type: typesSel() }[group];
+    genre: p.genres, subtags: p.subTags, type: typesSel(), curator: p.interests }[group];
 }
 function allValues(group) {
   const f = filterFacts();
-  return { platform: f.platforms, status: Object.keys(STATUS_NAMES), played: Object.keys(PLAYED_NAMES), genre: [], subtags: [], type: Object.keys(TYPE_NAMES) }[group];
+  return { platform: f.platforms, status: Object.keys(STATUS_NAMES), played: Object.keys(PLAYED_NAMES), genre: [], subtags: [], type: Object.keys(TYPE_NAMES), curator: [...INTEREST_KEYS] }[group];
 }
 function clearFilter(id) {
   const d = FILTER_DEFAULTS(), p = state.prefs;
@@ -1109,6 +1121,7 @@ function clearFilter(id) {
   if (id === "played") p.played = d.played;
   if (id === "genre") p.genres = d.genres;
   if (id === "type") p.types = d.types;
+  if (id === "curator") p.interests = d.interests;
   if (id === "more") p.subTags = d.subTags;
   savePrefs(); renderFilters(); render();
 }
