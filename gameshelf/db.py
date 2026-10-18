@@ -432,15 +432,24 @@ def merge_games(c: sqlite3.Connection, keep_id: int, drop_id: int) -> None:
     c.execute("UPDATE entries SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE sub_catalog SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE wishlist SET game_id=? WHERE game_id=?", (keep_id, drop_id))
-    # Keep whichever personal data exists.
-    status, status_at = keep["status"], keep["status_at"]
-    if not status and drop["status"]:
-        status, status_at = drop["status"], drop["status_at"]
+    # Keep whichever personal data exists: the kept game's first, else the other one's.
+    src = keep if keep["status"] or not drop["status"] else drop  # the status travels with its flags
     notes = "\n\n".join(n for n in (keep["notes"], drop["notes"]) if n)
+    # Art picked by hand: each slot (cover, hero, logo) keeps whichever game had it locked, with its picture.
+    locks = {x for x in (keep["art_locks"] or "").split(",") if x}
+    art = {slot: keep[f"{slot}_url"] for slot in ("cover", "hero", "logo")}
+    for slot in (x for x in (drop["art_locks"] or "").split(",") if x in art and x not in locks):
+        locks.add(slot)
+        art[slot] = drop[f"{slot}_url"]
     c.execute(
-        """UPDATE games SET status=?, status_at=?, notes=?, steam_appid=COALESCE(steam_appid, ?),
-           psn_image=COALESCE(psn_image, ?), added_at=MIN(added_at, ?) WHERE id=?""",
-        (status, status_at, notes, drop["steam_appid"], drop["psn_image"], drop["added_at"], keep_id),
+        """UPDATE games SET status=?, status_at=?, status_manual=?, status_auto=?, notes=?,
+           steam_appid=COALESCE(steam_appid, ?), psn_image=COALESCE(psn_image, ?), added_at=MIN(added_at, ?),
+           interest=COALESCE(interest, ?), hidden=COALESCE(hidden, ?), endless=COALESCE(endless, ?),
+           ttb_custom=COALESCE(ttb_custom, ?), art_locks=?, cover_url=?, hero_url=?, logo_url=? WHERE id=?""",
+        (src["status"], src["status_at"], src["status_manual"], src["status_auto"], notes,
+         drop["steam_appid"], drop["psn_image"], drop["added_at"],
+         drop["interest"], drop["hidden"], drop["endless"], drop["ttb_custom"],
+         ",".join(sorted(locks)) or None, art["cover"], art["hero"], art["logo"], keep_id),
     )
     c.execute("DELETE FROM games WHERE id=?", (drop_id,))
 

@@ -8,7 +8,6 @@ then copy its Client ID and generate a Client Secret.
 from __future__ import annotations
 
 import difflib
-import json
 import threading
 import time
 
@@ -226,10 +225,6 @@ def apply_details(c, game_id: int, g: dict) -> None:
 def test() -> str:
     hits = search("Hollow Knight", limit=1)
     return "Connected to IGDB." if hits else "Connected, but a test search returned nothing."
-
-
-def dumps(obj) -> str:
-    return json.dumps(obj, ensure_ascii=False)
 
 
 def steam_appid_from_websites(g: dict) -> int | None:

@@ -167,7 +167,7 @@ def preview(images_b64: list[str]) -> dict:
             continue
         items = parse(page)
         if not items:
-            problems.append(f"Screenshot {i + 1}: no games found. Is it the Play Activity list?")
+            problems.append(f"Screenshot {i + 1}: no games found. Is it the Play History list?")
         for it in items:
             k = _key(it["title"])
             if not k:

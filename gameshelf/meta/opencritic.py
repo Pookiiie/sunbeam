@@ -71,8 +71,16 @@ def _budget() -> dict:
             "stop": m.get("oc_stop", ""), "stop_searches": m.get("oc_stop_searches", "")}
 
 
+_spend_lock = __import__("threading").Lock()  # a sync and a single-game refresh can look up at once
+
+
 def _spend(search: bool = False) -> None:
     """Count a request before it's sent; refuse if today's allowance is (nearly) used."""
+    with _spend_lock:
+        _spend_locked(search)
+
+
+def _spend_locked(search: bool) -> None:
     b = _budget()
     if b["stop"] or b["requests"] >= DAILY_REQUESTS:
         raise BudgetSpent()

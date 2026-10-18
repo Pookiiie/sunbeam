@@ -191,5 +191,5 @@ def test() -> str:
     msg += f", {len(seen)} with a last-played date from the Battle.net app on this PC." if seen else \
         ". The Battle.net app's file wasn't found on this PC, so there are no last-played dates."
     if unknown:
-        msg += f" Not recognised yet: {', '.join(unknown)} (tell Claude these codes)."
+        msg += f" Not recognised yet: {', '.join(unknown)} (they're left out until a later version knows them)."
     return msg

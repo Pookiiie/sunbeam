@@ -26,9 +26,6 @@ OAUTH = "https://account-public-service-prod03.ol.epicgames.com/account/api/oaut
 LIBRARY = "https://library-service.live.use1a.on.epicgames.com/library/api/public"
 CATALOG = "https://catalog-public-service-prod06.ol.epicgames.com/catalog/api/shared/namespace"
 UA = "UELauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit"
-LOGIN_URL = ("https://www.epicgames.com/id/login?redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Fapi%2Fredirect"
-             f"%3FclientId%3D{CLIENT_ID}%26responseType%3Dcode")
-
 
 class EpicError(Exception):
     pass
@@ -63,7 +60,12 @@ def _session() -> dict:
         # Accept the bare code or the whole {"authorizationCode": "..."} page pasted in.
         m = re.search(r'"authorizationCode"\s*:\s*"([^"]+)"', raw)
         code = m.group(1) if m else raw.strip('"')
-        return _token({"grant_type": "authorization_code", "code": code})
+        try:
+            return _token({"grant_type": "authorization_code", "code": code})
+        except EpicError:
+            settings.update({"epic_code": ""})  # used or expired: don't try it again at every sync
+            if not settings.get("epic_refresh"):
+                raise
     refresh = settings.get("epic_refresh")
     if not refresh:
         raise EpicError("Sign in to Epic in Settings first.")

@@ -8,7 +8,9 @@ import threading
 import time
 import traceback
 
-from . import db, rules
+from . import brand, db, net, rules
+
+APP_NAME = brand.NAME
 from .meta import achievements, catalogs, hltb, igdb, opencritic, sgdb, steamstore, wishlist
 from .sources import battlenet, epic, playstation, steam, ubisoft, xbox
 
@@ -117,6 +119,8 @@ def _set(**kw):
 
 
 def _log(msg: str, level: str = "info"):
+    if not _tracking():
+        return  # a single-game refresh in its own thread: not part of the sync's log
     with _state_lock:
         _state.setdefault("log", []).append({"t": int(time.time()), "level": level, "msg": msg})
         _state["log"] = _state["log"][-80:]
@@ -476,7 +480,7 @@ def enrich(refresh: bool = False, game_ids: list[int] | None = None, min_id: int
         else:
             _tl("match", state="skipped", note="IGDB isn't set up")
             _tl("details", state="skipped", note="IGDB isn't set up")
-            _log("IGDB isn't set up yet, so game details and time to beat were skipped. "
+            _log("IGDB isn't set up yet, so game details were skipped. "
                  "Add it in Settings, then use Refresh assets.", "warn")
     for name, fn in (("art", lambda: _art(refresh, scope, args, prefer_sgdb)),
                      ("reviews", lambda: _reviews(refresh, scope, args)),
@@ -492,8 +496,8 @@ def enrich(refresh: bool = False, game_ids: list[int] | None = None, min_id: int
     try:
         catalogs.link()  # titles may have changed: re-match Game Pass / PS Plus lists
         wishlist.link()  # and wishlist games (two games may have been combined)
-    except Exception:
-        pass
+    except Exception as e:
+        _log(f"Couldn't re-link the XGP / PS+ lists and wishlists: {e}", "warn")
 
 
 def _conds(refresh: bool) -> dict[str, str]:
@@ -502,8 +506,7 @@ def _conds(refresh: bool) -> dict[str, str]:
     if refresh and _since:
         return _resume_conds(_since, now)
     # Not out yet (wishlist games): nothing to look up on HowLongToBeat or OpenCritic until release.
-    out = (f"NOT (COALESCE(release_date, 0) > {now} OR id IN (SELECT game_id FROM wishlist "
-           f"WHERE game_id IS NOT NULL AND released = 0 AND game_id NOT IN (SELECT game_id FROM wishlist WHERE released = 1)))")
+    out = _not_out(now)
     return {
         "match": "match_state IN ('pending', 'none')" if refresh else "match_state = 'pending'",
         "details": "igdb_id IS NOT NULL" + ("" if refresh else " AND meta_at IS NULL"),
@@ -734,10 +737,12 @@ def _art(refresh: bool, scope: str, args, prefer_sgdb: bool = False):
     # Steam's real asset paths for every game that has a Steam version, in a few batched calls.
     steam_ids = sorted({g["steam_appid"] for g in todo if g["steam_appid"]})
     steam_art: dict[int, dict] = {}
+    steam_failed = False
     if steam_ids:
         try:
             steam_art = steamstore.store_assets(steam_ids)
         except Exception as e:
+            steam_failed = True
             _log(f"Steam artwork lookup: {e}", "warn")
 
     def from_steam(appid):
@@ -751,6 +756,7 @@ def _art(refresh: bool, scope: str, args, prefer_sgdb: bool = False):
         if _cancel.is_set():
             return
         art: dict = {}
+        failed = steam_failed and bool(g["steam_appid"])
         appid = g["steam_appid"]
         # Steam's official art comes first whenever the game is on Steam (it generally looks
         # best); SteamGridDB fills whatever is missing, and covers console-only games.
@@ -772,7 +778,11 @@ def _art(refresh: bool, scope: str, args, prefer_sgdb: bool = False):
                     sg["cover"] = None  # the wrong shape too: IGDB's or PlayStation's cover is next
                 art = {**{k: v for k, v in sg.items() if v}, **{k: v for k, v in art.items() if v}}
             except Exception as e:
+                failed = True
                 _log(f"SteamGridDB: {e}", "warn")
+        if failed and not any(art.values()):
+            _tick()  # a service didn't answer: keep the art we had, and try again next time
+            continue
         # Art you picked by hand stays put.
         for slot in (g["art_locks"] or "").split(","):
             if slot in ("cover", "hero", "logo"):
@@ -810,7 +820,8 @@ def _reviews(refresh: bool, scope: str, args):
         try:
             r = steamstore.reviews(g["steam_appid"])
         except Exception:
-            r = None
+            _tick()  # Steam didn't answer: keep the score we had, and try again next time
+            continue
         with db.tx() as c:
             c.execute(
                 "UPDATE games SET steam_review_pct=?, steam_review_count=?, steam_review_desc=?, reviews_at=? WHERE id=?",
@@ -828,10 +839,12 @@ def _ttb(refresh: bool, scope: str, args):
         return
     _stage("ttb", "Looking up time to beat", len(todo))
     igdb_times: dict[int, dict] = {}
+    igdb_failed = False
     if igdb.configured():
         try:
             igdb_times = igdb.times_to_beat([g["igdb_id"] for g in todo if g["igdb_id"]])
         except Exception as e:
+            igdb_failed = True
             _log(f"IGDB time-to-beat: {e}", "warn")
     use_hltb = hltb.available()
     if not use_hltb:
@@ -851,10 +864,16 @@ def _ttb(refresh: bool, scope: str, args):
                 plats = ""
             # Arcade / phone-only entries are only right when IGDB says so too.
             niche = bool(plats) and not re.search(r"pc|windows|playstation|xbox|switch|nintendo|mac|linux|steam", plats)
-            t = hltb.lookup(g["title"], names, year=year, pc_or_console=not niche)
+            try:
+                t = hltb.lookup(g["title"], names, year=year, pc_or_console=not niche)
+            except Exception:
+                t, igdb_failed = None, True  # (treated like a failed lookup: keep what we had)
             source = "HowLongToBeat" if t else None
         if not t and g["igdb_id"] in igdb_times:
             t, source = igdb_times[g["igdb_id"]], "IGDB"
+        if not t and igdb_failed:
+            _tick()  # a service didn't answer: keep the times we had, and try again next time
+            continue
         with db.tx() as c:
             c.execute(
                 "UPDATE games SET ttb_main=?, ttb_extra=?, ttb_complete=?, ttb_source=?, ttb_at=?, hltb_id=? WHERE id=?",
@@ -884,7 +903,7 @@ def _critics(refresh: bool, scope: str, args):
     _tl("critics", note=None)
     if ids.get("error"):
         _log(f"Couldn't get OpenCritic matches from Wikidata ({ids['error']}), so each game needs a search, "
-             f"and OpenCritic allows only 25 searches a day.", "warn")
+             f"and {APP_NAME} makes at most {opencritic.DAILY_SEARCHES} OpenCritic searches a day.", "warn")
     done = found = waiting = 0
     searches_left = True
     try:
@@ -920,16 +939,20 @@ def _critics(refresh: bool, scope: str, args):
             done += 1
             _tick()
     except opencritic.BudgetSpent:
-        left = len(todo) - done + waiting
+        left = len(todo) - done  # (games waiting for a search are among them)
         _tl("critics", state="skipped", note=f"Daily limit reached, {left:,} for another day")
-        _log(f"OpenCritic's free plan allows 200 lookups a day. {left:,} games will be picked up by "
-             f"your next sync or Refresh assets on another day.", "warn")
+        _log(f"{APP_NAME} reads at most {opencritic.DAILY_REQUESTS} OpenCritic scores a day (to stay inside the free plan). "
+             f"{left:,} games will be picked up by your next sync or Refresh assets on another day.", "warn")
     except RuntimeError as e:
         _log(f"OpenCritic: {e}", "error")
         return
+    except net.HttpError as e:  # OpenCritic having a bad moment: no retry (the free plan counts every call)
+        _tl("critics", state="skipped", note="OpenCritic didn't answer")
+        _log(f"OpenCritic didn't answer ({e}). The rest will be picked up on another day.", "warn")
+        return
     if waiting and searches_left is False and done + waiting == len(todo):
         _tl("critics", note=f"{waiting:,} need a search, for another day")
-        _log(f"{waiting:,} games need an OpenCritic search (25 a day); they'll be picked up on another day.", "warn")
+        _log(f"{waiting:,} games need an OpenCritic search ({opencritic.DAILY_SEARCHES} a day); they'll be picked up on another day.", "warn")
     if found:
         _log(f"OpenCritic scores for {found:,} game{'s' if found != 1 else ''}.")
 
@@ -1027,12 +1050,12 @@ def refresh_one(game_id: int, prefer_sgdb: bool = False):
 
 
 def rematch(game_id: int, igdb_id: int) -> int:
+    hit = igdb.details([igdb_id]).get(igdb_id)  # before taking the database (IGDB can be slow)
     new_id = _assign_igdb(game_id, igdb_id, "manual")
     with db.tx() as c:
         # A different game: its critic score is looked up again too.
         c.execute("UPDATE games SET match_state='manual', oc_id=NULL, oc_score=NULL, oc_recommend=NULL, oc_tier=NULL, "
                   "oc_count=NULL, oc_url=NULL, oc_at=NULL, oc_checked_at=NULL WHERE id=?", (new_id,))
-        hit = igdb.details([igdb_id]).get(igdb_id)
         if hit and hit.get("name"):
             c.execute("UPDATE games SET title=? WHERE id=?", (hit["name"], new_id))
     refresh_one(new_id)

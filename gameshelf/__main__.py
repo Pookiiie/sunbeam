@@ -35,7 +35,6 @@ def main():
     if app:
         desktop.unblock_files()
         desktop.rename_shortcuts()
-        desktop.remove_phone_snapshot()
 
     url = f"http://localhost:{args.port}/"
     if args.wait_port:

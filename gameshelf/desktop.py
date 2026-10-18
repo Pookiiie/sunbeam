@@ -271,7 +271,7 @@ def rename_shortcuts() -> None:
     try:
         keys = [k for k, v in shortcut_paths().items() if any(Path(p).parent == Path(v).parent for p in made)]
         for p in made:
-            if Path(p).stem != _safe_name():
+            if Path(p).stem != _safe_name() and Path(p).suffix.lower() == ".lnk":  # only our own shortcuts
                 try:
                     Path(p).unlink()
                 except OSError:
@@ -340,12 +340,6 @@ def unblock_files() -> None:
         flag.write_text("1")
     except OSError:
         pass
-
-
-def remove_phone_snapshot() -> None:
-    """The phone snapshot is gone (1.0.10): delete what older versions saved for it."""
-    import shutil
-    shutil.rmtree(DATA_DIR / "phone", ignore_errors=True)
 
 
 def log_to_file() -> None:

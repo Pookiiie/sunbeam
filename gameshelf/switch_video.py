@@ -485,7 +485,7 @@ def _run_job(path: str):
                     _job["done"] = _job.get("done", 0) + 1
         items = merge(cards)
         if not items and not problems:
-            problems.append("No games found. Is it a recording of Play Activity with a game's card open?")
+            problems.append("No games found. Is it a recording of Play History with a game's card open?")
         _set(state="done", items=switch_import.annotate(items), problems=problems[:5])
     except (VideoError, switch_import.OCRError) as e:
         _set(state="error", error=str(e))

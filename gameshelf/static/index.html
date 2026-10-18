@@ -67,7 +67,7 @@
 
   <main class="content">
     <div class="toolbar">
-      <div class="fbar" id="fbar" aria-label="Filters"></div>
+      <div class="fbar" id="fbar" role="group" aria-label="Filters"></div>
       <div class="result-count" id="result-count"></div>
       <div class="toolbar-right">
         <label class="sort">
@@ -90,10 +90,10 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16M4 16l4 4 4-4M16 20V4M12 8l4-4 4 4"/></svg>
         </button>
         <div class="segmented view-toggle" role="radiogroup" aria-label="View">
-          <button data-view="grid" class="on" title="Covers">
+          <button data-view="grid" class="on" title="Covers" aria-label="Covers">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="9" rx="1"/><rect x="13.5" y="4" width="6.5" height="9" rx="1"/><rect x="4" y="15" width="6.5" height="5" rx="1"/><rect x="13.5" y="15" width="6.5" height="5" rx="1"/></svg>
           </button>
-          <button data-view="list" title="List">
+          <button data-view="list" title="List" aria-label="List">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
         </div>
@@ -114,7 +114,7 @@
 
 <!-- Sync -->
 <dialog id="sync-dialog" class="dialog wide">
-  <form method="dialog" class="dialog-inner" id="sync-form">
+  <form method="dialog" class="dialog-inner">
     <header><h2 id="job-title">Sync your libraries</h2><button class="btn icon ghost" value="close" aria-label="Close">✕</button></header>
     <div id="sync-body"></div>
   </form>
@@ -153,7 +153,6 @@
   </div>
 </dialog>
 
-<!-- Duplicates -->
 <!-- Games IGDB couldn't identify: pick the right one -->
 <dialog id="unid-dialog" class="dialog wide">
   <div class="dialog-inner">
@@ -162,6 +161,7 @@
   </div>
 </dialog>
 
+<!-- Duplicates -->
 <dialog id="dup-dialog" class="dialog wide">
   <div class="dialog-inner">
     <header><h2>Duplicate games</h2><button class="btn icon ghost" data-close-dialog aria-label="Close">✕</button></header>
@@ -194,7 +194,7 @@
       <label class="switch"><input type="checkbox" id="sc2-desktop" checked><span>A shortcut on the desktop</span></label>
       <label class="switch"><input type="checkbox" id="sc2-startmenu" checked><span>In the Start menu</span></label>
     </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+    <div class="dialog-actions">
       <button class="btn ghost" data-sc="no">No thanks</button>
       <button class="btn" data-sc="yes">Add them</button>
     </div>

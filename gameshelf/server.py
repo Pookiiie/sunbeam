@@ -250,16 +250,6 @@ def post_dismiss(req, body, query):
     return {"ok": True}
 
 
-@route("GET", "/api/opencritic/check")
-def get_oc_check(req, body, query):
-    """Diagnostics: can the app reach Wikidata's OpenCritic matches, and what's left today?"""
-    from .meta import opencritic
-    opencritic._map_cache.clear()
-    m = opencritic.id_map()
-    return {"steam_ids": len(m.get("steam") or {}), "igdb_ids": len(m.get("igdb") or {}), "error": m.get("error"),
-            "budget_left": opencritic.budget_left()}
-
-
 @route("POST", "/api/switch/preview")
 def post_switch_preview(req, body, query):
     images = [i for i in (body.get("images") or []) if isinstance(i, str)]
@@ -340,7 +330,7 @@ def get_settings(req, body, query):
 def post_settings(req, body, query):
     changes = {}
     for key, value in (body or {}).items():
-        if key not in settings.FIELDS:
+        if key not in settings.FIELDS or key in settings.INTERNAL:
             continue
         if settings.FIELDS[key] and value in (None, ""):
             continue  # blank secret field = keep the existing value
@@ -406,10 +396,11 @@ def get_refresh_job(req, body, query):
 @route("POST", "/api/refresh/forget")
 def post_refresh_forget(req, body, query):
     """Drop a paused full refresh."""
-    if sync.status().get("running") and sync.status().get("kind") == "refresh":
-        sync.cancel(forget=True)
+    st = sync.status()
+    if st.get("running") and st.get("kind") == "refresh" and st.get("mode") == "all":
+        sync.cancel(forget=True)  # the full refresh itself is running: stop it and forget it
     else:
-        sync._save_job(None)
+        sync._save_job(None)      # (a "fill in missing" refresh may keep going)
     return {"job": None}
 
 
@@ -423,19 +414,6 @@ def get_sync(req, body, query):
     st = sync.status()
     st["last_sync_at"] = int(db.get_meta("last_sync_at", "0") or 0)
     return st
-
-
-@route("GET", "/api/catalog")
-def get_catalog(req, body, query):
-    """When the XGP and PS+ lists were last updated (their games are in /api/library, catalog_only)."""
-    from .meta import catalogs
-    return {"items": [], "services": catalogs.SERVICES,
-            "updated_at": int(db.get_meta("catalogs_at", "0") or 0)}
-
-
-@route("GET", "/api/ubisoft/probe")
-def get_ubisoft_probe(req, body, query):
-    return ubisoft.probe()
 
 
 @route("POST", "/api/ubisoft/link")
@@ -499,7 +477,6 @@ def post_shortcuts(req, body, query):
         made = desktop.make_shortcuts(which) if which else []
     except Exception as e:
         raise ApiError(500, str(e))
-    desktop._shortcuts = None
     return {"made": made, "shortcuts": desktop.shortcuts_state()}
 
 
@@ -618,6 +595,10 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             return self._json(400, {"error": "The upload stopped part way. Try again."})
         if not switch_video.start(str(dest), name):
+            try:
+                os.remove(dest)
+            except OSError:
+                pass
             return self._json(409, {"error": "A recording is already being read. Wait for it to finish."})
         return self._json(200, switch_video.status())
 

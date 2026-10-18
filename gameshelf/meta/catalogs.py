@@ -215,7 +215,6 @@ def refresh() -> dict:
             out[svc] = _store(svc, items)
         except Exception as e:
             out[svc] = {"error": str(e)}
-    db.set_meta("catalogs_at", str(db.now()))
     return out
 
 

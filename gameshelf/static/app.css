@@ -105,17 +105,9 @@ kbd { font: 12px/1 var(--body); padding: 3px 6px; border: 1px solid var(--line);
 .stats { display: flex; flex-wrap: wrap; gap: 8px 40px; padding: 26px 28px 6px; }
 .stat b { display: block; font: 700 30px/1.05 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: 14px; }
-.stat.accent b { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.stat.fave { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; color: inherit; max-width: 360px; }
-.stat.fave b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stat.fave:hover span { color: var(--text); }
 
 /* ---------- layout */
 .layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 28px; padding: 18px 28px 60px; }
-.filters { position: sticky; top: 92px; align-self: start; display: flex; flex-direction: column; gap: 22px;
-  max-height: calc(100vh - 110px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 6px; margin-right: -6px; }
-.filter-group h3 { margin: 0 0 8px; font: 600 13px/1.2 var(--body); color: var(--muted); letter-spacing: .01em; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   border: 1px solid var(--line); background: transparent; border-radius: 999px;
   padding: 4px 11px; font-size: 14px; cursor: pointer; color: var(--muted);
@@ -144,7 +136,6 @@ select {
 .sort select { width: auto; }
 #sort-dir.asc svg { transform: scaleY(-1); }
 input[type=range] { accent-color: var(--accent); width: 110px; }
-.filters-toggle { display: none; }
 
 /* ---------- cover grid */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cover), 1fr)); gap: 26px 18px; }
@@ -401,9 +392,6 @@ textarea { width: 100%; min-height: 90px; background: var(--ink-2); border: 1px 
   .stats { padding: 18px 16px 0; gap: 8px 26px; }
   .stat b { font-size: 24px; }
   .layout { grid-template-columns: 1fr; padding: 14px 16px 40px; }
-  .filters { display: none; position: static; }
-  .filters.open { display: flex; padding: 16px; background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--radius-m); }
-  .filters-toggle { display: inline-flex; }
   #size { display: none; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--cover), 46%), 1fr)); gap: 20px 12px; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -534,13 +522,6 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 .no-icons .badge.icon .badge-text { display: inline; }
 
 /* ---------- genre filter */
-.filter-group h3 { display: flex; align-items: baseline; gap: 8px; }
-.filter-group h3 .link { font-size: 12px; font-weight: 400; margin-left: auto; }
-.genre-list { max-height: 240px; overflow-y: auto; padding: 4px 8px; scrollbar-width: thin;
-  border: 1px solid var(--line); border-radius: var(--radius-m); background: rgba(20,17,29,.5); }
-#f-genre-any { display: block; margin-top: 6px; }
-#f-genre-any:empty { display: none; }
-#f-dups { margin-top: -10px; }
 
 /* ---------- time-to-beat slider */
 .ttb-slider { margin: 12px 0 6px; }
@@ -602,11 +583,8 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
   padding: 4px 7px; border-radius: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: none; }
 .sub-pill.new { background: rgba(255,92,158,.75); color: #2b0a18; }
 .sub-pill.leaving { background: rgba(255,147,72,.8); color: #2b1405; }
-.sub-pill.static { position: static; display: inline-block; max-width: none; }
 .card:has(.hidden-stamp) .sub-pill { top: 34px; }
 .sub-note { margin: -4px 0 14px; font-size: 14px; color: var(--muted); }
-.badge.sub { background: rgba(255,92,158,.42); }
-.badge.sub.icon b { font-size: 12px; margin-left: 1px; }
 /* never played: the whole length still ahead, as a dashed line */
 .spine.fresh { background: none; height: 3px; overflow: visible;
   background-image: linear-gradient(90deg, rgba(255,92,158,.75), rgba(255,147,72,.75));
@@ -706,9 +684,6 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 /* on a game's page */
 .wish-box { margin: -2px 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--ink-2); }
 .wish-box h2 { margin: 0 0 8px; font: 650 13px/1.2 var(--body); color: var(--muted); text-transform: none; }
-.wish-box ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.wish-box li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13.5px; }
-.wish-box li b { margin-left: -6px; }
 /* wishlist marker: a heart with the store's icon in it, top-right of the cover (top-left has the sale and
    "On XGP" tags; the bottom-left platform icons are for copies you have) */
 .whearts { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; pointer-events: none; }
@@ -723,10 +698,6 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .rec.mini .wheart { width: 24px; height: 22px; }
 .rec.mini .wheart i { width: 10.5px; height: 10.5px; margin-top: -2.5px; }
 .hero-sub .wheart, .wish-box .wheart { vertical-align: middle; }
-.wish-box li b { margin-left: 0; }
-.wish-box li span { color: var(--muted); }
-.wish-box li s { color: var(--faint); }
-.wish-box li a { color: var(--accent); }
 .wish-box .wpill { vertical-align: 1px; }
 .wish-box p { margin: 8px 0 0; }
 @media (max-width: 900px) { .wishlist { padding: 16px 16px 40px; } }
@@ -734,7 +705,6 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 /* ------------------------------------------------------------ update bar, first-run setup */
 .update-bar { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
   padding: 8px 28px; background: var(--ink-2); border-bottom: 1px solid var(--line); font-size: 14px; }
-.update-bar[hidden] { display: none; }
 .update-bar a:not(.btn) { color: var(--accent); }
 .update-bar .err { color: var(--error); }
 .dialog.setup .dialog-inner { min-height: min(560px, 80vh); display: flex; flex-direction: column; }
@@ -811,7 +781,6 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .fpop-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 8px; color: var(--muted); font-size: 12.5px; }
 .fpop-head .link { font-size: 12.5px; margin-left: 10px; }
 .fpop-note { margin: 6px 8px 4px; color: var(--faint); font-size: 12px; }
-.fpop-foot { border-top: 1px solid var(--line); margin-top: 6px; padding: 8px 8px 2px; }
 .fpop-search { width: 100%; height: 36px; border-radius: 9px; border: 1px solid var(--line); background: var(--ink); color: var(--text); padding: 0 10px; font: inherit; }
 .frow { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 4px; border-radius: 8px; min-height: 34px; }
 .frow:hover { background: rgba(255,255,255,.06); }
@@ -844,9 +813,6 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .wp-store .smark i { width: 9px; height: 9px; }
 .wp-store .smark b { font-size: 6px; }
 /* game page */
-.wish-info { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 10px !important; font-size: 13.5px; }
-.wish-on { display: inline-flex; align-items: center; gap: 4px; }
-.wish-on em { font-style: normal; color: var(--muted); }
 .pboxes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 900px) { .pboxes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pbox { display: flex; flex-direction: column; gap: 2px; padding: 8px 11px 9px; border-radius: var(--radius-m); border: 1px solid var(--line);
@@ -871,7 +837,6 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .no-icons .badge.ptag i { display: none; }
 
 /* ------------------------------------------------------------ game page controls on one row (1.1) */
-.actions { gap: 10px; }
 .status-picker button, .interest-picker button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font: 600 13px/1.2 var(--body); white-space: nowrap; }
 .status-picker .ico { width: 14px; height: 14px; }
 .interest-picker { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--ink-2); }
@@ -886,7 +851,6 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .more-menu > .btn.icon { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; }
 .more-pop { position: absolute; right: 0; top: 42px; z-index: 20; min-width: 200px; padding: 6px; border-radius: 12px;
   background: #221d2f; border: 1px solid var(--line); box-shadow: 0 12px 30px rgba(0,0,0,.5); display: grid; gap: 2px; }
-.more-pop[hidden] { display: none; }
 .more-pop button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none;
   color: var(--text); font: 500 13.5px/1.2 var(--body); text-align: left; cursor: pointer; }
 .more-pop button:hover { background: rgba(255,255,255,.06); }
@@ -894,7 +858,6 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .pbox-top b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pbox small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pbox.sub.in .pbox-price, .pbox.owned .pbox-price { color: var(--done); }
-.pbox.sub.none { border-style: dashed; }
 .pbox .dim { color: var(--faint); font-weight: 600; }
 .pbox small.leaving { color: var(--accent); }
 

@@ -2,7 +2,6 @@
 
 // The app's name comes from gameshelf/brand.py (the server puts it on the page): rename it there.
 const APP = document.documentElement.dataset.app || "Sunbeam";
-"use strict";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -343,7 +342,7 @@ function visibleGames() {
     if (!statuses.has(g.status || "")) return false;
     if (!p.played.includes(g.neverPlayed ? "never" : "played")) return false;
     if (p.genres.length && !(g.genres || []).some((x) => p.genres.includes(x))) return false;
-    if (p.subTags.length && !subMatch(g, p.subTags)) return false;
+    if (p.subTags.length && subsLabel() && !subMatch(g, p.subTags)) return false;  // (no menu without XGP or PS+)
     return true;
   };
   const list = state.games.filter(keep);
@@ -667,7 +666,6 @@ function wishSorter(group) {
   if (key === "reviews") return (a, b) => (recReview(b) ?? -1) - (recReview(a) ?? -1) || t(a, b);
   // Release date: newest first among games that are out, soonest first among upcoming ones.
   if (group === "out") return (a, b) => (b.rel.ts || 0) - (a.rel.ts || 0) || t(a, b);
-  if (group === "soon") return (a, b) => a.rel.ts - b.rel.ts || PREC_RANK[a.rel.prec] - PREC_RANK[b.rel.prec] || t(a, b);
   return (a, b) => (b.wish.added_at || 0) - (a.wish.added_at || 0) || t(a, b);
 }
 
@@ -908,7 +906,7 @@ const statusLabel = (s) => ({ completed: "Completed", dnf: "Did not finish" }[s]
 // Little icons on the game page's controls (drawn here, in the text colour).
 const svgIcon = (d) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const STATUS_ICON = { "": "", completed: svgIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'), dnf: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>') };
-const INTEREST_SHORT = { more: "▲ More", less: "▼ Less", skip: "Not now" };
+const INTEREST_SHORT = { more: `<span aria-hidden="true">▲</span> More`, less: `<span aria-hidden="true">▼</span> Less`, skip: "Not now" };
 const ACTION_ICON = {
   more: svgIcon('<circle class="dot" cx="5" cy="12" r="1.7"/><circle class="dot" cx="12" cy="12" r="1.7"/><circle class="dot" cx="19" cy="12" r="1.7"/>'),
   fix: svgIcon('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>'),
@@ -1002,9 +1000,11 @@ state.openFilter = null;
 state.genreQuery = "";
 
 function filterFacts() {
-  const visible = state.games.filter((g) => !g.isHidden);
+  // Counts cover the games the Type filter lets through (hidden, VR… only when picked there).
+  const types = new Set(typesSel());
+  const visible = state.games.filter((g) => types.has(gameType(g)));
   const plat = {}, status = {}, played = {}, genres = {}, subs = { new: 0, leaving: 0 };
-  for (const g of state.games) for (const p of g.platforms) plat[p] = (plat[p] || 0) + 1;
+  for (const g of visible) for (const p of g.platforms) plat[p] = (plat[p] || 0) + 1;
   for (const g of visible) {
     status[g.status || ""] = (status[g.status || ""] || 0) + 1;
     played[g.neverPlayed ? "never" : "played"] = (played[g.neverPlayed ? "never" : "played"] || 0) + 1;
@@ -1053,7 +1053,7 @@ function renderFilters() {
   bar.innerHTML = `
     ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${chip("curator", CURATOR)}${subsLabel() ? chip("more", subsLabel(), "Any") : ""}
     ${any ? `<button type="button" class="link fclear-all" data-fclear="all">Clear all</button>` : ""}
-    ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""}" role="dialog">${filterMenu(state.openFilter, f)}</div>` : ""}`;
+    ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""}" role="dialog" aria-label="Filter">${filterMenu(state.openFilter, f)}</div>` : ""}`;
   const pop = $(".fpop", bar), anchor = $(`[data-fopen="${state.openFilter}"]`, bar);
   if (pop && anchor) {
     const left = Math.min(anchor.offsetLeft, bar.clientWidth - pop.offsetWidth);
@@ -1067,7 +1067,7 @@ function filterMenu(id, f) {
   const p = state.prefs;
   const row = (group, value, label, n, on) => `<div class="frow">
       <label><input type="checkbox" data-fgroup="${group}" value="${esc(value)}" ${on ? "checked" : ""}><span>${esc(label)}</span></label>
-      <button type="button" class="fonly" data-fonly="${group}" data-v="${esc(value)}">only</button><em>${n ?? ""}</em></div>`;
+      <button type="button" class="fonly" data-fonly="${group}" data-v="${esc(value)}" aria-label="Only ${esc(label)}">only</button><em>${n ?? ""}</em></div>`;
   const head = (title, group) => `<div class="fpop-head"><span>${title}</span><span><button type="button" class="link" data-fall="${group}">All</button><button type="button" class="link" data-fnone="${group}">None</button></span></div>`;
   if (id === "platform") return head("Platforms", "platform") + (f.platforms.length
     ? f.platforms.map((x) => row("platform", x, state.platforms[x], f.plat[x], !p.hiddenPlatforms.includes(x))).join("")
@@ -1119,7 +1119,7 @@ function allValues(group) {
 }
 function clearFilter(id) {
   const d = FILTER_DEFAULTS(), p = state.prefs;
-  if (id === "all") { Object.assign(p, d); state.q = ""; $("#search").value = ""; }
+  if (id === "all") { Object.assign(p, d); state.q = ""; $("#search").value = ""; renderWishlist(); }
   if (id === "platform") p.hiddenPlatforms = d.hiddenPlatforms;
   if (id === "status") p.status = d.status;
   if (id === "played") p.played = d.played;
@@ -1148,7 +1148,6 @@ function bindFilters() {
     if (all) { setFilterGroup(all.dataset.fall, allValues(all.dataset.fall)); return; }
     const none = t.closest("[data-fnone]");
     if (none) { setFilterGroup(none.dataset.fnone, []); return; }
-    if (t.closest("[data-fdups]")) { state.openFilter = null; renderFilters(); openDups(); }
   });
   bar.addEventListener("change", (e) => {
     const t = e.target;
@@ -1158,7 +1157,6 @@ function bindFilters() {
       if (t.checked) vals.add(t.value); else vals.delete(t.value);
       setFilterGroup(g, [...vals]);
     }
-    if (t.dataset.fflag) { state.prefs[t.dataset.fflag] = t.checked; savePrefs(); renderFilters(); render(); }
   });
   bar.addEventListener("input", (e) => {
     if (e.target.classList.contains("fpop-search")) { state.genreQuery = e.target.value; renderFilters(); }
@@ -1188,10 +1186,12 @@ function render() {
     return;
   }
   const list = visibleGames();
-  const shown = state.games.filter((g) => !g.isHidden || typesSel().includes("hidden")).length;
-  // Only when filters or a search narrow the list (the totals are in the stats above).
-  $("#result-count").innerHTML = list.length === shown ? ""
-    : `<b>${list.length.toLocaleString()}</b> of ${shown.toLocaleString()}`;
+  // Only when filters or a search narrow the list (the totals are in the stats above): "836 of 1,526",
+  // out of what the library shows with no filters.
+  const narrowed = state.q.trim() || Object.values(filterSummaries(filterFacts())).some(Boolean);
+  const base = state.games.filter((g) => defaultTypes().includes(gameType(g))).length;
+  $("#result-count").innerHTML = !narrowed ? ""
+    : list.length <= base ? `<b>${list.length.toLocaleString()}</b> of ${base.toLocaleString()}` : `<b>${list.length.toLocaleString()}</b> games`;
   if (!list.length) {
     lib.innerHTML = "";
     empty.hidden = false;
@@ -1468,11 +1468,12 @@ async function setHidden(id, v) {
   try {
     const g = await api(`/api/games/${id}`, { method: "PATCH", body: { hidden: v } });
     upsertLocal(g);
-    if (state.openId === id) renderDetail(derive(g));
+    if (state.openId === id) renderDetail(g);
     const wishOnly = byId(id)?.isWishOnly;
     toast(v ? (wishOnly ? "Hidden from your wishlist here" : "Hidden. Pick Hidden in the Type filter to find it.")
       : (wishOnly ? "Back on your wishlist" : "Back in your library"));
-  } catch (err) { toast(err.message, true); }
+    return true;
+  } catch (err) { toast(err.message, true); return false; }
 }
 
 async function setTtb(id, hours) {
@@ -2497,7 +2498,7 @@ function renderSetup() {
       <div class="service open" data-svc="${svc.id}">${serviceBody(svc)}</div>`;
   }
   const last = setup.i === steps.length - 1;
-  const nextLabel = step === "welcome" ? "Get started" : step === "shortcuts" ? "Next" : last ? (SERVICES.some((x) => x.ready(s) && x.fields) ? "Sync now" : "Done")
+  const nextLabel = step === "welcome" ? "Get started" : step === "shortcuts" ? "Next" : last ? (syncSources().some((x) => x.ok) ? "Sync now" : "Done")
     : svc && !ready ? "Skip for now" : "Next";
   $("#setup-body").innerHTML = `
     <div class="setup-progress" aria-hidden="true">${steps.map((_, i) => `<i class="${i < setup.i ? "done" : i === setup.i ? "on" : ""}"></i>`).join("")}</div>
@@ -2538,8 +2539,7 @@ $("#setup-body").addEventListener("click", async (e) => {
     catch (err) { $("#sc-result").className = "test-result err"; $("#sc-result").textContent = err.message; nav.disabled = false; return; }
   }
   if (setup.i === steps.length - 1) {
-    $("#setup-dialog").close();
-    await finishSetup();
+    $("#setup-dialog").close();  // (closing it marks setup as done)
     if (syncSources().some((x) => x.ok)) openJob("sync");
     return;
   }
@@ -2678,9 +2678,9 @@ function renderJobDialog() {
         </div>
       </div>
       <div class="dialog-actions">
-        ${full ? `<button class="btn ghost" type="button" id="sync-cancel" data-forget="1" title="Stop and forget this full refresh">Cancel refresh</button>
-          <button class="btn ghost" type="button" id="sync-cancel" title="Stop for now; continue it later from Refresh assets">Pause</button>`
-          : `<button class="btn ghost" type="button" id="sync-cancel">Stop</button>`}
+        ${full ? `<button class="btn ghost" type="button" data-sync-cancel data-forget="1" title="Stop and forget this full refresh">Cancel refresh</button>
+          <button class="btn ghost" type="button" data-sync-cancel title="Stop for now; continue it later from Refresh assets">Pause</button>`
+          : `<button class="btn ghost" type="button" data-sync-cancel>Stop</button>`}
         <button class="btn" value="close">Keep browsing</button></div>`;
     return;
   }
@@ -2804,8 +2804,8 @@ $("#sync-body").addEventListener("click", async (e) => {
       startPolling();
     } catch (err) { toast(err.message, true); }
   }
-  if (e.target.id === "sync-cancel") {
-    const forget = e.target.dataset.forget === "1";
+  if (e.target.closest("[data-sync-cancel]")) {
+    const forget = e.target.closest("[data-sync-cancel]").dataset.forget === "1";
     if (forget && !confirm("Cancel the full refresh? What it already updated stays; the rest won't be re-fetched.")) return;
     await api("/api/sync/cancel", { method: "POST", body: { forget } });
     toast(forget ? "Cancelling the full refresh after the current game" : state.sync?.mode === "all" ? "Pausing after the current game. Continue it from Refresh assets." : "Stopping after the current game");
@@ -2902,10 +2902,12 @@ function startPolling() {
 
 /* ------------------------------------------------------------ data loading */
 
+let libraryLoads = 0;
 async function reloadLibrary() {
+  const n = ++libraryLoads;
   const data = await api("/api/library");
+  if (n !== libraryLoads) return;  // a newer reload already started: its answer wins
   state.platforms = data.platforms;
-  state.year = data.year;
   state.wishlistAt = data.wishlist_at;
   const seen = new Map();
   for (const g of data.games) { const k = g.title.toLowerCase(); seen.set(k, (seen.get(k) || 0) + 1); }
@@ -2999,7 +3001,7 @@ function bind() {
       const v = e.target.closest("[data-act]").dataset.v;
       try {
         const g2 = await api(`/api/games/${id}`, { method: "PATCH", body: { endless: v === "auto" ? null : v === "1" } });
-        const d = upsertLocal(g2); renderDetail(derive(g2));
+        renderDetail(upsertLocal(g2));
         toast(v === "auto" ? "Back to automatic" : v === "1" ? "Marked as open-ended" : "Progress bar is back");
       } catch (err) { toast(err.message, true); }
       return;
@@ -3009,12 +3011,11 @@ function bind() {
     if (act === "ttb-reset") { setTtb(id, null); return; }
     if (act === "fix") openFixMatch(g || { id, title: $("#detail-title").textContent });
     if (act === "refresh") {
-      const b = e.target.closest("button");
-      b.disabled = true; b.textContent = "Refreshing…";
+      toast(`Refreshing ${g?.title || "this game"}…`);
       try {
         const fresh = await api(`/api/games/${id}/refresh`, { method: "POST", body: { prefer_sgdb: true } });
-        upsertLocal(fresh); renderDetail(derive(fresh)); toast("Updated");
-      } catch (err) { toast(err.message, true); b.disabled = false; b.textContent = "Refresh assets"; }
+        renderDetail(upsertLocal(fresh)); toast("Updated");
+      } catch (err) { toast(err.message, true); }
     }
     if (act === "remove-entry") {
       const row = e.target.closest("[data-entry]");
@@ -3324,7 +3325,7 @@ $("#unid-body").addEventListener("click", async (e) => {
   if (e.target.closest("[data-use]")) { await useUnid(r); renderUnidFoot(); reloadLibrary(); return; }
   if (e.target.closest("[data-search]")) { r.searching = !r.searching; renderUnidRow(r); return; }
   if (e.target.closest("[data-hide]")) {
-    await setHidden(r.id, 1);
+    if (!(await setHidden(r.id, 1))) return;
     unid.done.set(r.id, "Hidden. Pick Hidden in the Type filter to find it.");
     renderUnidRow(r); renderUnidFoot();
   }
@@ -3380,12 +3381,12 @@ function renderDups() {
     <p class="lede">These look like the same game listed more than once: editions, store versions, tutorials or add-ons. Combining keeps one entry, adds up the playtime and keeps every copy. Untick anything that's really a different game.</p>
     <div class="dup-groups">
       ${groups.map((gr, gi) => `<div class="dup-group ${gr.fresh ? "fresh" : ""}" data-g="${gi}">
-        ${gr.games.map((x) => `<label class="dup-row ${gr.picked.has(x.id) ? "" : "off"}">
-          <input type="checkbox" data-pick="${x.id}" ${gr.picked.has(x.id) ? "checked" : ""} aria-label="Include ${esc(x.title)}">
-          <span class="dup-cover">${x.cover ? `<img src="${esc(x.cover)}" alt="" loading="lazy" data-fallbacks="">` : ""}</span>
-          <span class="dup-text"><b>${esc(x.title)}${x.fresh ? ` <span class="dup-fresh">New</span>` : ""}</b><small>${x.platforms.map((p) => esc(PLATFORM_SHORT[p] || p)).join(", ")}${x.hours ? `, ${fmtHours(x.hours)}` : ""}${x.reason ? ` · ${esc(x.reason)}` : ""}</small></span>
-          <span class="dup-keep"><input type="radio" name="keep-${gi}" value="${x.id}" ${x.id === gr.keep ? "checked" : ""}> Keep this name</span>
-        </label>`).join("")}
+        ${gr.games.map((x) => `<div class="dup-row ${gr.picked.has(x.id) ? "" : "off"}">
+          <input type="checkbox" id="dup-${gi}-${x.id}" data-pick="${x.id}" ${gr.picked.has(x.id) ? "checked" : ""} aria-label="Include ${esc(x.title)}">
+          <label class="dup-cover" for="dup-${gi}-${x.id}">${x.cover ? `<img src="${esc(x.cover)}" alt="" loading="lazy" data-fallbacks="">` : ""}</label>
+          <label class="dup-text" for="dup-${gi}-${x.id}"><b>${esc(x.title)}${x.fresh ? ` <span class="dup-fresh">New</span>` : ""}</b><small>${x.platforms.map((p) => esc(PLATFORM_SHORT[p] || p)).join(", ")}${x.hours ? `, ${fmtHours(x.hours)}` : ""}${x.reason ? ` · ${esc(x.reason)}` : ""}</small></label>
+          <label class="dup-keep"><input type="radio" name="keep-${gi}" value="${x.id}" ${x.id === gr.keep ? "checked" : ""}> Keep this name</label>
+        </div>`).join("")}
         <div class="dup-actions">
           <button class="link" data-dismiss="${gi}">Not duplicates</button>
           <button class="btn small" data-combine="${gi}" ${gr.picked.size < 2 ? "disabled" : ""}>Combine</button>

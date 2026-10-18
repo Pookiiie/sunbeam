@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 
 from .paths import CONFIG_PATH
@@ -40,20 +41,29 @@ FIELDS = {
     "start_page": False,         # the tab the app opens on: curator (default), library or wishlist
     "setup_done": False,       # finished (or skipped) the first-run setup
     "shortcuts_asked": False,  # answered the desktop / Start menu shortcut question
-    "shortcuts_made": False,
-    "window_rect": False,      # the app window's size and place last time {x, y, w, h, max}   # where the shortcuts are (renamed along with the app)
+    "shortcuts_made": False,   # where the shortcuts are (renamed along with the app)
+    "window_rect": False,      # the app window's size and place last time {x, y, w, h, max}
 }
+
+# Kept by the app itself, never changed from the page (POST /api/settings ignores them).
+INTERNAL = {"shortcuts_made", "shortcuts_asked", "window_rect", "epic_refresh", "epic_account", "epic_name",
+            "ubi_ticket", "ubi_session", "ubi_remember", "ubi_user", "ubi_app", "ubi_name", "ubi_expires",
+            "ubi_refreshed_at", "xbl_xuid"}
 
 _lock = threading.Lock()
 
 
 def load() -> dict:
     with _lock:
-        if CONFIG_PATH.exists():
-            try:
-                return json.loads(CONFIG_PATH.read_text("utf-8"))
-            except json.JSONDecodeError:
-                return {}
+        return _read()
+
+
+def _read() -> dict:
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        return json.loads(CONFIG_PATH.read_text("utf-8"))
+    except (json.JSONDecodeError, OSError):
         return {}
 
 
@@ -64,19 +74,24 @@ def get(key: str, default=None):
 
 def update(changes: dict) -> dict:
     with _lock:
-        current = {}
-        if CONFIG_PATH.exists():
+        current = _read()
+        if not current and CONFIG_PATH.exists() and CONFIG_PATH.stat().st_size > 2:
+            # The file is there but couldn't be read: don't write over every saved key with just this change.
+            backup = CONFIG_PATH.with_suffix(".unreadable.json")
             try:
-                current = json.loads(CONFIG_PATH.read_text("utf-8"))
-            except json.JSONDecodeError:
-                current = {}
+                CONFIG_PATH.replace(backup)
+            except OSError:
+                raise RuntimeError(f"{CONFIG_PATH.name} couldn't be read, so it wasn't changed.") from None
         for key, value in changes.items():
             if key not in FIELDS:
                 continue
             if isinstance(value, str):
                 value = value.strip()
             current[key] = value
-        CONFIG_PATH.write_text(json.dumps(current, indent=2), "utf-8")
+        # Written to a temporary file first, then swapped in: a crash can't leave half a file.
+        tmp = CONFIG_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(current, indent=2), "utf-8")
+        os.replace(tmp, CONFIG_PATH)
         return current
 
 
