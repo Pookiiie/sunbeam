@@ -895,3 +895,9 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .pbox.sub.none { border-style: dashed; }
 .pbox .dim { color: var(--faint); font-weight: 600; }
 .pbox small.leaving { color: var(--accent); }
+
+/* Owned / XGP / PS+ under wishlist covers: little pills */
+.wtags { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.wprice .wtag, .rec-why .wtag { display: inline-block; padding: 2px 8px; border-radius: 999px; font: 700 11px/1.35 var(--body); letter-spacing: .01em; }
+.wtag.owned { background: rgba(116, 214, 160, .15); color: var(--done); box-shadow: inset 0 0 0 1px rgba(116, 214, 160, .35); }
+.wtag.sub { background: rgba(255, 92, 158, .14); color: #ff8fbb; box-shadow: inset 0 0 0 1px rgba(255, 92, 158, .35); }

@@ -576,7 +576,7 @@ function wishPills(g, { sale = true } = {}) {
 // Already playable (owned, XGP, PS+): just that, no price.
 function wishPrice(g) {
   const tags = playableTags(g);
-  if (tags.length) return tags.map((t) => `<span class="wtag">${esc(t)}</span>`).join(" · ");
+  if (tags.length) return `<span class="wtags">${tags.map((t) => `<span class="wtag ${t === "Owned" ? "owned" : "sub"}">${esc(t)}</span>`).join("")}</span>`;
   const x = g.wish?.best;
   if (!x) return "";
   return `<span class="wp-store">${storeMark(x.store, false)}</span><span class="wp${x.discount_pct ? " on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}`;

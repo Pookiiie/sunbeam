@@ -1,1 +1,1 @@
-- The Wishlist page's **On sale** filter includes games you already own or can play on XGP or PS+ again; while it's on, their sale badge shows on the cover. Everywhere else they still show just Owned, XGP or PS+, and Curator's On sale row leaves them out.
+- **Wishlist cards:** Owned, XGP and PS+ under the covers are now little pills (green for Owned, pink for XGP and PS+), so they stand out.
