@@ -245,7 +245,25 @@ def start_sync(sources: list[str]) -> bool:
         timeline.append({"id": "wishlists", "label": "Update wishlists",
                          "hint": "Steam and PlayStation: release dates and prices", "state": "upcoming"})
     timeline += _info_timeline(ALL_STEPS, for_new=True)
-    return _begin("sync", _run_sync, (sources,), sources=sources, timeline=timeline)
+    return _begin("sync", _run_sync_all, (sources,), sources=sources, timeline=timeline)
+
+
+def _run_sync_all(sources: list[str]):
+    _run_sync(sources)
+    if not _cancel.is_set():
+        _early_access()
+
+
+def _early_access():
+    """Which games are in early access (Steam, else IGDB). Quiet unless it finds some."""
+    from .meta import early_access
+    try:
+        n = early_access.refresh()
+    except Exception as e:
+        _log(f"Couldn't check for early access games: {e}", "warn")
+        return
+    if n:
+        _log(f"{n} game{'s are' if n != 1 else ' is'} in early access.")
 
 
 # A full refresh ("Re-fetch for every game") takes a long time for a big library, so it's
@@ -505,7 +523,8 @@ def _conds(refresh: bool) -> dict[str, str]:
                    f"OR (oc_id IS NULL AND oc_checked_at < {now - 7 * 86400} AND id IN (SELECT game_id FROM wishlist "
                    f"WHERE released = 1 AND release_ts > {now - 60 * 86400})))"),
         # games you haven't marked, played since we last looked at their achievements
-        "completions": "status = '' AND COALESCE(status_manual, 0) = 0 AND id IN (SELECT game_id FROM entries "
+        # (never games in early access: there's more to come)
+        "completions": "status = '' AND COALESCE(status_manual, 0) = 0 AND COALESCE(early_access, 0) = 0 AND id IN (SELECT game_id FROM entries "
                        "WHERE platform IN ('steam', 'playstation') AND playtime_min > 0 AND NOT COALESCE(excluded, 0)"
                        + ("" if refresh else " AND (games.completion_checked_at IS NULL OR "
                                              "COALESCE(last_played, 0) > games.completion_checked_at)") + ")",
@@ -527,7 +546,7 @@ def _resume_conds(since: int, now: int) -> dict[str, str]:
                    f"OR (steam_appid IS NULL AND (steam_checked_at IS NULL OR steam_checked_at < {since})))",
         "ttb": _not_out(now) + f" AND (ttb_at IS NULL OR ttb_at < {since})",
         "critics": _not_out(now) + f" AND (oc_checked_at IS NULL OR oc_checked_at < {since})",
-        "completions": "status = '' AND COALESCE(status_manual, 0) = 0 AND id IN (SELECT game_id FROM entries "
+        "completions": "status = '' AND COALESCE(status_manual, 0) = 0 AND COALESCE(early_access, 0) = 0 AND id IN (SELECT game_id FROM entries "
                        "WHERE platform IN ('steam', 'playstation') AND playtime_min > 0 AND NOT COALESCE(excluded, 0)) "
                        f"AND (completion_checked_at IS NULL OR completion_checked_at < {since})",
     }
@@ -970,14 +989,14 @@ def _completions(refresh: bool, scope: str, args):
 
 
 def recheck_auto_completions() -> int:
-    """Undo automatic "completed" marks that today's rules wouldn't make: open-ended games,
+    """Undo automatic "completed" marks that today's rules wouldn't make: open-ended games, games in early access,
     and achievements that turned out not to mean the end (L.A. Noire's "Complete a story
     case"). Statuses you set yourself are never touched. Runs at start-up; cheap."""
     undone = 0
     for g in db.library():
         if g.get("status") != "completed" or not g.get("status_auto") or g.get("status_manual"):
             continue
-        if rules.is_open_ended(g) or not achievements.still_valid(g["status_auto"]):
+        if rules.is_open_ended(g) or g.get("early_access") == 1 or not achievements.still_valid(g["status_auto"]):
             with db.tx() as c:
                 c.execute("""UPDATE games SET status='', status_at=NULL, status_auto=NULL, completion_checked_at=NULL
                              WHERE id=? AND COALESCE(status_manual, 0)=0""", (g["id"],))

@@ -639,7 +639,8 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .rec-n { position: absolute; left: 8px; top: 8px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: grid; place-items: center;
   font: 700 12px/1 var(--body); color: #fff; background: rgba(14,12,20,.45); backdrop-filter: blur(2px); }
 .rec .imark { position: absolute; right: 8px; top: 8px; }
-.rec-title { margin-top: 8px; font-weight: 600; font-size: 14px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-title { margin-top: 8px; font-weight: 600; font-size: 14px; line-height: 1.3; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }  /* long names wrap onto a second line */
 .rec-why { margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.3; font-variant-numeric: tabular-nums;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .rec-why .score { font-weight: 700; }
@@ -901,3 +902,10 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .wprice .wtag, .rec-why .wtag { display: inline-block; padding: 2px 8px; border-radius: 999px; font: 700 11px/1.35 var(--body); letter-spacing: .01em; }
 .wtag.owned { background: rgba(116, 214, 160, .15); color: var(--done); box-shadow: inset 0 0 0 1px rgba(116, 214, 160, .35); }
 .wtag.sub { background: rgba(255, 92, 158, .14); color: #ff8fbb; box-shadow: inset 0 0 0 1px rgba(255, 92, 158, .35); }
+
+/* ------------------------------------------------------------ early access (1.2) */
+.ea-pill { display: inline-block; font-size: 10.5px; font-weight: 700; line-height: 1; padding: 4px 7px; border-radius: 5px;
+  background: rgba(120, 200, 255, .32); color: #fff; backdrop-filter: blur(2px); text-shadow: 0 1px 2px rgba(0,0,0,.5); white-space: nowrap; }
+.ea-pill.corner { position: absolute; left: 8px; top: 8px; }
+.ea-pill.corner.below { top: 30px; }
+.badge.ea-badge { background: rgba(120, 200, 255, .22); }

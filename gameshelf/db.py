@@ -254,6 +254,19 @@ def _migrate(c: sqlite3.Connection) -> None:
         from .meta import wishlist
         wishlist._table(c)
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '17')")
+    if version < 18:
+        # Early access (meta/early_access.py): still being made, and the announced full release.
+        cols = {r[1] for r in c.execute("PRAGMA table_info(games)")}
+        for col in ("early_access", "ea_full_date", "ea_checked_at"):
+            if col not in cols:
+                c.execute(f"ALTER TABLE games ADD COLUMN {col} INTEGER")
+        from .meta import wishlist
+        wishlist._table(c)
+        wcols = {r[1] for r in c.execute("PRAGMA table_info(wishlist)")}
+        for col in ("early_access", "ea_full_ts"):
+            if col not in wcols:
+                c.execute(f"ALTER TABLE wishlist ADD COLUMN {col} INTEGER")
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '18')")
 
 
 @contextmanager

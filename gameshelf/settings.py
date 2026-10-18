@@ -32,6 +32,7 @@ FIELDS = {
     "sgdb_api_key": True,
     "opencritic_key": True,
     "hltb_enabled": False,
+    "hide_early_access": False,  # keep early access games out of the library and Curator
     "setup_done": False,       # finished (or skipped) the first-run setup
     "shortcuts_asked": False,  # answered the desktop / Start menu shortcut question
     "shortcuts_made": False,

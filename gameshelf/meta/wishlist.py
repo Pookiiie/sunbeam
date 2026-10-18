@@ -55,7 +55,7 @@ def _table(c) -> None:
         release_ts INTEGER, release_text TEXT, precision TEXT, released INTEGER,
         price_text TEXT, base_text TEXT, price_cents INTEGER, base_cents INTEGER, discount_pct INTEGER,
         sale_ends INTEGER, sale_note TEXT, concept_id TEXT, steam_appid INTEGER,
-        first_seen INTEGER, last_seen INTEGER, game_id INTEGER,
+        first_seen INTEGER, last_seen INTEGER, game_id INTEGER, early_access INTEGER, ea_full_ts INTEGER,
         PRIMARY KEY (store, item_id))""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_game ON wishlist(game_id)")
     # The other store's price for a wishlist game (item_id NULL: searched, not found there).
@@ -80,6 +80,13 @@ def _steam_release(rel: dict) -> dict:
         return {"release_ts": None, "release_text": custom or ("To be announced" if shown == "text_tba" else "Coming soon"),
                 "precision": None, "released": 0}
     return {"release_ts": ts, "release_text": custom, "precision": precision, "released": 0}
+
+
+def _steam_ea(item: dict) -> dict:
+    """Early access on Steam, with the full release date once the developer announces it."""
+    rel = item.get("release") or {}
+    ea = bool(item.get("is_early_access") or rel.get("is_early_access"))
+    return {"early_access": int(ea), "ea_full_ts": (rel.get("release_from_early_access_date") or None) if ea else None}
 
 
 def _steam_price(item: dict) -> dict:
@@ -128,7 +135,7 @@ def fetch_steam() -> list[dict]:
                 "store": "steam", "item_id": str(w["appid"]), "title": name, "image": img,
                 "url": f"https://store.steampowered.com/app/{w['appid']}",
                 "added_at": w.get("date_added"), "priority": w.get("priority"), "steam_appid": int(w["appid"]),
-                **_steam_release(it.get("release") or {}), **_steam_price(it),
+                **_steam_release(it.get("release") or {}), **_steam_price(it), **_steam_ea(it),
             })
     return out
 
@@ -351,7 +358,7 @@ def other_prices() -> int:
 
 FIELDS = ("title", "norm_title", "image", "url", "added_at", "priority", "release_ts", "release_text", "precision",
           "released", "price_text", "base_text", "price_cents", "base_cents", "discount_pct", "sale_ends", "sale_note",
-          "concept_id", "steam_appid")
+          "concept_id", "steam_appid", "early_access", "ea_full_ts")
 
 
 def _store(store: str, items: list[dict]) -> int:
@@ -552,6 +559,8 @@ def _summary(rows: list[dict], owned_on: list[str], others: list[dict] | None = 
     missing = sorted({r["store"] for r in others if not r["item_id"]})  # looked for, not on that store
     return {**rel, "stores": stores, "added_at": min(s["added_at"] or now for s in stores),
             "prices": prices, "best": best, "missing": missing,
+            "early_access": any(r.get("early_access") for r in rows),
+            "ea_full_ts": max((r.get("ea_full_ts") or 0 for r in rows), default=0) or None,
             # On sale: when the lowest price is a sale price
             "sale": best if best and best["discount_pct"] else None, "owned_on": owned_on}
 

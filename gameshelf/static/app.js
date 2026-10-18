@@ -230,6 +230,9 @@ function derive(g) {
   g.remaining = g.status || g.isEndless ? null : g.ttb ? Math.max(g.ttb - g.played_h, 0) : null;
   g.isCatalog = !!g.catalog_only;  // not yours: you can play it through XGP or PS+
   g.isWishOnly = !!g.wishlist_only;  // only on a wishlist: shown on the Wishlist page, not in the library
+  // Early access: still being made (Steam, else IGDB; on a Steam wishlist, Steam's own flag).
+  g.isEA = g.early_access === 1 || !!g.wish?.early_access;
+  g.eaFull = g.isEA ? (g.wish?.ea_full_ts || g.ea_full_date || null) : null;
   g.rel = g.wish ? wishRelease(g) : null;
   // XGP counts as Xbox and PS+ as PlayStation: same icon, same platform filter.
   // A wishlist-only game shows the stores whose wishlist it's on.
@@ -314,6 +317,7 @@ function visibleGames() {
   const statuses = new Set(p.status);
   const keep = (g) => {
     if (g.isHidden && !p.showHidden) return false;
+    if (g.isEA && hideEA()) return false;  // Settings › Early access games
     if (q && !g._search.includes(q)) return false;
     if (hidden.size && !g.platforms.some((x) => !hidden.has(x))) return false;
     if (!statuses.has(g.status || "")) return false;
@@ -375,7 +379,7 @@ function recHoursLeft(g) {
   return g.remaining > 0.25 ? g.remaining : null;
 }
 
-const recEligible = (g) => !(g.isHidden || g.vr || g.status || g.isEndless || g.interest === "skip");
+const recEligible = (g) => !(g.isHidden || g.vr || g.status || g.isEndless || g.interest === "skip" || (g.isEA && hideEA()));
 
 // Reviews out of 100: Steam leads; few Steam reviews lean on OpenCritic, or towards a middling 65.
 function recReview(g) {
@@ -530,6 +534,7 @@ const nowS = () => Date.now() / 1000;
 // The stores' own dates first (a console game coming to PC is "soon" on Steam), else IGDB's.
 function wishRelease(g) {
   const w = g.wish || {}, igdb = g.release_date, now = nowS();
+  if (g.isEA) return { state: "ea", ts: g.eaFull && g.eaFull > now ? g.eaFull : null, prec: "day", text: "In early access" };
   if (w.released === true) return { state: "out", ts: w.release_ts || igdb || null, prec: "day" };
   if (w.release_ts) return { state: w.release_ts <= now && w.precision === "day" ? "out" : "soon", ts: w.release_ts, prec: w.precision || "day" };
   if (igdb && (w.released == null || igdb > now)) return { state: igdb <= now ? "out" : "soon", ts: igdb, prec: "day" };
@@ -552,6 +557,7 @@ function wishWhen(g, { soonDays = false } = {}) {
   const r = g.rel;
   if (r.state === "out") return r.ts ? `Out ${fmtRelease(r)}` : "Out now";
   if (r.state === "soon") return fmtRelease(r) + (soonDays && r.prec === "day" && r.ts - nowS() < 45 * 86400 ? ` · ${inDays(r.ts)}` : "");
+  if (r.state === "ea") return r.ts ? `Full release ${fmtRelease(r)}${soonDays && r.ts - nowS() < 45 * 86400 ? ` · ${inDays(r.ts)}` : ""}` : "In early access";
   return r.text || "No date yet";
 }
 // Already playable: yours on another store ("Owned"), or on XGP / PS+. Short, for card lines.
@@ -567,8 +573,12 @@ function saleText(x) {
 function wishPills(g, { sale = true } = {}) {
   // You can already play it: no sale badge, except on the Wishlist page while "On sale" is picked.
   const x = isPlayable(g) && !(state.prefs.wishSale && state.page === "wishlist") ? null : g.wish?.sale;
-  return sale && x ? `<div class="wpills"><span class="wpill sale" title="${esc(`${WISH_STORE[x.store]}: ${saleText(x)}`)}">-${x.discount_pct}%</span></div>` : "";
+  const pills = (sale && x ? `<span class="wpill sale" title="${esc(`${WISH_STORE[x.store]}: ${saleText(x)}`)}">-${x.discount_pct}%</span>` : "") + eaPill(g);
+  return pills ? `<div class="wpills">${pills}</div>` : "";
 }
+// "Early access" on a cover (top left).
+const eaPill = (g) => g.isEA ? `<span class="ea-pill" title="In early access${g.eaFull ? `: full release ${fmtDate(g.eaFull)}` : ": still being made"}">Early access</span>` : "";
+const hideEA = () => !!state.settings?.settings?.hide_early_access;
 // The price to show: the sale if there is one, else the lowest listed price.
 // Followed by where you can already play it: "C$ 38.99 · On XGP".
 // The lowest price across Steam and PlayStation (wishlist.py looks up the store whose wishlist
@@ -671,7 +681,7 @@ function renderWishlist() {
   const counts = { steam: all.filter((g) => g.wish.stores.some((x) => x.store === "steam")).length,
     psn: all.filter((g) => g.wish.stores.some((x) => x.store === "psn")).length };
   const onSale = all.filter((g) => g.wish.sale && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))).length;
-  const groups = [["out", "Out now"], ["soon", "Coming soon"], ["tba", "No date yet"]].map(([k, label]) => {
+  const groups = [["out", "Out now"], ["ea", "In early access"], ["soon", "Coming soon"], ["tba", "No date yet"]].map(([k, label]) => {
     const gs = list.filter((g) => g.rel.state === k).sort(wishSorter(k));
     return gs.length ? `<section class="wish-group"><h2 class="wish-h">${label} <span>${gs.length}</span></h2><div class="grid">${wishCards(gs)}</div></section>` : "";
   }).join("");
@@ -701,7 +711,8 @@ function renderWishRows() {
   const now = nowS(), win = WISH_DAYS * 86400;
   const recent = gs.filter((g) => g.rel.state === "out" && g.rel.ts && now - g.rel.ts <= win && g.rel.ts <= now)
     .sort((a, b) => b.rel.ts - a.rel.ts || a.title.localeCompare(b.title));
-  const soon = gs.filter((g) => g.rel.state === "soon" && g.rel.prec === "day" && g.rel.ts - now <= win && g.rel.ts > now - 86400)
+  // (an early access game whose full release is announced counts too)
+  const soon = gs.filter((g) => (g.rel.state === "soon" || (g.rel.state === "ea" && g.rel.ts)) && g.rel.prec === "day" && g.rel.ts - now <= win && g.rel.ts > now - 86400)
     .sort((a, b) => a.rel.ts - b.rel.ts || a.title.localeCompare(b.title));
   const sale = gs.filter((g) => g.wish.sale && !isPlayable(g))
     .sort((a, b) => b.wish.sale.discount_pct - a.wish.sale.discount_pct || (recReview(b) ?? -1) - (recReview(a) ?? -1) || a.title.localeCompare(b.title));
@@ -880,6 +891,7 @@ function renderGrid(list) {
         ${coverHTML(g)}
         ${g.isHidden ? `<span class="stamp hidden-stamp">Hidden</span>` : ""}
         ${subPill(g)}
+        ${g.isEA ? eaPill(g).replace('class="ea-pill"', `class="ea-pill corner${subPill(g) ? " below" : ""}"`) : ""}
         ${g.status === "completed" ? `<span class="stamp completed check" title="Completed" aria-label="Completed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>` : g.status === "dnf" ? `<span class="stamp dnf" title="Did not finish">DNF</span>` : ""}
         <div class="badges">${badgesHTML(g)}</div>
       </div>
@@ -1276,6 +1288,7 @@ function renderDetail(g) {
           <div class="hero-sub">
             ${g.isWishOnly ? (g.wish?.stores || []).map((x) => wishBadge(x.store)).join("")
               : g.platforms.map(platformTag).join("")}
+            ${g.isEA ? `<span class="badge ea-badge">Early access</span>` : ""}
             ${year(g.release_date) ? `<span>${year(g.release_date)}</span>` : ""}
             ${devs ? `<span>${esc(devs)}</span>` : ""}
           </div>
@@ -1306,6 +1319,7 @@ function renderDetail(g) {
       </div>
       ${(g.subs || []).length && !g.wish ? `<p class="sub-note">${g.isCatalog ? "Not in your library. " : ""}${g.subs.map((x) => `${x.leaving ? "Leaving" : "Included with"} ${SUB_NAME[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}.${storeLink(x.s)}`).join(" ")}</p>` : ""}
       ${wishBox(g)}
+      ${g.isEA ? `<p class="sub-note">In early access${g.eaFull ? `, full release ${esc(fmtDate(g.eaFull))}` : ""}: time to beat and progress may still change, and it won't be marked completed automatically.</p>` : ""}
       ${g.status === "completed" && g.status_auto ? `<p class="auto-note">✓ Marked completed automatically: ${esc(g.status_auto)}${g.status_at ? `, ${esc(fmtDate(g.status_at))}` : ""}. Not right? Pick another status above.</p>` : ""}
       <div class="facts">
         ${g.isWishOnly ? "" : fact("You've played", g.hoursUnknown ? "?" : fmtHours(g.played_h, { empty: "0 h" }), g.last_played ? `Last played ${esc(relDate(g.last_played).toLowerCase())}${g.hoursUnknown ? ". The store doesn't say for how long" : ""}` : g.playtime_min ? "Date unknown" : "Not played yet")}
@@ -2031,6 +2045,14 @@ function renderSettings(openId) {
       ${serviceBody(svc)}
     </details>`;
   }).join("") + `
+    <details class="service" ${openId === "early-access" ? "open" : ""}>
+      <summary><div><h3>Early access games</h3><p>Games that are still being made</p></div>
+      <span class="state ${s.hide_early_access ? "ok" : "later"}">${s.hide_early_access ? "Hidden" : "Shown"}</span></summary>
+      <div class="body">
+        <label class="switch"><input type="checkbox" id="ea-toggle" ${s.hide_early_access ? "checked" : ""}><span>Hide early access games from the library and ${CURATOR}</span></label>
+        <p class="source-note">They stay on the Wishlist page, in their own "In early access" group. Either way, they're tagged "Early access" and never marked completed automatically.</p>
+      </div>
+    </details>
     <details class="service" ${openId === "hltb" ? "open" : ""}>
       <summary><div><h3>Time to beat: HowLongToBeat</h3><p>Used first when available, otherwise IGDB's numbers</p></div>
       <span class="state ${state.settings.hltb_installed ? "ok" : "later"}">${state.settings.hltb_installed ? "Available" : "Not installed"}</span></summary>
@@ -2107,6 +2129,13 @@ $("#settings-body").addEventListener("click", (e) => {
   onServiceClick(e, renderSettings);
 });
 $("#settings-body").addEventListener("change", async (e) => {
+  if (e.target.id === "ea-toggle") {
+    await api("/api/settings", { method: "POST", body: { hide_early_access: e.target.checked } });
+    await loadSettings();
+    renderSettings("early-access");
+    renderAll();
+    return;
+  }
   if (e.target.id === "hltb-toggle") {
     await api("/api/settings", { method: "POST", body: { hltb_enabled: e.target.checked } });
     await loadSettings();
