@@ -3073,7 +3073,8 @@ $("#shortcut-dialog").addEventListener("click", async (e) => {
 async function startDesktop() {
   const d = await loadDesktop();
   startHeartbeat();
-  checkUpdate();
+  checkUpdate(true);  // a fresh look at GitHub every time the app starts
+  setInterval(() => checkUpdate(), 6 * 3600 * 1000);  // and again now and then while it stays open
   if (!d.setup_done && !state.games.length) openSetup();
   else if (d.windows && d.packaged && !d.shortcuts_asked) askShortcuts();
 }
