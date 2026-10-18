@@ -382,6 +382,13 @@ textarea { width: 100%; min-height: 90px; background: var(--ink-2); border: 1px 
 }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { background: var(--error); color: #34110c; }
+.beta-tag { display: inline-block; vertical-align: 2px; margin-left: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .02em;
+  color: #1b0f17; background: linear-gradient(90deg, #ff5c9e, #ff9348); }
+.channel-row { flex-wrap: wrap; margin-top: 10px; }
+.channel-row .channel-note { flex-basis: 100%; margin: 6px 0 0; }
+.toast.has-undo { pointer-events: auto; display: flex; align-items: center; gap: 14px; padding-right: 8px; }
+.toast-undo { font: inherit; font-weight: 700; color: var(--ink); background: rgba(0, 0, 0, 0.08); border: 0; border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.toast-undo:hover { background: rgba(0, 0, 0, 0.16); }
 
 /* ---------- responsive */
 @media (max-width: 900px) {

@@ -86,14 +86,33 @@ async function api(path, { method = "GET", body } = {}) {
 }
 
 let toastTimer;
-function toast(msg, isErr = false) {
+function toast(msg, isErr = false, undo = null) {
   const t = $("#toast");
   t.textContent = msg;
+  if (undo) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "toast-undo"; b.textContent = "Undo";
+    b.onclick = () => { t.classList.remove("on", "has-undo"); undo(); };
+    t.append(b);
+  }
   t.classList.toggle("err", isErr);
+  t.classList.toggle("has-undo", !!undo);
   t.classList.add("on");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("on"), isErr ? 5200 : 2600);
+  toastTimer = setTimeout(() => t.classList.remove("on", "has-undo"), undo ? 6500 : isErr ? 5200 : 2600);
 }
+
+// Saves a change to a game, then shows it everywhere it appears.
+async function patchGame(id, body) {
+  const g = await api(`/api/games/${id}`, { method: "PATCH", body });
+  upsertLocal(g);
+  if (state.openId === id) renderDetail(derive(g));
+  return g;
+}
+async function undoPatch(id, body, msg) {
+  try { await patchGame(id, body); toast(msg); } catch (e) { toast(e.message, true); }
+}
+
 
 /* ------------------------------------------------------------ formatting */
 
@@ -534,11 +553,11 @@ const interestMark = (g) => g.interest === "more" ? `<span class="imark more" ti
 async function setInterest(id, v) {
   const g0 = byId(id);
   const next = g0 && g0.interest === v ? null : v;  // picking the same again clears it
+  const prev = g0 ? g0.interest || null : null;
   try {
-    const g = await api(`/api/games/${id}`, { method: "PATCH", body: { interest: next } });
-    upsertLocal(g);
-    if (state.openId === id) renderDetail(derive(g));
-    toast(next ? `${INTEREST[next]}: ${g.title}` : `${CURATOR} treats ${g.title} normally again`);
+    const g = await patchGame(id, { interest: next });
+    toast(next ? `${INTEREST[next]}: ${g.title}` : `${CURATOR} treats ${g.title} normally again`, false,
+      () => undoPatch(id, { interest: prev }, "Put back"));
   } catch (e) { toast(e.message, true); }
 }
 
@@ -1467,14 +1486,14 @@ function upsertLocal(g) {
   return g;
 }
 
-async function setHidden(id, v) {
+async function setHidden(id, v, { undo = true } = {}) {
+  const g0 = byId(id), prev = g0 ? (g0.hidden ?? null) : null;
   try {
-    const g = await api(`/api/games/${id}`, { method: "PATCH", body: { hidden: v } });
-    upsertLocal(g);
-    if (state.openId === id) renderDetail(g);
+    await patchGame(id, { hidden: v });
     const wishOnly = byId(id)?.isWishOnly;
     toast(v ? (wishOnly ? "Hidden from your wishlist here" : "Hidden. Pick Hidden in the Type filter to find it.")
-      : (wishOnly ? "Back on your wishlist" : "Back in your library"));
+      : (wishOnly ? "Back on your wishlist" : "Back in your library"), false,
+      undo && g0 ? () => undoPatch(id, { hidden: prev }, "Put back") : null);
     return true;
   } catch (err) { toast(err.message, true); return false; }
 }
@@ -1489,11 +1508,12 @@ async function setTtb(id, hours) {
 }
 
 async function setStatus(id, status) {
+  const g0 = byId(id);
+  const prev = g0 && { status: g0.status || "", status_at: g0.status_at ?? null, status_manual: g0.status_manual ?? null, status_auto: g0.status_auto ?? null };
   try {
-    const g = await api(`/api/games/${id}`, { method: "PATCH", body: { status } });
-    upsertLocal(g);
-    if (state.openId === id) renderDetail(g);
-    toast(status === "completed" ? "Marked completed" : status === "dnf" ? "Marked as did not finish" : "Status cleared");
+    await patchGame(id, { status });
+    toast(status === "completed" ? "Marked completed" : status === "dnf" ? "Marked as did not finish" : "Status cleared", false,
+      prev ? () => undoPatch(id, { restore_status: prev }, "Status put back") : null);
   } catch (e) { toast(e.message, true); }
 }
 
@@ -2215,6 +2235,12 @@ $("#settings-body").addEventListener("change", async (e) => {
     renderAll();
     return;
   }
+  if (e.target.id === "set-channel") {
+    await api("/api/settings", { method: "POST", body: { update_channel: e.target.value } });
+    await loadSettings();
+    await refreshUpdates();
+    return;
+  }
   if (e.target.id === "hltb-toggle") {
     await api("/api/settings", { method: "POST", body: { hltb_enabled: e.target.checked } });
     await loadSettings();
@@ -2278,7 +2304,7 @@ function renderUpdateBar() {
   bar.hidden = false;
   bar.innerHTML = u.busy
     ? `<span>Updating to ${APP} ${esc(u.latest)}: ${esc((u.stage || "working").toLowerCase())}…</span>`
-    : `<span><b>${APP} ${esc(u.latest)}</b> is out (you have ${esc(u.current)}).</span>
+    : `<span><b>${APP} ${esc(u.latest)}</b>${u.beta ? " " + BETA_TAG : ""} is out (you have ${esc(u.current)}).</span>
        <button class="link" data-upd="notes">What's new</button>
        ${u.can_install ? `<button class="btn small" data-upd="install">Update now</button>` : `<a class="btn small" href="${esc(u.url)}" target="_blank" rel="noopener">Download</a>`}
        ${u.error ? `<span class="err">${esc(u.error)}</span>` : ""}
@@ -2342,7 +2368,7 @@ function showReleaseNotes() {
   $("#notes-body").innerHTML = `
     <p class="lede">You have ${esc(APP)} ${esc(u.current || "")}. Here's what's changed since:</p>
     ${changes.map((c) => `<section class="release">
-      <h3>${esc(APP)} ${esc(c.version)}<span>${c.date ? esc(fmtDate(Date.parse(c.date) / 1000)) : ""}</span></h3>
+      <h3>${esc(APP)} ${esc(c.version)}${c.beta ? " " + BETA_TAG : ""}<span>${c.date ? esc(fmtDate(Date.parse(c.date) / 1000)) : ""}</span></h3>
       <div class="release-notes">${notesHTML(c.notes)}</div>
     </section>`).join("")}
     <div class="dialog-actions">
@@ -2360,17 +2386,32 @@ $("#notes-body").addEventListener("click", (e) => {
 });
 
 // Settings, at the top: Updates (always visible) and, on Windows, Shortcuts.
+const BETA_TAG = `<span class="beta-tag">Beta</span>`;
+const isBetaVer = (v) => /-?(beta|b)\.?\d+$/i.test(v || "");
 function updatesBlock() {
   const d = state.desktop || {}, u = state.update;
-  const status = !u ? "" : u.newer ? `${esc(APP)} ${esc(u.latest)} is available.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.";
+  const beta = (state.settings?.settings?.update_channel || "stable") === "beta";
+  const status = !u ? "" : u.newer ? `${esc(APP)} ${esc(u.latest)}${u.beta ? " " + BETA_TAG : ""} is available.` : u.error ? `Couldn't check (${esc(u.error)})` : "You're up to date.";
+  const note = beta
+    ? `Test builds of new features, before they reach everyone. They can have rough edges: your library is copied to <code>data/backups</code> before every new version.`
+    : isBetaVer(d.version) ? `You're on a test build. You'll stay on it until the next stable version is out, then get that as usual.`
+    : "";
   return `<div class="pc-block">
     <div class="pc-row">
-      <div><h3>Updates</h3><p>You have ${esc(APP)} ${esc(d.version || "")}.</p></div>
+      <div><h3>Updates</h3><p>You have ${esc(APP)} ${esc(d.version || "")}${isBetaVer(d.version) ? " " + BETA_TAG : ""}.</p></div>
       <span class="spacer"></span>
       <span class="test-result ${u?.newer ? "ok" : ""}" id="pc-update">${status}</span>
       ${u?.newer ? `<button class="btn small ghost" data-pc="notes">What's new</button>` : ""}
       ${u?.newer && u.can_install ? `<button class="btn small" data-pc="install">Update now</button>` : ""}
       <button class="btn small ghost" data-pc="check">Check for updates</button>
+    </div>
+    <div class="pc-row channel-row">
+      <div><p><b>Get updates from</b></p></div>
+      <select id="set-channel" aria-label="Get updates from">
+        <option value="stable" ${beta ? "" : "selected"}>Stable</option>
+        <option value="beta" ${beta ? "selected" : ""}>Beta: try new features early</option>
+      </select>
+      ${note ? `<p class="source-note channel-note">${note}</p>` : ""}
     </div>
     <p class="source-note">Your library, keys and settings live in the <code>data</code> folder next to the app. Updates never touch it.</p>
   </div>`;
@@ -3328,7 +3369,7 @@ $("#unid-body").addEventListener("click", async (e) => {
   if (e.target.closest("[data-use]")) { await useUnid(r); renderUnidFoot(); reloadLibrary(); return; }
   if (e.target.closest("[data-search]")) { r.searching = !r.searching; renderUnidRow(r); return; }
   if (e.target.closest("[data-hide]")) {
-    if (!(await setHidden(r.id, 1))) return;
+    if (!(await setHidden(r.id, 1, { undo: false }))) return;
     unid.done.set(r.id, "Hidden. Pick Hidden in the Type filter to find it.");
     renderUnidRow(r); renderUnidFoot();
   }

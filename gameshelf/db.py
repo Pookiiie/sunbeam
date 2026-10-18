@@ -17,7 +17,12 @@ import time
 import unicodedata
 from contextlib import contextmanager
 
-from .paths import DB_PATH
+from .paths import DATA_DIR, DB_PATH
+
+BACKUP_DIR = DATA_DIR / "backups"
+BACKUPS_KEPT = 6
+BACKUP_EVERY = 7 * 86400
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS games (
@@ -103,9 +108,54 @@ def _connect() -> sqlite3.Connection:
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA foreign_keys=ON")
+        _auto_backup(_conn)
         _conn.executescript(SCHEMA)
         _migrate(_conn)
     return _conn
+
+
+def backup(c: sqlite3.Connection | None = None, version: str | None = None) -> str | None:
+    """Copy the library to data/backups (SQLite's own backup, so it's consistent even while
+    the app is running) and keep the newest few. Returns the file name."""
+    from . import __version__
+    c = c or _connect()
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d %H%M")
+    # named after the version of Sunbeam the library was last used with
+    path = BACKUP_DIR / f"library {stamp} ({version or __version__}).db"
+    with _lock:
+        dest = sqlite3.connect(path)
+        try:
+            c.backup(dest)
+        finally:
+            dest.close()
+        c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('backup_at', ?)", (str(int(time.time())),))
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('backup_app', ?)", (__version__,))
+    olds = sorted(BACKUP_DIR.glob("library *.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in olds[BACKUPS_KEPT:]:
+        old.unlink(missing_ok=True)
+    return path.name
+
+
+def _auto_backup(c: sqlite3.Connection) -> None:
+    """At start-up: a copy whenever this is a new version of the app (before its database
+    changes run) and otherwise once a week. An empty or brand-new library isn't copied."""
+    from . import __version__
+    import logging
+    try:
+        if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='games'").fetchone():
+            return
+        if not c.execute("SELECT 1 FROM games LIMIT 1").fetchone():
+            return
+        has_meta = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").fetchone()
+        meta = {r[0]: r[1] for r in c.execute("SELECT key, value FROM meta WHERE key IN ('backup_at', 'backup_app')")} if has_meta else {}
+        if meta.get("backup_app") != __version__:
+            backup(c, meta.get("backup_app"))
+        elif time.time() - int(meta.get("backup_at") or 0) > BACKUP_EVERY:
+            backup(c)
+    except Exception as e:  # a backup problem never stops the app
+        logging.getLogger(__name__).warning("Couldn't back up the library: %s", e)
 
 
 def _migrate(c: sqlite3.Connection) -> None:

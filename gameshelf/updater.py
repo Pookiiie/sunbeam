@@ -4,6 +4,10 @@ The app asks GitHub for the latest release now and then (at most every 6 hours).
 it's newer, the page offers "Update now": the release's zip is downloaded, the app's own
 files are replaced (your data folder is never touched), and the app restarts itself.
 
+Two channels (Settings › Updates): Stable gets GitHub's latest release; Beta also gets test
+builds (pre-releases named like 1.3.0-beta.2, built from the beta branch). A test build comes
+before its final version (1.3.0-beta.2 < 1.3.0), so leaving Beta waits for the next stable.
+
 Only the Windows download updates itself; a copy run with your own Python just links to
 the release page. A release that needs a newer bundled Python (runtime/RUNTIME_VERSION
 changed) can't swap it while running, so it asks you to download the new zip instead.
@@ -22,11 +26,10 @@ import time
 import zipfile
 from pathlib import Path
 
-from . import __version__, brand, db, desktop, net
+from . import __version__, brand, db, desktop, net, settings
 from .paths import APP_DIR, DATA_DIR, ROOT_DIR
 
 REPO = brand.REPO
-LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES = f"https://api.github.com/repos/{REPO}/releases"
 CHECK_EVERY = 6 * 3600
 KEEP = {"data", "runtime"}  # never replaced by an update
@@ -35,7 +38,20 @@ _state: dict = {"busy": False, "error": None, "stage": None}
 
 
 def _ver(v: str) -> tuple:
-    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3]) or (0,)
+    """Comparable version: 1.3.0-beta.2 → (1, 3, 0, 0, 2); 1.3.0 → (1, 3, 0, 1, 0)."""
+    m = re.match(r"v?(\d+)\.(\d+)(?:\.(\d+))?(?:-?(?:beta|b)\.?(\d+))?", (v or "").strip())
+    if not m:
+        return (0,)
+    major, minor, patch, beta = m.groups()
+    return (int(major), int(minor), int(patch or 0), 0 if beta else 1, int(beta or 0))
+
+
+def is_beta(v: str) -> bool:
+    return len(_ver(v)) == 5 and _ver(v)[3] == 0
+
+
+def channel() -> str:
+    return "beta" if settings.load().get("update_channel") == "beta" else "stable"
 
 
 def runtime_version(root: Path = ROOT_DIR) -> str | None:
@@ -54,30 +70,32 @@ def check(force: bool = False) -> dict:
                 info = None
         except ValueError:
             info = None
+    chan = channel()
+    if info is not None and info.get("channel", "stable") != chan:
+        info = None  # the channel changed since the last look
     if info is None:
+        gh = {"Accept": "application/vnd.github+json"}
         try:
-            rel = net.get_json(LATEST, headers={"Accept": "application/vnd.github+json"}, retries=0, timeout=15) or {}
+            rels = net.get_json(RELEASES, params={"per_page": 30}, headers=gh, retries=0, timeout=15) or []
         except Exception as e:
-            return {"current": __version__, "error": str(e), "newer": False}
+            return {"current": __version__, "error": str(e), "newer": False, "channel": chan}
+        rels = [r for r in rels if not r.get("draft") and (chan == "beta" or not r.get("prerelease"))]
+        rel = max(rels, key=lambda r: _ver(r.get("tag_name") or ""), default={})
         asset = next((a for a in rel.get("assets") or [] if a.get("name", "").lower().endswith(".zip")), None)
-        info = {"at": time.time(), "latest": (rel.get("tag_name") or "").lstrip("v"), "notes": rel.get("body") or "",
-                "date": rel.get("published_at"),
+        info = {"at": time.time(), "channel": chan, "latest": (rel.get("tag_name") or "").lstrip("v"),
+                "notes": rel.get("body") or "", "date": rel.get("published_at"),
                 "url": rel.get("html_url") or f"https://github.com/{REPO}/releases",
-                "zip": asset and asset.get("browser_download_url"), "size": asset and asset.get("size")}
-        # Every release since this version, for "What's new" (newest first).
-        try:
-            rels = net.get_json(RELEASES, params={"per_page": 20}, headers={"Accept": "application/vnd.github+json"},
-                                retries=0, timeout=15) or []
-            info["changes"] = [{"version": (r.get("tag_name") or "").lstrip("v"), "date": r.get("published_at"),
-                                "notes": r.get("body") or ""}
-                               for r in rels if not r.get("draft") and not r.get("prerelease")]
-        except Exception:
-            info["changes"] = [{"version": info["latest"], "date": info["date"], "notes": info["notes"]}]
+                "zip": asset and asset.get("browser_download_url"), "size": asset and asset.get("size"),
+                # Every release since this version, for "What's new" (newest first).
+                "changes": [{"version": (r.get("tag_name") or "").lstrip("v"), "date": r.get("published_at"),
+                             "notes": r.get("body") or "", "beta": bool(r.get("prerelease"))}
+                            for r in sorted(rels, key=lambda r: _ver(r.get("tag_name") or ""), reverse=True)]}
         db.set_meta("update_check", json.dumps(info))
     newer = bool(info.get("latest")) and _ver(info["latest"]) > _ver(__version__)
     changes = [c for c in info.get("changes") or [] if _ver(c.get("version", "")) > _ver(__version__)]
     return {"current": __version__, "latest": info.get("latest"), "newer": newer, "notes": info.get("notes", ""),
-            "date": info.get("date"), "changes": changes,
+            "date": info.get("date"), "changes": changes, "channel": chan,
+            "beta": is_beta(info.get("latest") or ""), "on_beta": is_beta(__version__),
             "url": info.get("url"), "can_install": newer and bool(info.get("zip")) and desktop.packaged(),
             "packaged": desktop.packaged(), **{k: v for k, v in _state.items() if k != "busy"}, "busy": _state["busy"]}
 

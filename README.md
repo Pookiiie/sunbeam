@@ -14,6 +14,8 @@ Sunbeam opens in its own window. While it runs, its icon by the clock reopens th
 
 **Updates:** when a new version is out, a bar at the top offers **Update now**. It replaces Sunbeam's files and restarts; your `data` folder (library, keys, settings) is never touched. Settings › Updates checks for a new version each time you open Settings, and Settings › Shortcuts adds desktop and Start menu shortcuts.
 
+**Beta:** set Settings › Updates › *Get updates from* to **Beta** to get test builds of new features before everyone else (named like 1.3.0-beta.1, with a Beta tag). They can have rough edges. Switching back to Stable keeps you on your test build until the next stable version is out.
+
 **Moving from an older copy:** extract the new download, then copy your old `data` folder into it.
 
 ## Connect your accounts (in the app: Settings)
@@ -50,6 +52,7 @@ For Nintendo Switch and Switch 2 games, use **Sync › Nintendo Switch › Impor
 - Both windows list their steps in order, and show which are done and what's left while they run.
 - Open a game to mark it **Completed** or **Did not finish**, add notes, fix a wrong match, or **Change art** (pick a cover, banner or logo from Steam, IGDB, PlayStation and SteamGridDB, or paste a link). Art you pick stays when you refresh assets.
 - **Right-click** any game for a quick menu: open it, set its status, change art, fix the match or hide it.
+- **Undo:** after changing a game's status, hiding it or a Curator mark, the message at the bottom offers **Undo** for a few seconds.
 - **Finished games are spotted for you.** Each sync checks the achievements and trophies of games you've played since the last check: a Platinum, every achievement, or one for finishing the story, rolling the credits or beating the final boss marks the game Completed. The game's page says which achievement did it. Open-ended games (multiplayer, sandbox, MMOs) are never marked, and an achievement only counts when it plainly means the whole game or story ("Complete the story", not "Complete a story case"). A status you set yourself is never changed. To check your whole library once, use Refresh assets with "Finished games" ticked.
 - **Find duplicate games** (Sync › Library checks; it also opens by itself when a sync adds games that look like duplicates) lists games that appear more than once, such as Disco Elysium and its Final Cut, or a game and its tutorial. Pick which name to keep and combine them; playtime adds up and every copy is kept. The game's page then lists each version under Your copies with its own name, playtime and dates. "Not duplicates" stops a group from coming back.
 - **Unidentified games** (Sync › Library checks, also in Refresh assets) lists games IGDB couldn't match, so they have no details, cover or time to beat. Each row offers a few guesses (pick one and **Use** it, or **Search…** for another) or **Hide** for anything that isn't a game.
@@ -72,6 +75,7 @@ Everything lives in the `data` folder next to the app:
 - `settings.json`: your keys and tokens
 - `window`: the app window's own browser profile (its size and position)
 - `gameshelf.log`: messages from the last runs, useful if something goes wrong
+- `backups`: copies of `library.db`, made before each new version of Sunbeam starts and once a week (the newest 6 are kept). To go back to one, quit Sunbeam and copy it over `library.db`.
 
 Back up that folder to keep your statuses and notes. Delete it to start fresh.
 

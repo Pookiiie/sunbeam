@@ -61,6 +61,17 @@ def patch_game(req, body, query, game_id):
                 raise ApiError(400, "Status must be completed, dnf or empty.")
             c.execute("UPDATE games SET status=?, status_at=?, status_manual=1, status_auto=NULL WHERE id=?",
                       (status, db.now() if status else None, gid))
+        if "restore_status" in body:
+            # Undo: put back exactly what was there (an automatic mark stays automatic).
+            r = body["restore_status"] or {}
+            status = r.get("status") or ""
+            if status not in ("", "completed", "dnf"):
+                raise ApiError(400, "Status must be completed, dnf or empty.")
+            at, manual, auto = r.get("status_at"), r.get("status_manual"), r.get("status_auto")
+            c.execute("UPDATE games SET status=?, status_at=?, status_manual=?, status_auto=? WHERE id=?",
+                      (status, int(at) if isinstance(at, (int, float)) else None,
+                       int(manual) if isinstance(manual, (int, float)) else None,
+                       str(auto)[:500] if auto else None, gid))
         if "hidden" in body:
             v = body["hidden"]
             c.execute("UPDATE games SET hidden=? WHERE id=?", (None if v is None else int(bool(v)), gid))

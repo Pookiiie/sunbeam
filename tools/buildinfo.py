@@ -13,4 +13,7 @@ name = re.search(r'^NAME = "(.+?)"', brand, re.M).group(1)
 repo = re.search(r'^REPO = "(.+?)"', brand, re.M).group(1)
 if os.environ.get("GITHUB_REF_TYPE") == "tag" and os.environ.get("GITHUB_REF_NAME") != f"v{version}":
     sys.exit(f"Tag {os.environ.get('GITHUB_REF_NAME')} doesn't match the code's version ({version})")
-print(f"version={version}\nname={name}\nrepo={repo}")
+prerelease = "true" if re.search(r"-beta\.\d+$", version) else "false"
+if not re.fullmatch(r"\d+\.\d+\.\d+(-beta\.\d+)?", version):
+    sys.exit(f"Version {version} should look like 1.3.0 or 1.3.0-beta.1")
+print(f"version={version}\nname={name}\nrepo={repo}\nprerelease={prerelease}")

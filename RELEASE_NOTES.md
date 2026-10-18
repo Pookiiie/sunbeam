@@ -1,4 +1,3 @@
-- **VR games stay out of all of Curator.** With Hide VR games on (Settings › Hidden game types), Recently played and the wishlist rows now leave VR games out too, like the picks above them.
-- **Score boxes two per row** on a game's page when the window is narrower than 900 px, instead of one per row.
-- A hidden game's page now says how to see it again: tick Hidden in the Library's Type filter.
-- "Refresh assets" is named the same way everywhere.
+- **Beta updates (new).** Settings › Updates › *Get updates from* now has **Beta: try new features early**. Test builds of upcoming features show up there first, with a Beta tag, before they reach everyone. Switching back to Stable keeps you on your test build until the next stable version is out.
+- **Automatic backups.** Before a new version of Sunbeam starts (and once a week), your library is copied to `data/backups`. The newest 6 copies are kept.
+- **Undo.** After changing a game's status, hiding it or a Curator mark, the message at the bottom offers **Undo** for a few seconds. Undoing an automatic "Completed" puts back the achievement that marked it.

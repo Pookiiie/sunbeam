@@ -39,6 +39,7 @@ FIELDS = {
     "sub_gamepass": False,       # subscribed to XGP (PC Game Pass / Ultimate); unset = yes
     "sub_psplus": False,         # subscribed to PS+ Extra or Premium; unset = yes
     "start_page": False,         # the tab the app opens on: curator (default), library or wishlist
+    "update_channel": False,     # stable (default) or beta: test builds of new features
     "setup_done": False,       # finished (or skipped) the first-run setup
     "shortcuts_asked": False,  # answered the desktop / Start menu shortcut question
     "shortcuts_made": False,   # where the shortcuts are (renamed along with the app)
