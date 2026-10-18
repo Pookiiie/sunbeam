@@ -912,5 +912,4 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 
 /* Settings › Display */
 .display-set { display: grid; gap: 10px; }
-.start-page { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); margin-top: 4px; }
-.start-page select { width: auto; }
+.pc-row select { width: auto; }

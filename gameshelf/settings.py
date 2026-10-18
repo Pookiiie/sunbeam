@@ -34,6 +34,8 @@ FIELDS = {
     "hltb_enabled": False,
     "hide_early_access": False,  # keep early access games out of the library and Curator (default: shown)
     "hide_vr": False,            # keep VR games out of the library and Curator (default: hidden)
+    "sub_gamepass": False,       # subscribed to XGP (PC Game Pass / Ultimate); unset = yes
+    "sub_psplus": False,         # subscribed to PS+ Extra or Premium; unset = yes
     "start_page": False,         # the tab the app opens on: curator (default), library or wishlist
     "setup_done": False,       # finished (or skipped) the first-run setup
     "shortcuts_asked": False,  # answered the desktop / Start menu shortcut question

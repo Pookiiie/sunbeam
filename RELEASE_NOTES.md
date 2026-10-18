@@ -1,5 +1,2 @@
-- **Settings › Display** (new):
-  - **Hide VR games** from the library and Curator: on by default.
-  - **Hide early access games** from the library and Curator: off by default. Either way they keep their Wishlist group, their full release still shows in Curator, and they're never marked completed automatically.
-  - **Open Sunbeam on** Curator (default), Library or Wishlist. Reloading the window keeps you on the tab you were on.
-- **Library › Filters › More:** "Show VR games" and "Show early access games" appear when those are hidden in Settings, next to "Show hidden games". They show them in the library without changing Curator. (The old "Include VR games" filter is replaced by these.)
+- **Subscriptions** (Settings, and a new step in first-run setup): tell Sunbeam whether you have **XGP** (PC Game Pass or Ultimate) and **PS+** (Extra or Premium). Games only playable through a service you don't have leave your library, stats and Curator; wishlist games stop showing "XGP"/"PS+" for it and their game page says **Not subscribed**. Until you change it, both count as subscribed, so nothing changes for existing libraries.
+- **Settings reorganized:** right under Updates, **Display** now only picks the tab Sunbeam opens on. Below it, **Hidden game types** has Hide VR games (on by default) and Hide early access games (off by default), then **Subscriptions**.

@@ -201,6 +201,8 @@ function isVR(g) {
 const SUB_NAME = { gamepass: "XGP (Xbox PC Game Pass)", psplus: "PS+ (PlayStation Plus Extra)" };
 const SUB_SHORT = { gamepass: "XGP", psplus: "PS+" };
 const SUB_PLATFORM = { gamepass: "xbox", psplus: "playstation" };
+// Subscribed unless you said otherwise (Settings › Subscriptions; asked during setup).
+const subscribed = (sv) => state.settings?.settings?.[`sub_${sv}`] !== false;
 function subPill(g) {
   const subs = g.subs || [];
   const leaving = subs.find((x) => x.leaving), fresh = subs.find((x) => x.new);
@@ -218,6 +220,9 @@ function subMatch(g, tags) {
 state.sameNames = new Set();
 function derive(g) {
   if (g.base_title === undefined) g.base_title = g.title;
+  // XGP / PS+: only the services you're subscribed to count (Settings › Subscriptions).
+  if (g.subsAll === undefined) g.subsAll = g.subs || [];
+  g.subs = g.subsAll.filter((x) => subscribed(x.s));
   g.title = state.sameNames.has(g.base_title.toLowerCase()) && year(g.release_date) ? `${g.base_title} (${year(g.release_date)})` : g.base_title;
   g.played_h = hours(g.playtime_min);
   g.ttb = blendTtb(g);
@@ -231,6 +236,9 @@ function derive(g) {
   g.remaining = g.status || g.isEndless ? null : g.ttb ? Math.max(g.ttb - g.played_h, 0) : null;
   g.isCatalog = !!g.catalog_only;  // not yours: you can play it through XGP or PS+
   g.isWishOnly = !!g.wishlist_only;  // only on a wishlist: shown on the Wishlist page, not in the library
+  // Only playable through a service you're not subscribed to: out of the library (still on the Wishlist page if it's there).
+  g.unsubOnly = g.isCatalog && !g.subs.length;
+  if (g.unsubOnly && g.wish) g.isWishOnly = true;
   // Early access: still being made (Steam, else IGDB; on a Steam wishlist, Steam's own flag).
   g.isEA = g.early_access === 1 || !!g.wish?.early_access;
   g.eaFull = g.isEA ? (g.wish?.ea_full_ts || g.ea_full_date || null) : null;
@@ -580,6 +588,15 @@ function wishPills(g, { sale = true } = {}) {
 }
 // "Early access" on a cover (top left).
 const eaPill = (g) => g.isEA ? `<span class="ea-pill" title="In early access${g.eaFull ? `: full release ${fmtDate(g.eaFull)}` : ": still being made"}">Early access</span>` : "";
+// Settings › Subscriptions (also a setup step).
+const subSwitches = (on = subscribed) => `
+  <label class="switch"><input type="checkbox" data-sub="gamepass" ${on("gamepass") ? "checked" : ""}><span>I have <b>XGP</b>: PC Game Pass, or Game Pass Ultimate</span></label>
+  <label class="switch"><input type="checkbox" data-sub="psplus" ${on("psplus") ? "checked" : ""}><span>I have <b>PS+</b> Extra or Premium (Essential doesn't include the game catalog)</span></label>`;
+async function saveSub(input) {
+  await api("/api/settings", { method: "POST", body: { [`sub_${input.dataset.sub}`]: input.checked } });
+  await loadSettings();
+  await reloadLibrary();
+}
 // Settings › Display: VR games are hidden unless you say otherwise; early access games are shown.
 const hideEA = () => !!state.settings?.settings?.hide_early_access;
 const hideVR = () => state.settings?.settings?.hide_vr !== false;
@@ -781,6 +798,10 @@ function wishBox(g) {
     ...["gamepass", "psplus"].map(subBox),
   ];
   function subBox(sv) {
+    if (!subscribed(sv)) return `<div class="pbox sub none">
+      <span class="pbox-top">${subMark(sv)}<b>${SUB_SHORT[sv]}</b></span>
+      <span class="pbox-price"><span class="dim">Not subscribed</span></span>
+      <small>Settings › Subscriptions</small></div>`;
     const x = (g.subs || []).find((t) => t.s === sv);
     const link = (g.store_links || []).find((l) => l.s === sv);
     const small = !x ? "" : x.leaving ? `<small class="leaving">Leaving soon</small>` : x.new && x.since ? `<small>Added ${esc(relDate(x.since).toLowerCase())}</small>` : "";
@@ -945,7 +966,7 @@ function renderStats() {
   const extra = gs.filter((g) => g.isCatalog).length;
   $("#stats").innerHTML = `
     <div class="stat"><b>${(gs.length - extra).toLocaleString()}</b><span>games you own</span></div>
-    ${extra ? `<div class="stat"><b>${extra.toLocaleString()}</b><span>more on XGP and PS+</span></div>` : ""}
+    ${extra ? `<div class="stat"><b>${extra.toLocaleString()}</b><span>more on ${["gamepass", "psplus"].filter(subscribed).map((x) => SUB_SHORT[x]).join(" and ")}</span></div>` : ""}
     <div class="stat"><b>${playedThisYear.toLocaleString()}</b><span>played in ${year}</span></div>
 `;
 }
@@ -2043,24 +2064,13 @@ function serviceBody(svc) {
 function renderSettings(openId) {
   const s = state.settings.settings;
   const body = $("#settings-body");
-  body.innerHTML = updatesBlock() + shortcutsSection(openId) + SERVICES.map((svc) => {
+  body.innerHTML = updatesBlock() + displayBlock() + hiddenTypesSection(openId) + subsSection(openId) + shortcutsSection(openId) + SERVICES.map((svc) => {
     const ok = svc.ready(s);
     return `<details class="service" data-svc="${svc.id}" ${openId === svc.id || (!openId && !ok && svc.id !== "sgdb" && !body.dataset.seen) ? "open" : ""}>
       <summary><div><h3>${svc.name}</h3><p>${svc.blurb}</p></div><span class="state ${ok ? "ok" : "todo"}">${ok ? "Connected" : "Not set up"}</span></summary>
       ${serviceBody(svc)}
     </details>`;
   }).join("") + `
-    <details class="service" ${openId === "display" ? "open" : ""}>
-      <summary><div><h3>Display</h3><p>What the library and ${CURATOR} show, and where ${APP} opens</p></div></summary>
-      <div class="body display-set">
-        <label class="switch"><input type="checkbox" id="set-hide-vr" ${hideVR() ? "checked" : ""}><span>Hide VR games from the library and ${CURATOR}</span></label>
-        <label class="switch"><input type="checkbox" id="set-hide-ea" ${hideEA() ? "checked" : ""}><span>Hide early access games from the library and ${CURATOR}</span></label>
-        <p class="source-note">Hidden ones can still be shown in the library from Filters › More. Early access games stay on the Wishlist page in their own group, their full release still shows in ${CURATOR}, and they're never marked completed automatically.</p>
-        <label class="start-page"><span>Open ${APP} on</span>
-          <select id="set-start">${[["curator", CURATOR], ["library", "Library"], ["wishlist", "Wishlist"]].map(([v, l]) =>
-            `<option value="${v}" ${(s.start_page || "curator") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
-      </div>
-    </details>
     <details class="service" ${openId === "hltb" ? "open" : ""}>
       <summary><div><h3>Time to beat: HowLongToBeat</h3><p>Used first when available, otherwise IGDB's numbers</p></div>
       <span class="state ${state.settings.hltb_installed ? "ok" : "later"}">${state.settings.hltb_installed ? "Available" : "Not installed"}</span></summary>
@@ -2137,12 +2147,13 @@ $("#settings-body").addEventListener("click", (e) => {
   onServiceClick(e, renderSettings);
 });
 $("#settings-body").addEventListener("change", async (e) => {
+  if (e.target.dataset.sub) { await saveSub(e.target); renderSettings("subs"); return; }
   const display = { "set-hide-vr": ["hide_vr", (t) => t.checked], "set-hide-ea": ["hide_early_access", (t) => t.checked],
     "set-start": ["start_page", (t) => t.value] }[e.target.id];
   if (display) {
     await api("/api/settings", { method: "POST", body: { [display[0]]: display[1](e.target) } });
     await loadSettings();
-    renderSettings("display");
+    renderSettings(e.target.id === "set-start" ? undefined : "hidden-types");
     renderAll();
     return;
   }
@@ -2306,6 +2317,40 @@ function updatesBlock() {
     <p class="source-note">Your library, keys and settings live in the <code>data</code> folder next to the app. Updates never touch it.</p>
   </div>`;
 }
+// Settings › Display: the tab Sunbeam opens on (always visible, under Updates).
+function displayBlock() {
+  const s = state.settings.settings;
+  return `<div class="pc-block">
+    <div class="pc-row">
+      <div><h3>Display</h3><p>The tab ${esc(APP)} opens on.</p></div>
+      <span class="spacer"></span>
+      <select id="set-start" aria-label="Open ${esc(APP)} on">${[["curator", CURATOR], ["library", "Library"], ["wishlist", "Wishlist"]].map(([v, l]) =>
+        `<option value="${v}" ${(s.start_page || "curator") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+    </div>
+  </div>`;
+}
+// Settings › Hidden game types: kinds of games kept out of the library and Curator.
+function hiddenTypesSection(openId) {
+  const n = [hideVR(), hideEA()].filter(Boolean).length;
+  return `<details class="service" ${openId === "hidden-types" ? "open" : ""}>
+    <summary><div><h3>Hidden game types</h3><p>Kinds of games kept out of the library and ${CURATOR}</p></div>
+    <span class="state ${n ? "ok" : "later"}">${[hideVR() ? "VR" : "", hideEA() ? "Early access" : ""].filter(Boolean).join(", ") || "None"}</span></summary>
+    <div class="body display-set">
+      <label class="switch"><input type="checkbox" id="set-hide-vr" ${hideVR() ? "checked" : ""}><span>Hide VR games</span></label>
+      <label class="switch"><input type="checkbox" id="set-hide-ea" ${hideEA() ? "checked" : ""}><span>Hide early access games</span></label>
+      <p class="source-note">Hidden ones can still be shown in the library from Filters › More. Early access games stay on the Wishlist page in their own group, their full release still shows in ${CURATOR}, and they're never marked completed automatically.</p>
+    </div>
+  </details>`;
+}
+function subsSection(openId) {
+  return `<details class="service" ${openId === "subs" ? "open" : ""}>
+    <summary><div><h3>Subscriptions</h3><p>XGP and PS+ games you can play</p></div>
+    <span class="state ${["gamepass", "psplus"].some(subscribed) ? "ok" : "later"}">${["gamepass", "psplus"].filter(subscribed).map((x) => SUB_SHORT[x]).join(" and ") || "None"}</span></summary>
+    <div class="body display-set">${subSwitches()}
+      <p class="source-note">Games from a service you don't have stay out of your library and ${CURATOR}, and wishlist games say "Not subscribed" for it.</p>
+    </div>
+  </details>`;
+}
 function shortcutsSection(openId) {
   const d = state.desktop || {};
   if (!d.windows) return "";
@@ -2340,11 +2385,11 @@ const SETUP_STORES = [
   ["steam", "Steam"], ["playstation", "PlayStation"], ["xbox", "Xbox and XGP"], ["epic", "Epic Games Store"],
   ["ubisoft", "Ubisoft Connect"], ["battlenet", "Battle.net"], ["switch", "Nintendo Switch"],
 ];
-const setup = { i: 0, stores: [] };
+const setup = { i: 0, stores: [], subs: {} };
 
 function setupSteps() {
   const d = state.desktop || {};
-  return ["welcome", "igdb", "stores", ...setup.stores.filter((x) => x !== "switch"), "extras",
+  return ["welcome", "igdb", "stores", ...setup.stores.filter((x) => x !== "switch"), "subs", "extras",
     ...(d.windows && d.packaged ? ["shortcuts"] : []), "done"];
 }
 
@@ -2367,6 +2412,11 @@ function renderSetup() {
       <div class="setup-stores">${SETUP_STORES.map(([id, name]) => `<label class="chip ${setup.stores.includes(id) ? "on" : ""}">
         <input type="checkbox" value="${id}" ${setup.stores.includes(id) ? "checked" : ""}>${esc(name)}</label>`).join("")}</div>
       ${setup.stores.includes("switch") ? `<p class="source-note">Nintendo doesn't share libraries online: once setup is done, use <b>Sync › Nintendo Switch</b> to import a screen recording of your Play History from the Nintendo Store phone app (iPhone or Android).</p>` : ""}`;
+  } else if (step === "subs") {
+    body = `<h2 class="setup-h">Subscriptions</h2>
+      <p>Do you have either of these? ${APP} then shows the games they include alongside your own, and in its suggestions.</p>
+      <div class="setup-checks">${subSwitches((sv) => setup.subs[sv])}</div>
+      <p class="source-note">You can change this any time in Settings › Subscriptions.</p>`;
   } else if (step === "extras") {
     const extra = (id) => { const x = SERVICES.find((v) => v.id === id); const ok = x.ready(s);
       return `<details class="service" data-svc="${id}"><summary><div><h3>${x.name}</h3><p>${x.blurb}</p></div><span class="state ${ok ? "ok" : "later"}">${ok ? "Connected" : "Optional"}</span></summary>${serviceBody(x)}</details>`; };
@@ -2406,6 +2456,8 @@ function renderSetup() {
 
 async function openSetup() {
   await loadSettings();
+  // Unticked until you say you have it (an earlier answer is kept).
+  setup.subs = { gamepass: state.settings.settings.sub_gamepass === true, psplus: state.settings.settings.sub_psplus === true };
   setup.i = 0;
   renderSetup();
   $("#setup-dialog").showModal();
@@ -2421,6 +2473,10 @@ $("#setup-body").addEventListener("click", async (e) => {
   if (!nav) { onServiceClick(e, () => renderSetup()); return; }
   const steps = setupSteps(), step = steps[setup.i];
   if (nav.dataset.setup === "back") { setup.i--; renderSetup(); return; }
+  if (step === "subs") {
+    await api("/api/settings", { method: "POST", body: { sub_gamepass: !!setup.subs.gamepass, sub_psplus: !!setup.subs.psplus } }).catch(() => {});
+    await loadSettings();
+  }
   if (step === "shortcuts") {
     const which = [["desktop", "#sc-desktop"], ["startmenu", "#sc-startmenu"]].filter(([, sel]) => $(sel).checked).map(([k]) => k);
     nav.disabled = true;
@@ -2437,6 +2493,7 @@ $("#setup-body").addEventListener("click", async (e) => {
   renderSetup();
 });
 $("#setup-body").addEventListener("change", (e) => {
+  if (e.target.dataset.sub) { setup.subs[e.target.dataset.sub] = e.target.checked; return; }
   if (e.target.closest(".setup-stores")) {
     setup.stores = $$(".setup-stores input:checked").map((i) => i.value);
     renderSetup();
@@ -2788,7 +2845,7 @@ async function reloadLibrary() {
   for (const g of data.games) { const k = g.title.toLowerCase(); seen.set(k, (seen.get(k) || 0) + 1); }
   state.sameNames = new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
   const all = data.games.map(derive);
-  state.games = all.filter((g) => !g.isWishOnly);
+  state.games = all.filter((g) => !g.isWishOnly && !g.unsubOnly);
   state.wishGames = all.filter((g) => g.isWishOnly);
   renderAll();
 }
