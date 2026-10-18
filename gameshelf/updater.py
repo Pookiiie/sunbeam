@@ -50,6 +50,19 @@ def is_beta(v: str) -> bool:
     return len(_ver(v)) == 5 and _ver(v)[3] == 0
 
 
+def note_version() -> None:
+    """At start-up: when this is a newer version than last time, remember what a sync would fill
+    in that it brings (SYNC_NEEDED), for the page to offer once."""
+    from . import SYNC_NEEDED
+    prev = db.get_meta("last_run_version")
+    if prev != __version__:
+        if prev:
+            reasons = [why for v, why in SYNC_NEEDED.items() if _ver(prev) < _ver(v) <= _ver(__version__)]
+            if reasons:
+                db.set_meta("sync_prompt", json.dumps(reasons))
+        db.set_meta("last_run_version", __version__)
+
+
 def channel() -> str:
     return "beta" if settings.load().get("update_channel") == "beta" else "stable"
 

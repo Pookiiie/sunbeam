@@ -249,7 +249,10 @@ def start_sync(sources: list[str]) -> bool:
         timeline.append({"id": "wishlists", "label": "Update wishlists",
                          "hint": "Steam and PlayStation: release dates and prices", "state": "upcoming"})
     timeline += _info_timeline(ALL_STEPS, for_new=True)
-    return _begin("sync", _run_sync_all, (sources,), sources=sources, timeline=timeline)
+    started = _begin("sync", _run_sync_all, (sources,), sources=sources, timeline=timeline)
+    if started:
+        db.set_meta("sync_prompt", "")  # a sync after an update that asked for one: done
+    return started
 
 
 def _run_sync_all(sources: list[str]):

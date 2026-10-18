@@ -173,6 +173,11 @@ def link(service: str | None = None) -> None:
                 c.execute("""UPDATE sub_catalog SET game_id=(SELECT e.game_id FROM entries e
                                WHERE e.platform='playstation' AND e.external_id=sub_catalog.concept_id LIMIT 1)
                              WHERE service='psplus' AND concept_id IS NOT NULL""")
+            # List entries you matched or combined with a game you own (db.catalog_links).
+            c.execute(f"""UPDATE sub_catalog SET game_id=(SELECT l.game_id FROM catalog_links l
+                             WHERE l.service=sub_catalog.service AND l.item_id=sub_catalog.item_id
+                               AND l.game_id IN (SELECT game_id FROM entries WHERE {db.OWNED}))
+                           WHERE service=? AND game_id IS NULL""", (svc,))
             # By title: against each owned game's name and the names of its copies, with
             # "PC" / "Windows" tags and editions ignored on both sides.
             keys: dict[str, int] = {}

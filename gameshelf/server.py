@@ -527,7 +527,17 @@ def get_refresh_estimate(req, body, query):
 def get_sync(req, body, query):
     st = sync.status()
     st["last_sync_at"] = int(db.get_meta("last_sync_at", "0") or 0)
+    try:
+        st["prompt"] = json.loads(db.get_meta("sync_prompt") or "[]")  # what an update would like a sync for
+    except ValueError:
+        st["prompt"] = []
     return st
+
+
+@route("POST", "/api/sync/prompt")
+def post_sync_prompt(req, body, query):
+    db.set_meta("sync_prompt", "")  # "Later": not asked again for this update
+    return {"ok": True}
 
 
 @route("POST", "/api/ubisoft/link")

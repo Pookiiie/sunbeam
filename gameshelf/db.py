@@ -341,6 +341,13 @@ def _migrate(c: sqlite3.Connection) -> None:
         if "similar_at" not in cols:
             c.execute("ALTER TABLE games ADD COLUMN similar_at INTEGER")
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '20')")
+    if version < 21:
+        # An XGP / PS+ list entry you matched (or combined) with a game you own: remembered, so the
+        # next sync doesn't bring it back as a game of its own when its name doesn't match yours
+        # ("Tell Me Why: Chapters 1-3" on XGP is your Tell Me Why on Steam).
+        c.execute("""CREATE TABLE IF NOT EXISTS catalog_links (
+            service TEXT NOT NULL, item_id TEXT NOT NULL, game_id INTEGER NOT NULL, PRIMARY KEY (service, item_id))""")
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '21')")
 
 
 @contextmanager
@@ -496,6 +503,12 @@ def merge_games(c: sqlite3.Connection, keep_id: int, drop_id: int) -> None:
     drop = c.execute("SELECT * FROM games WHERE id=?", (drop_id,)).fetchone()
     if not keep or not drop:
         return
+    # XGP / PS+ list entries folded into this game stay with it at the next sync (catalogs.link).
+    for (ext,) in c.execute("SELECT external_id FROM entries WHERE game_id IN (?, ?) AND ownership='catalog'", (keep_id, drop_id)).fetchall():
+        for svc, pre in (("gamepass", "xgp:"), ("psplus", "psplus:")):
+            if str(ext).startswith(pre):
+                c.execute("INSERT OR REPLACE INTO catalog_links(service, item_id, game_id) VALUES (?, ?, ?)", (svc, str(ext)[len(pre):], keep_id))
+    c.execute("UPDATE catalog_links SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE entries SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE sub_catalog SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE wishlist SET game_id=? WHERE game_id=?", (keep_id, drop_id))

@@ -3344,6 +3344,23 @@ async function resumeRefresh() {
 
 // Opening the app more than a day after the last sync starts one by itself: every
 // library that's set up, the XGP and PS+ lists, and your wishlists (prices and sales too).
+// After an update whose new features need a sync to fill in (SYNC_NEEDED in __init__.py): say so
+// once, with Sync now / Later. An automatic sync that starts anyway takes care of it.
+function showSyncNote() {
+  const bar = $("#sync-note"), why = state.sync?.prompt || [];
+  if (!why.length || state.sync?.running) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.innerHTML = `<span>${esc(APP)} ${esc(state.desktop?.version || "")} is installed. A sync fills in ${why.map(esc).join(", and ")}.</span>
+    <button class="btn small" data-sn="sync">Sync now</button><button class="link" data-sn="later">Later</button>`;
+}
+$("#sync-note").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-sn]");
+  if (!b) return;
+  $("#sync-note").hidden = true;
+  if (b.dataset.sn === "later") { api("/api/sync/prompt", { method: "POST", body: {} }).catch(() => {}); return; }
+  openJob("sync");
+});
+
 async function maybeAutoSync() {
   const st = state.sync || {};
   const last = st.last_sync_at || 0;
@@ -4018,7 +4035,8 @@ async function receiveUbisoft() {
     if (state.sync.running) startPolling();
     else {
       maybeReviewDups();  // a sync that ran while the window was closed may have found some
-      if (!(await resumeRefresh())) maybeAutoSync();
+      if (!(await resumeRefresh())) await maybeAutoSync();
+      showSyncNote();
     }
     setInterval(() => { if (!state.sync?.running) api("/api/sync").then((st) => { state.sync = st; maybeAutoSync(); }).catch(() => {}); }, 60 * 60 * 1000);
   } catch (e) {

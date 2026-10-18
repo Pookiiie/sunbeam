@@ -52,6 +52,11 @@ def main():
     db.query("SELECT 1")  # create the database on first run
     db.ensure_baseline()  # start the yearly-playtime record
     try:
+        from . import updater
+        updater.note_version()  # a new version that wants a sync says so in the page
+    except Exception as e:
+        print(f"  Couldn't note the version: {e}")
+    try:
         from . import sync
         undone = sync.recheck_auto_completions()
         if undone:
