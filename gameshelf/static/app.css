@@ -988,7 +988,7 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 @media (max-width: 900px) { .similar-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
 /* ---------- Your year */
-.year { padding: 22px 28px 60px; max-width: 1240px; }
+.year { padding: 22px 28px 60px; }
 .year-head { display: flex; align-items: center; gap: 12px; }
 .year-head h1 { margin: 0; font: 700 30px/1.15 var(--display); letter-spacing: -.01em; }
 .year-head h1 span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -1002,7 +1002,7 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .ysec h2 { font: 650 17px/1.2 var(--body); margin: 0 0 12px; }
 .ysec h2 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
 .ygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px 14px; }
-.ygrid.small { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.ygrid.small { grid-template-columns: repeat(5, minmax(0, 160px)); }
 .ycols { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; }
 .ymonths { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; height: 140px; align-items: end; }
 .ymonth { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; text-align: center; }

@@ -2733,7 +2733,7 @@ function displayBlock() {
     <div class="pc-row">
       <div><h3>Display</h3><p>The tab ${esc(APP)} opens on.</p></div>
       <span class="spacer"></span>
-      <select id="set-start" aria-label="Open ${esc(APP)} on">${[["curator", CURATOR], ["library", "Library"], ["wishlist", "Wishlist"], ["year", "Your year"]].map(([v, l]) =>
+      <select id="set-start" aria-label="Open ${esc(APP)} on">${[["curator", CURATOR], ["library", "Library"], ["wishlist", "Wishlist"], ["year", "Stats"]].map(([v, l]) =>
         `<option value="${v}" ${(s.start_page || "curator") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
     </div>
   </div>`;
