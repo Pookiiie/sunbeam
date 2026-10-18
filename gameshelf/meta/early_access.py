@@ -1,4 +1,4 @@
-"""Early access: games that are still being made.
+"""Early access: games that are still being made. (Also Steam's "VR Only" flag, read in the same call.)
 
 Steam says so for every game with a Steam version (IStoreBrowseService/GetItems:
 is_early_access, plus release_from_early_access_date once the full release is announced;
@@ -23,11 +23,13 @@ from . import igdb
 
 STEAM_API = "https://api.steampowered.com"
 IGDB_EARLY_ACCESS = 4
+STEAM_VR_ONLY = 54  # Steam store feature category "VR Only" (53 is "VR Supported": a flat game with a VR mode)
 PREVIEW = "%(Game Preview)%"  # Xbox's word for early access
 
 
-def _steam(appids: list[int]) -> dict[int, tuple[int, int | None]]:
-    out: dict[int, tuple[int, int | None]] = {}
+def _steam(appids: list[int]) -> dict[int, tuple[int, int | None, int]]:
+    """{appid: (early access, announced full release, VR only)}"""
+    out: dict[int, tuple[int, int | None, int]] = {}
     for i in range(0, len(appids), 50):
         req = {"ids": [{"appid": a} for a in appids[i:i + 50]], "context": {"language": "english", "country_code": "CA"},
                "data_request": {"include_release": True}}
@@ -39,7 +41,9 @@ def _steam(appids: list[int]) -> dict[int, tuple[int, int | None]]:
                 continue  # not on the store (here): leave what we knew
             rel = it.get("release") or {}
             ea = bool(it.get("is_early_access") or rel.get("is_early_access"))
-            out[int(appid)] = (int(ea), (rel.get("release_from_early_access_date") or None) if ea else None)
+            feats = (it.get("categories") or {}).get("feature_categoryids")
+            vr = None if feats is None else int(STEAM_VR_ONLY in feats)  # no categories: let IGDB's guess stand
+            out[int(appid)] = (int(ea), (rel.get("release_from_early_access_date") or None) if ea else None, vr)
     return out
 
 
@@ -58,7 +62,7 @@ def _igdb(ids: list[int]) -> dict[int, int]:
 def refresh() -> int:
     """Check every game in the library (and on your wishlists). Returns how many are in early access."""
     games = [dict(r) for r in db.query("SELECT id, steam_appid, igdb_id FROM games WHERE id IN (SELECT game_id FROM entries)")]
-    found: dict[int, tuple[int, int | None]] = {}
+    found: dict[int, tuple] = {}  # game id -> (early access, full release, VR only or None)
     by_app: dict[int, list[int]] = {}
     for g in games:
         if g["steam_appid"]:
@@ -72,18 +76,20 @@ def refresh() -> int:
         try:
             for igdb_id, ea in _igdb(sorted(rest)).items():
                 if igdb_id in rest:
-                    found[rest[igdb_id]] = (ea, None)
+                    found[rest[igdb_id]] = (ea, None, None)
         except Exception:
             pass  # IGDB didn't answer: those games keep what they had
     # Xbox's "(Game Preview)" in the game's name or a copy's name: early access whatever else says.
     for r in db.query("""SELECT DISTINCT g.id FROM games g JOIN entries e ON e.game_id = g.id
                          WHERE g.title LIKE ? OR e.name LIKE ?""", (PREVIEW, PREVIEW)):
-        found[r["id"]] = (1, (found.get(r["id"]) or (0, None))[1])
+        prev = found.get(r["id"]) or (0, None, None)
+        found[r["id"]] = (1, prev[1], prev[2])
     now = db.now()
     with db.tx() as c:
-        for gid, (ea, full) in found.items():
-            c.execute("UPDATE games SET early_access=?, ea_full_date=?, ea_checked_at=? WHERE id=?", (ea, full, now, gid))
-    return sum(1 for ea, _ in found.values() if ea)
+        for gid, (ea, full, vr) in found.items():
+            c.execute("UPDATE games SET early_access=?, ea_full_date=?, vr_only=COALESCE(?, vr_only), ea_checked_at=? WHERE id=?",
+                      (ea, full, vr, now, gid))
+    return sum(1 for v in found.values() if v[0])
 
 
 def refresh_soon() -> None:

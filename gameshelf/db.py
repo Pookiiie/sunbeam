@@ -267,6 +267,13 @@ def _migrate(c: sqlite3.Connection) -> None:
             if col not in wcols:
                 c.execute(f"ALTER TABLE wishlist ADD COLUMN {col} INTEGER")
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '18')")
+    if version < 19:
+        # Steam's "VR Only" store category (meta/early_access.py reads it with the early access flag).
+        cols = {r[1] for r in c.execute("PRAGMA table_info(games)")}
+        if "vr_only" not in cols:
+            c.execute("ALTER TABLE games ADD COLUMN vr_only INTEGER")
+        c.execute("UPDATE games SET ea_checked_at = NULL")  # so the next check fills it in
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '19')")
 
 
 @contextmanager

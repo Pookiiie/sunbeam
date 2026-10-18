@@ -192,8 +192,12 @@ const autoHidden = (g) => NOT_A_GAME.test(g.title) || (g.entries || []).some((e)
 
 // VR games: IGDB's "Virtual Reality" perspective on a game that only exists on PC and
 // VR headsets. Flat games with a VR mode (No Man's Sky) are on consoles too, so they stay.
-const VR_PLATFORM = /vr\d?\b|virtual reality|oculus|meta quest|rift|vive|mixed reality|daydream/i;
+// VR headsets as IGDB names them (Apple's is "visionOS"; PlayStation's "PSVR"/"PSVR2" match "vr").
+const VR_PLATFORM = /vr\d?\b|virtual reality|oculus|meta quest|rift|vive|mixed reality|daydream|visionos|vision pro|pico|valve index|gear vr/i;
 function isVR(g) {
+  // Steam's own "VR Only" category when the game is on Steam (read with the early access check),
+  // else a title with "VR", or IGDB's VR perspective on a game that only exists on headsets (and PC).
+  if (g.vr_only === 1 || g.vr_only === 0) return g.vr_only === 1;
   if (/\bVR\b/.test(g.title)) return true;
   if (!(g.perspectives || []).some((x) => /virtual reality/i.test(x))) return false;
   const plats = g.igdb_platforms || [];
