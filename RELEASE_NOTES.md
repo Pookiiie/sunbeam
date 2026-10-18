@@ -1,1 +1,3 @@
-- **Library › Filters › More › Early access only:** shows just your early access games. It appears whenever early access games are shown (always, unless they're hidden in Settings › Hidden game types and "Show early access games" is off).
+- **New Type filter** in the library (between Genre and More): Regular games, Early access, VR and Hidden, with "only" on hover and All / None like the other filters. By default it shows what Settings › Hidden game types allows (VR and hidden games off). A game counts once: Hidden first, then VR, then early access.
+- **More** is trimmed to what's left there: XGP / PS+ "Recently added" and "Leaving soon" (only for services you're subscribed to) and Find duplicate games. The show-VR / show-early-access / show-hidden switches moved into Type.
+- **Curator:** "Coming out soon" is now on the left, only as wide as its games; "Recently released" uses the rest of the row.
