@@ -433,6 +433,11 @@ def get_catalog(req, body, query):
             "updated_at": int(db.get_meta("catalogs_at", "0") or 0)}
 
 
+@route("GET", "/api/ubisoft/probe")
+def get_ubisoft_probe(req, body, query):
+    return ubisoft.probe()
+
+
 @route("POST", "/api/ubisoft/link")
 def post_ubisoft_link(req, body, query):
     """The Send to <app> bookmark hands its Ubisoft data to the page, which posts it here."""

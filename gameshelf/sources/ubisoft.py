@@ -340,3 +340,47 @@ def test() -> str:
     snap = _load_snapshot() or {}
     when = "" if snap.get("source") == "sync" else f" (from the bookmark; Ubisoft didn't let {brand.NAME} refresh by itself)"
     return f"Linked as {who}: {len(games)} games, {hours:,.0f} hours played{when}."
+
+
+# ------------------------------------------------------------------ the Ubisoft Connect app on this PC
+
+def _local_app_dir() -> Path | None:
+    """LOCALAPPDATA / Ubisoft Game Launcher: where the launcher keeps its own sign-in."""
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        return None
+    p = Path(base) / "Ubisoft Game Launcher"
+    return p if p.is_dir() else None
+
+
+def probe() -> dict:
+    """Diagnostics (no secrets): what the launcher keeps locally, and whether Ubisoft's
+    services answer a request made from this PC with the launcher's pass."""
+    import re
+    out: dict = {"launcher_dir": str(_launcher_dir() or ""), "local_dir": str(_local_app_dir() or ""), "files": [],
+                 "candidates": [], "renew": None}
+    d = _local_app_dir()
+    if d:
+        for f in sorted(d.rglob("*")):
+            if f.is_file() and f.stat().st_size < 5_000_000:
+                rel = str(f.relative_to(d))
+                out["files"].append([rel, f.stat().st_size])
+                if f.suffix.lower() in (".json", ".yml", ".yaml", ".ini", ".txt", ".dat", ".db", "") and f.stat().st_size < 200_000:
+                    try:
+                        raw = f.read_bytes()
+                    except OSError:
+                        continue
+                    txt = raw.decode("utf-8", "ignore")
+                    hits = sorted(set(re.findall(r"(rememberMe|ticket|sessionId|userId|refreshToken|nameOnPlatform|rm_v1|Ubi_v1)", txt, re.I)))
+                    if hits:
+                        out["candidates"].append([rel, hits, len(raw)])
+    # Does Ubisoft accept a scripted renewal from this PC at all? (a bogus pass: 401 = reachable, 429 = bot wall)
+    try:
+        net.request("POST", SESSIONS, json_body={"rememberMe": True}, retries=0, timeout=20,
+                    headers={**BASE_HEADERS, "Authorization": "rm_v1 t=probe"})
+        out["renew"] = "ok?"
+    except net.HttpError as e:
+        out["renew"] = f"HTTP {e.status}"
+    except Exception as e:
+        out["renew"] = f"error: {e}"
+    return out
