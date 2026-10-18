@@ -944,3 +944,9 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .unid-foot { align-items: center; }
 .rec-why-line { display: block; }
 #unid-dialog { width: min(1180px, calc(100% - 32px)); }
+
+/* Sync / Refresh assets: Library checks */
+.checks-label { margin-top: 14px; }
+.sync-sources.checks label > span { display: flex; flex-direction: column; gap: 1px; }
+.sync-sources.checks label > span small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.sync-sources.checks label > small .link { white-space: nowrap; }

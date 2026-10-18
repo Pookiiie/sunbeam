@@ -682,7 +682,7 @@ def _match(refresh: bool, scope: str, args):
             _tick()
     unmatched = db.query("SELECT COUNT(*) n FROM games WHERE match_state='none'")[0]["n"]
     if unmatched:
-        _log(f"{unmatched} games couldn't be identified automatically. Fix them in Library › More › Unidentified games.", "warn")
+        _log(f"{unmatched} games couldn't be identified automatically. Review them in Sync › Library checks.", "warn")
 
 
 def _details(refresh: bool, scope: str, args):

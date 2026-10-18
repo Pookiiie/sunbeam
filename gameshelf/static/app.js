@@ -205,6 +205,7 @@ const SUB_SHORT = { gamepass: "XGP", psplus: "PS+" };
 const SUB_PLATFORM = { gamepass: "xbox", psplus: "playstation" };
 // Subscribed unless you said otherwise (Settings › Subscriptions; asked during setup).
 const subscribed = (sv) => state.settings?.settings?.[`sub_${sv}`] !== false;
+const subsLabel = () => ["gamepass", "psplus"].filter(subscribed).map((x) => SUB_SHORT[x]).join(" / ");  // "XGP / PS+", "" with neither
 function subPill(g) {
   const subs = g.subs || [];
   const leaving = subs.find((x) => x.leaving), fresh = subs.find((x) => x.new);
@@ -1037,7 +1038,7 @@ function renderFilters() {
       ${label} <b>${esc(sum[id] || empty)}</b><i aria-hidden="true">▾</i></button>`;
   const any = Object.values(sum).some(Boolean);
   bar.innerHTML = `
-    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${chip("more", "More", "")}
+    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${subsLabel() ? chip("more", subsLabel(), "Any") : ""}
     ${any ? `<button type="button" class="link fclear-all" data-fclear="all">Clear all</button>` : ""}
     ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""}" role="dialog">${filterMenu(state.openFilter, f)}</div>` : ""}`;
   const pop = $(".fpop", bar), anchor = $(`[data-fopen="${state.openFilter}"]`, bar);
@@ -1075,10 +1076,9 @@ function filterMenu(id, f) {
     return head("Type", "type") + Object.entries(TYPE_NAMES).map(([v, l]) => row("type", v, l, f.types[v] || 0, sel.includes(v))).join("")
       + `<p class="fpop-note">${off.length ? `${off.join(" and ")} games are hidden by default (Settings › Hidden game types). ` : ""}Hidden: games you hid, and betas, demos and tools.</p>`;
   }
-  if (id === "more") return (["gamepass", "psplus"].some(subscribed) ? `<div class="fpop-head"><span>${["gamepass", "psplus"].filter(subscribed).map((x) => SUB_SHORT[x]).join(" and ")}</span></div>`
-    + Object.entries(SUBTAG_NAMES).map(([v, l]) => row("subtags", v, l, f.subs[v], p.subTags.includes(v))).join("") : "")
-    + `<div class="fpop-foot"><button type="button" class="link" data-fdups>Find duplicate games</button>
-      ${unidentified().length ? `<button type="button" class="link" data-funid>Unidentified games (${unidentified().length})</button>` : ""}</div>`;
+  // (internally still "more": XGP / PS+ catalog changes)
+  if (id === "more") return `<div class="fpop-head"><span>${subsLabel()} catalog</span></div>`
+    + Object.entries(SUBTAG_NAMES).map(([v, l]) => row("subtags", v, l, f.subs[v], p.subTags.includes(v))).join("");
   return "";
 }
 
@@ -1131,7 +1131,6 @@ function bindFilters() {
     if (all) { setFilterGroup(all.dataset.fall, allValues(all.dataset.fall)); return; }
     const none = t.closest("[data-fnone]");
     if (none) { setFilterGroup(none.dataset.fnone, []); return; }
-    if (t.closest("[data-funid]")) { state.openFilter = null; renderFilters(); openUnid(); return; }
     if (t.closest("[data-fdups]")) { state.openFilter = null; renderFilters(); openDups(); }
   });
   bar.addEventListener("change", (e) => {
@@ -1768,7 +1767,11 @@ async function applyShots() {
   } catch (e) { toast(e.message, true); }
 }
 
-document.addEventListener("click", (e) => { if (e.target.closest("[data-open-shots]")) openShots(); });
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-open-shots]")) openShots();
+  if (e.target.closest("[data-open-dups]")) { $("#sync-dialog").close(); openDups(); }
+  if (e.target.closest("[data-open-unid]")) { $("#sync-dialog").close(); openUnid(); }
+});
 $("#shots-body").addEventListener("click", (e) => {
   if (e.target.closest("[data-shots-read]")) readShots();
   else if (e.target.closest("[data-shots-apply]")) applyShots();
@@ -2674,7 +2677,7 @@ function renderJobDialog() {
         <label><input type="radio" name="rmode" value="missing" ${all ? "" : "checked"}><span>Fill in what's missing</span><small>Quick</small></label>
         <label><input type="radio" name="rmode" value="all" ${all ? "checked" : ""}><span>Re-fetch for every game</span><small>${(est.games || 0).toLocaleString()} games, slower; carries on across sessions</small></label>
       </div>
-      ${est.unidentified ? `<p class="source-note">${est.unidentified.toLocaleString()} game${est.unidentified > 1 ? "s" : ""} couldn't be identified. “Re-fetch for every game” tries again, or open one and use Fix match.</p>` : ""}
+      ${libraryChecks()}
       ${!all && est.games && !REFRESH_STEPS.some((x) => est[x.id] && !((x.need === "igdb" && !est.igdb) || (x.need === "opencritic" && !est.opencritic))) ? `<p class="source-note">Everything is filled in. Choose “Re-fetch for every game” to pull the latest info anyway.</p>` : ""}
       ${finished}
       </div>
@@ -2710,6 +2713,7 @@ function renderJobDialog() {
     </div>
     <div class="sync-sources"><label class="shots-row"><span>Nintendo Switch</span><small><button type="button" class="link" data-open-shots>Import from a screen recording</button></small></label></div>
     <p class="source-note">Games already in your library only get their playtime and last played updated. To update their details or art, use Refresh assets.</p>
+    ${libraryChecks()}
     ${finished}
     </div>
     <div class="job-side">
@@ -2719,6 +2723,17 @@ function renderJobDialog() {
     </div>
     <div class="dialog-actions"><button class="btn ghost" value="close">Close</button><button class="btn" type="button" id="sync-start" ${anyReady ? "" : "disabled"}>Start sync</button></div>`;
   syncPreview();
+}
+
+// Tidying tools, in the Sync and Refresh assets windows: duplicates and games IGDB couldn't identify.
+function libraryChecks() {
+  const n = unidentified().length;
+  return `<div class="field-label checks-label">Library checks</div>
+    <div class="sync-sources checks">
+      <label class="shots-row"><span>Duplicate games<small>Editions and store versions listed more than once</small></span><small><button type="button" class="link" data-open-dups>Find duplicates</button></small></label>
+      <label class="shots-row"><span>Unidentified games<small>${n ? `${n.toLocaleString()} game${n === 1 ? "" : "s"} without details, covers or time to beat` : "Every game is identified"}</small></span>
+        <small>${n ? `<button type="button" class="link" data-open-unid>Review ${n === 1 ? "it" : "them"}</button>` : ""}</small></label>
+    </div>`;
 }
 
 async function openJob(view) {
@@ -3313,7 +3328,7 @@ async function maybeReviewDups() {
 }
 
 $("#dup-dialog").addEventListener("close", () => {
-  // Seen: it won't open by itself again for these (More › Find duplicate games still lists any left).
+  // Seen: it won't open by itself again for these (Sync › Library checks › Find duplicates still lists any left).
   api("/api/duplicates/review", { method: "POST", body: {} }).catch(() => {});
 });
 
