@@ -498,7 +498,9 @@ function renderUpNext() {
 
 // The last games you played, as library covers, under the picks.
 function renderRecent() {
-  const list = state.games.filter((g) => !g.isHidden && !g.isCatalog && g.last_played)
+  // Follows Settings › Hidden game types, like the rest of Curator.
+  const types = defaultTypes();
+  const list = state.games.filter((g) => types.includes(gameType(g)) && !g.isCatalog && g.last_played)
     .sort((a, b) => b.last_played - a.last_played).slice(0, 18);
   setHTML($("#recent"), list.length
     ? `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">Recently played</h2></div><div class="grid cur-recent">${renderGrid(list)}</div></section>` : "");
@@ -734,7 +736,8 @@ function renderWishlist() {
 // Curator: what's new or close from your wishlists, and what's on sale.
 function renderWishRows() {
   const el = $("#wishrows");
-  const gs = allWish().filter((g) => !g.isHidden);
+  // VR follows Settings › Hidden game types; early access stays (its full release is news).
+  const gs = allWish().filter((g) => !g.isHidden && !(g.vr && hideVR()));
   if (!gs.length) { el.innerHTML = ""; return; }
   const now = nowS(), win = WISH_DAYS * 86400;
   const recent = gs.filter((g) => g.rel.state === "out" && g.rel.ts && now - g.rel.ts <= win && g.rel.ts <= now)
@@ -1355,7 +1358,7 @@ function renderDetail(g) {
       </div>
     </div>
     <div class="detail-body">
-      ${g.isHidden ? `<p class="notice">${g.hidden === 1 ? "You hid this game." : "Hidden automatically: it looks like a playtest, beta, demo or tool rather than a game."} ${g.isWishOnly ? "It doesn't appear on the Wishlist page." : "It doesn't appear in your library or stats."}</p>` : ""}
+      ${g.isHidden ? `<p class="notice">${g.hidden === 1 ? "You hid this game." : "Hidden automatically: it looks like a playtest, beta, demo or tool rather than a game."} ${g.isWishOnly ? "It doesn't appear on the Wishlist page." : "It's left out of your library, stats and ${CURATOR} unless you tick Hidden in the Library's Type filter."}</p>` : ""}
       <div class="actions">
         ${g.isWishOnly ? "" : `<div class="status-picker" role="radiogroup" aria-label="Status">
           ${["", "completed", "dnf"].map((st) => `<button data-s="${st}" class="${(g.status || "") === st ? "on" : ""}" role="radio" aria-checked="${(g.status || "") === st}">${STATUS_ICON[st]}${statusLabel(st)}</button>`).join("")}
@@ -1856,7 +1859,7 @@ function renderArt() {
     <div class="segmented art-tabs" role="tablist">
       ${ART_SLOTS.map((t) => `<button data-slot="${t.id}" class="${t.id === slot ? "on" : ""}" role="tab">${t.label} <em>${(data.options[t.id] || []).length}</em></button>`).join("")}
     </div>
-    <p class="source-note art-state">${locked ? "You picked this one. It stays even when you refresh assets." : "Chosen automatically."}
+    <p class="source-note art-state">${locked ? "You picked this one. It stays even when you use Refresh assets." : "Chosen automatically."}
       ${locked ? `<button class="link" data-art-reset>Go back to automatic</button>` : ""}</p>
     ${opts.length ? `<div class="art-grid art-${slot}">
       ${opts.map((o) => `<button class="art-opt ${o.url === current ? "on" : ""}" data-url="${esc(o.url)}" data-source="${esc(o.source)}" data-size="${o.w ? `${o.w}×${o.h}` : ""}" title="Click for a closer look">
@@ -2660,7 +2663,7 @@ function renderJobDialog() {
     const step = st.step_no && st.step_count > 1 ? `Step ${st.step_no} of ${st.step_count}: ` : "";
     const detail = st.total ? `${step}${esc(st.stage_label)}, ${st.done.toLocaleString()} of ${st.total.toLocaleString()}` : esc(st.stage_label || "Starting");
     const other = state.jobView && state.jobView !== st.kind
-      ? `<p class="notice">${st.kind === "sync" ? "A sync is running. You can refresh assets once it finishes." : "A refresh is running. You can sync once it finishes."}</p>` : "";
+      ? `<p class="notice">${st.kind === "sync" ? "A sync is running. You can use Refresh assets once it finishes." : "A refresh is running. You can sync once it finishes."}</p>` : "";
     const full = st.kind === "refresh" && st.mode === "all";
     body.innerHTML = `
       <div class="job-cols">
