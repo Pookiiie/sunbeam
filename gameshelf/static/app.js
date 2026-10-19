@@ -1774,7 +1774,7 @@ const PLAY_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15
 // The ▶ on the cover of a game that's installed on this PC (library, Curator, Your year…).
 const instMark = (g) => g.canPlay ? `<span class="inst-mark" title="Installed on this PC" aria-label="Installed">${PLAY_SVG}</span>` : "";
 const DL_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>`;
-const PC_STORES = ["steam", "epic", "xbox", "ubisoft", "battlenet"];
+const PC_STORES = ["steam", "epic", "gog", "xbox", "ubisoft", "battlenet"];
 
 // The copy Play starts by default: the installed one you played last (then the most played).
 function playOrder(g) {
@@ -2484,6 +2484,22 @@ SERVICES.push({
   clears: ["epic_refresh", "epic_code"],  // signing out forgets the saved session
 });
 SERVICES.push({
+  id: "gog", name: "GOG", blurb: "Games you own on GOG, with hours and last played from GOG Galaxy",
+  ready: (s) => s.gog_refresh.set || !!state.settings?.gog_galaxy,
+  steps: () => {
+    const s = state.settings.settings, galaxy = !!state.settings.gog_galaxy;
+    return [
+      galaxy
+        ? `<p class="ubi-status ok">GOG Galaxy is installed on this PC: ${APP} reads your GOG games, hours played and last played from it at every sync. Nothing to set up.${s.gog_refresh.set ? " You're also signed in to GOG, which adds any game Galaxy hasn't listed." : " Signing in below is optional: it adds games Galaxy hasn't listed yet."}</p>`
+        : `<p class="ubi-status${s.gog_refresh.set ? " ok" : ""}">${s.gog_refresh.set ? `Signed in to GOG. ${APP} reads your games at every sync. Hours played and last played only come from GOG Galaxy, which isn't on this PC.` : `GOG Galaxy isn't installed on this PC. Sign in to GOG instead (hours played need Galaxy).`}</p>`,
+      `Open <a href="https://auth.gog.com/auth?client_id=46899977096215655&redirect_uri=https%3A%2F%2Fembed.gog.com%2Fon_login_success%3Forigin%3Dclient&response_type=code&layout=client2" target="_blank" rel="noopener">GOG's sign-in page</a> and sign in.`,
+      `You land on a nearly blank page. Copy its whole address from the address bar (it ends with a code), paste it below and choose Save and test straight away: the code works once, for a few minutes. ${APP} stays signed in after that, as long as you sync every few weeks.`,
+    ];
+  },
+  fields: [["gog_code", "Sign-in address or code", true]],
+  clears: ["gog_refresh", "gog_code"],
+});
+SERVICES.push({
   id: "xbox", name: "Xbox and XGP", blurb: "Games you've played on Xbox or PC, playtime, last played",
   ready: (s) => s.xbl_key.set,
   steps: [
@@ -3000,7 +3016,7 @@ async function onThisPc(b) {
 
 /* First-run setup: one thing at a time, everything skippable, the same steps as Settings. */
 const SETUP_STORES = [
-  ["steam", "Steam"], ["playstation", "PlayStation"], ["xbox", "Xbox and XGP"], ["epic", "Epic Games Store"],
+  ["steam", "Steam"], ["playstation", "PlayStation"], ["xbox", "Xbox and XGP"], ["epic", "Epic Games Store"], ["gog", "GOG"],
   ["ubisoft", "Ubisoft Connect"], ["battlenet", "Battle.net"], ["switch", "Nintendo Switch"],
 ];
 const setup = { i: 0, stores: [], subs: {} };
@@ -3153,6 +3169,7 @@ function syncSources() {
     { id: "steam", name: "Steam", ok: s.steam_api_key?.set && s.steam_id },
     { id: "playstation", name: "PlayStation", ok: s.psn_npsso?.set },
     { id: "epic", name: "Epic Games Store", ok: s.epic_refresh?.set },
+    { id: "gog", name: "GOG", ok: s.gog_refresh?.set || !!state.settings?.gog_galaxy },
     { id: "xbox", name: "Xbox", ok: s.xbl_key?.set },
     { id: "ubisoft", name: "Ubisoft Connect", ok: !!s.ubi_user },
     { id: "battlenet", name: "Battle.net", ok: s.bnet_games?.set },

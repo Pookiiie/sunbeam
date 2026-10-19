@@ -1,9 +1,7 @@
-Sunbeam 1.3.1: clearer marks, icons in the right-click menu, and a taskbar icon that stays sharp.
+Sunbeam 1.4 beta 1: GOG.
 
-- **Curator marks are now Keen, Meh and Skip** (were More interested, Less interested and Not right now), with a thumbs up, a thumbs down and a skip icon on covers, on the game page and in the right-click menu. They work as before: Keen lifts a game in Curator's picks, Meh lowers it, Skip leaves it out until you clear it. The Curator filter lists Keen, Default, Meh and Skip.
-- **"Did not finish" is now "Will not finish"**, and covers say **WNF**: a game you've decided not to finish, not one you failed at.
-- **Status works like the Curator marks:** the game page shows **Completed** and **Will not finish**; click the lit one again (or pick it again in the right-click menu) to clear it. The Status filter calls games with neither **No status**.
-- **Right-click menu:** every item has an icon, in the same line style as the game page's buttons. The current status and Curator mark are tinted, with a check on the right.
-- **Taskbar icon:** it stays sharp. Switching tabs used to swap it back to a blurry, scaled-up one.
+- **GOG games in your library.** If GOG Galaxy is installed on this PC, Sunbeam reads your GOG games from it at every sync, with **hours played and last played**: nothing to set up, just tick GOG when you sync. Without Galaxy (or to add games Galaxy hasn't listed), sign in through GOG's sign-in link in Settings › GOG and paste the address you land on. GOG's website doesn't share hours played, so those only come from Galaxy.
+- **Play and Install for GOG games.** Installed GOG games get the ▶ mark and a **Play** button, which starts them through GOG Galaxy (or directly, when Galaxy isn't installed). GOG games you haven't installed offer **Install**, which opens the game in Galaxy.
+- GOG is also in the first-run setup.
 
-Your existing statuses and marks carry over unchanged.
+This is a test build: GOG support was checked against sample data, not a real GOG Galaxy yet. If your GOG games don't show up or look wrong, Settings › GOG › Save and test says what it found.

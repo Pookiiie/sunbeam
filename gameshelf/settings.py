@@ -17,6 +17,9 @@ FIELDS = {
     "epic_refresh": True,
     "epic_account": False,
     "epic_name": False,
+    "gog_code": True,       # GOG: one-time sign-in code (or the address carrying it), swapped for gog_refresh
+    "gog_refresh": True,
+    "gog_user": False,
     "xbl_key": True,        # OpenXBL API key (xbl.io)
     "xbl_gamertag": False,
     "ubi_ticket": True,     # Ubisoft Connect, from the Send to <app> bookmark
@@ -50,6 +53,7 @@ FIELDS = {
 
 # Kept by the app itself, never changed from the page (POST /api/settings ignores them).
 INTERNAL = {"shortcuts_made", "shortcuts_asked", "window_rect", "epic_refresh", "epic_account", "epic_name",
+            "gog_refresh", "gog_user",
             "ubi_ticket", "ubi_session", "ubi_remember", "ubi_user", "ubi_app", "ubi_name", "ubi_expires",
             "ubi_refreshed_at", "xbl_xuid"}
 

@@ -4,12 +4,13 @@ Read from each launcher's own records, never by searching your drives:
   Steam      libraryfolders.vdf → each library's appmanifest_<appid>.acf (fully installed ones)
   Epic       the launcher's install manifests (ProgramData\\Epic\\EpicGamesLauncher\\Data\\Manifests)
   Ubisoft    the launcher's registry list of installs, named by its "Uplay Install <id>" uninstall entry
+  GOG        GOG's registry list of installed games (written by GOG Galaxy and GOG's offline installers)
   Battle.net Blizzard's uninstall entries (Windows' Installed apps list)
   Xbox app   installed packages (Get-AppxPackage) that carry a MicrosoftGame.config (PC Game Pass
              and other Xbox app games): its TitleId and StoreId match the Xbox history and XGP list
 
 Starting a game goes through its launcher (steam://rungameid/…, the Epic launcher's link,
-uplay://, battlenet://, or the Xbox app package), so sign-in, updates and cloud saves work
+GOG Galaxy (or the game itself when Galaxy isn't installed), uplay://, battlenet://, or the Xbox app package), so sign-in, updates and cloud saves work
 as usual. The scan runs in the background at start-up, after every sync, and when the window
 comes back into focus (at most every couple of minutes); the result is the `installs` table.
 """
@@ -260,6 +261,54 @@ def scan_battlenet() -> list[dict]:
     return out
 
 
+GOG_GAMES = r"SOFTWARE\WOW6432Node\GOG.com\Games"
+
+
+def gog_client() -> str | None:
+    """GOG Galaxy's GalaxyClient.exe, when Galaxy is installed."""
+    import winreg
+    for path in (r"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths", r"SOFTWARE\GOG.com\GalaxyClient\paths"):
+        d = _reg_values(winreg.HKEY_LOCAL_MACHINE, path).get("client")
+        if d and (Path(d) / "GalaxyClient.exe").exists():
+            return str(Path(d) / "GalaxyClient.exe")
+    default = Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "GOG Galaxy" / "GalaxyClient.exe"
+    return str(default) if default.exists() else None
+
+
+def gog_entry(game_key: str, vals: dict) -> dict | None:
+    """One game from GOG's registry list → what the scan keeps (None for DLC and broken entries).
+    The value names' case varies between installers (gameID, GAMENAME, PATH, EXE, LAUNCHCOMMAND…)."""
+    v = {str(k).lower(): val for k, val in vals.items()}
+    gid = str(v.get("gameid") or v.get("productid") or game_key or "").strip()
+    path = str(v.get("path") or v.get("workingdir") or "")
+    if not gid or not path or str(v.get("dependson") or "").strip():
+        return None  # dependsOn: a DLC of another game
+    return {"id": gid, "name": str(v.get("gamename") or ""), "dir": path,
+            "exe": str(v.get("exe") or v.get("launchcommand") or ""), "params": str(v.get("launchparam") or "")}
+
+
+def gog_launch(entry: dict, client: str | None) -> str | None:
+    """How to start it: through GOG Galaxy when it's installed (so playtime and cloud saves count), else the game itself."""
+    if client:
+        return "cmd:" + json.dumps([client, "/command=runGame", f"/gameId={entry['id']}", f"/path={entry['dir']}"])
+    exe = (entry.get("exe") or "").strip().strip('"')
+    if exe and Path(exe).exists():
+        return "cmd:" + json.dumps([exe] + ([entry["params"]] if entry.get("params") else []))
+    return None
+
+
+def scan_gog() -> list[dict]:
+    import winreg
+    client = gog_client()
+    out = []
+    for key in _reg_subkeys(winreg.HKEY_LOCAL_MACHINE, GOG_GAMES):
+        e = gog_entry(key, _reg_values(winreg.HKEY_LOCAL_MACHINE, GOG_GAMES + "\\" + key))
+        if not e or not Path(e["dir"]).exists():
+            continue
+        out.append({"platform": "gog", "ref": e["id"], "name": e["name"], "launch": gog_launch(e, client), "dir": e["dir"]})
+    return out
+
+
 PS_PACKAGES = ("Get-AppxPackage | Where-Object { -not $_.IsFramework -and $_.InstallLocation } | "
                "ForEach-Object { $_.PackageFamilyName + '|' + $_.InstallLocation }")
 
@@ -286,7 +335,7 @@ def scan_xbox() -> list[dict]:
     return out
 
 
-SCANNERS = {"steam": scan_steam, "epic": scan_epic, "ubisoft": scan_ubisoft,
+SCANNERS = {"steam": scan_steam, "epic": scan_epic, "gog": scan_gog, "ubisoft": scan_ubisoft,
             "battlenet": scan_battlenet, "xbox": scan_xbox}
 
 
@@ -329,7 +378,7 @@ def match(found: list[dict]) -> list[tuple[int, dict]]:
             gid = by_code.get(f["code"]) or next((g for c, g in by_code.items() if c.split("_")[0] == f["code"]), None)
         if gid is None and p == "xbox":
             gid = by_ext.get(("xbox", f.get("title_id") or "")) or by_ext.get(("xbox", "xgp:" + (f.get("store_id") or "")))
-        if gid is None and p in ("epic", "ubisoft", "battlenet", "xbox"):
+        if gid is None and p in ("epic", "gog", "ubisoft", "battlenet", "xbox"):
             gid = by_name(f["name"], p)
         if gid is not None:
             out.append((gid, f))
@@ -397,7 +446,11 @@ def by_game() -> dict[int, list[dict]]:
 # ------------------------------------------------------------------ starting and installing
 
 def _open(uri: str) -> None:
-    if uri.startswith("shell:AppsFolder"):
+    if uri.startswith("cmd:"):  # a program to run (GOG Galaxy, or a GOG game without Galaxy)
+        args = json.loads(uri[4:])
+        exe = Path(args[0])
+        subprocess.Popen(args, cwd=str(exe.parent), close_fds=True)
+    elif uri.startswith("shell:AppsFolder"):
         subprocess.Popen(["explorer.exe", uri], creationflags=desktop.NO_WINDOW, close_fds=True)
     else:
         desktop.open_external(uri)
@@ -437,6 +490,11 @@ def install_link(game_id: int, platform: str) -> str | None:
         return "com.epicgames.launcher://store"
     if platform == "ubisoft":
         return "uplay://"
+    if platform == "gog":
+        gid = next((e["external_id"] for e in ents if str(e["external_id"]).isdigit()), None)
+        if desktop.is_windows() and gog_client() and gid:
+            return f"goggalaxy://openGameView/gog_{gid}"
+        return "https://www.gog.com/en/account"
     return None
 
 

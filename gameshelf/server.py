@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from . import __version__, brand, db, duplicates, installed, settings, switch_import, switch_video, sync
 from .meta import hltb, igdb, opencritic, sgdb, wishlist
 from .paths import DATA_DIR, STATIC_DIR
-from .sources import PLATFORMS, battlenet, epic, playstation, steam, ubisoft, xbox
+from .sources import PLATFORMS, battlenet, epic, gog, playstation, steam, ubisoft, xbox
 
 ROUTES: list[tuple[str, re.Pattern, callable]] = []
 
@@ -448,7 +448,7 @@ def delete_entry(req, body, query, entry_id):
 @route("GET", "/api/settings")
 def get_settings(req, body, query):
     return {"settings": settings.public_view(), "hltb_installed": hltb.HowLongToBeat is not None,
-            "version": __version__}
+            "version": __version__, "gog_galaxy": gog.has_galaxy()}
 
 
 @route("POST", "/api/settings")
@@ -471,7 +471,7 @@ def clear_setting(req, body, query, key):
     return get_settings(req, body, query)
 
 
-TESTS = {"steam": steam.test, "playstation": playstation.test, "epic": epic.test, "xbox": xbox.test, "battlenet": battlenet.test, "ubisoft": ubisoft.test, "igdb": igdb.test, "sgdb": sgdb.test,
+TESTS = {"steam": steam.test, "playstation": playstation.test, "epic": epic.test, "gog": gog.test, "xbox": xbox.test, "battlenet": battlenet.test, "ubisoft": ubisoft.test, "igdb": igdb.test, "sgdb": sgdb.test,
          "opencritic": opencritic.test, "wishlist": wishlist.test}
 
 

@@ -12,9 +12,10 @@ from . import brand, db, net, rules
 
 APP_NAME = brand.NAME
 from .meta import achievements, catalogs, hltb, igdb, opencritic, sgdb, steamstore, wishlist
-from .sources import battlenet, epic, playstation, steam, ubisoft, xbox
+from .sources import battlenet, epic, gog, playstation, steam, ubisoft, xbox
 
-SOURCES = {"steam": steam, "playstation": playstation, "epic": epic, "xbox": xbox, "ubisoft": ubisoft, "battlenet": battlenet}
+SOURCES = {"steam": steam, "playstation": playstation, "epic": epic, "gog": gog, "xbox": xbox, "ubisoft": ubisoft,
+           "battlenet": battlenet}
 
 _state_lock = threading.Lock()
 _state: dict = {"running": False}
@@ -204,7 +205,7 @@ def _job(target, args):
         _set(running=False, finished_at=int(time.time()), stage="done", stage_label="Finished")
 
 
-SOURCE_LABELS = {"steam": "Steam", "playstation": "PlayStation", "epic": "Epic Games Store", "xbox": "Xbox",
+SOURCE_LABELS = {"steam": "Steam", "playstation": "PlayStation", "epic": "Epic Games Store", "gog": "GOG", "xbox": "Xbox",
                  "ubisoft": "Ubisoft Connect", "battlenet": "Battle.net"}
 STEP_HINTS = {
     "match": "Finds each game on IGDB",
