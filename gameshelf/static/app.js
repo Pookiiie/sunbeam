@@ -882,6 +882,7 @@ function recScoreTag(g) {
     : g.oc_score != null ? `<span class="score ${criticClass(g)}">${Math.round(g.oc_score)}%</span>` : "";
 }
 
+const WISH_GROUPS = [["out", "Out now"], ["ea", "In early access"], ["soon", "Coming soon"], ["tba", "No date yet"]];
 function renderWishlist() {
   const el = $("#wishlist");
   if (!el) return;
@@ -903,10 +904,14 @@ function renderWishlist() {
   const groups = mine
     ? (list.length ? `<section class="wish-group wish-mine"><p class="source-note wish-mine-hint">Drag a cover to move it, or right-click › Move to top / Move to bottom. Games you add to a wishlist start at the top.</p>
         <div class="grid">${wishCards(wishOrdered(list), { ranked: true })}</div></section>` : "")
-    : [["out", "Out now"], ["ea", "In early access"], ["soon", "Coming soon"], ["tba", "No date yet"]].map(([k, label]) => {
+    : WISH_GROUPS.map(([k, label]) => {
       const gs = list.filter((g) => g.rel.state === k).sort(wishSorter(k));
-      return gs.length ? `<section class="wish-group"><h2 class="wish-h">${label} <span>${gs.length}</span></h2><div class="grid">${wishCards(gs)}</div></section>` : "";
+      return gs.length ? `<section class="wish-group" id="wish-sec-${k}" data-wsec="${k}"><h2 class="wish-h">${label} <span>${gs.length}</span></h2><div class="grid">${wishCards(gs)}</div></section>` : "";
     }).join("");
+  // The sections at a glance, in a bar that stays at the top: click one to jump to it.
+  const present = mine ? [] : WISH_GROUPS.filter(([k]) => list.some((g) => g.rel.state === k));
+  const jump = present.length > 1 ? `<nav class="wish-jump" aria-label="Wishlist sections">${present.map(([k, label]) =>
+    `<button type="button" data-wjump="${k}">${label}<em>${list.filter((g) => g.rel.state === k).length}</em></button>`).join("")}</nav>` : "";
   const seg = (v, label, n) => `<button data-wf="wishStore" data-v="${v}" class="${p.wishStore === v ? "on" : ""}" aria-pressed="${p.wishStore === v}">${label}${n != null ? ` <em>${n}</em>` : ""}</button>`;
   setHTML(el, `
     <div class="toolbar wish-toolbar">
@@ -922,6 +927,7 @@ function renderWishlist() {
         <input type="range" class="wish-size" min="120" max="260" step="10" value="${p.size}" aria-label="Cover size" title="Cover size">
       </div>
     </div>
+    ${jump}
     ${groups || `<div class="empty"><h2>Nothing matches</h2><p>No wishlist games fit ${p.wishSale ? "“On sale”" : "these choices"}${state.q ? ` and the search “${esc(state.q)}”` : ""}.</p></div>`}`);
 }
 
@@ -4110,3 +4116,32 @@ async function receiveUbisoft() {
   });
   page.addEventListener("dragend", () => { dragId = null; clear(); });
 })();
+
+// Wishlist section bar: jump to a section; the one you're looking at is lit as you scroll.
+function wishJumpOffset() {
+  return ($(".topbar")?.offsetHeight || 0) + ($("#wishlist .wish-jump")?.offsetHeight || 0) + 10;
+}
+function markWishJump() {
+  const bar = $("#wishlist .wish-jump");
+  if (!bar || state.page !== "wishlist") return;
+  const off = wishJumpOffset() + 4;
+  let cur = null;
+  for (const s of $$("#wishlist [data-wsec]")) if (s.getBoundingClientRect().top <= off) cur = s.dataset.wsec;
+  cur = cur || $("#wishlist [data-wsec]")?.dataset.wsec;
+  for (const b of bar.querySelectorAll("[data-wjump]")) b.classList.toggle("on", b.dataset.wjump === cur);
+}
+$("#page-wishlist").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-wjump]");
+  if (!b) return;
+  const sec = $(`#wish-sec-${b.dataset.wjump}`);
+  if (sec) scrollTo({ top: sec.getBoundingClientRect().top + scrollY - wishJumpOffset(), behavior: "smooth" });
+}, true);
+let wishJumpTick = false;
+addEventListener("scroll", () => {
+  if (wishJumpTick) return;
+  wishJumpTick = true;
+  requestAnimationFrame(() => { wishJumpTick = false; markWishJump(); });
+}, { passive: true });
+new MutationObserver(() => { markWishJump(); document.documentElement.style.setProperty("--topbar-h", ($(".topbar")?.offsetHeight || 68) + "px"); })
+  .observe($("#wishlist"), { childList: true });
+addEventListener("resize", () => document.documentElement.style.setProperty("--topbar-h", ($(".topbar")?.offsetHeight || 68) + "px"));
