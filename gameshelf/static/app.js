@@ -1110,7 +1110,7 @@ const steamClass = (g) => STEAM_DESC[(g.steam_review_desc || "").toLowerCase()] 
 function scoreHTML(v, empty = "—", cls = null) {
   return v == null || v === 0 ? empty : `<span class="score ${cls || scoreClass(v)}">${Math.round(v)}%</span>`;
 }
-const statusLabel = (s) => ({ completed: "Completed", dnf: "Will not finish" }[s] || "Not marked");
+const statusLabel = (s) => ({ completed: "Completed", dnf: "Will not finish" }[s] || "No status");
 // Little icons on the game page's controls (drawn here, in the text colour).
 const svgIcon = (d) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const STATUS_ICON = { "": "", completed: svgIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'), dnf: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>') };
@@ -1129,7 +1129,6 @@ const MENU_ICON = {
   play: svgIcon('<path d="M8 5.5v13l10.5-6.5z"/>'),
   completed: STATUS_ICON.completed,
   dnf: STATUS_ICON.dnf,
-  unmarked: svgIcon('<circle cx="12" cy="12" r="8.5" stroke-dasharray="3 3"/>'),
   more: INTEREST_ICON.more(),
   less: INTEREST_ICON.less(),
   skip: INTEREST_ICON.skip(),
@@ -1213,7 +1212,7 @@ function renderStats() {
 
 // Each filter is a dropdown chip above the covers. Changes apply at once; a pink tag per
 // active filter clears it in one click. In a menu, tick boxes to combine, or "only" for one.
-const STATUS_NAMES = { "": "Not marked", completed: "Completed", dnf: "Will not finish" };
+const STATUS_NAMES = { "": "No status", completed: "Completed", dnf: "Will not finish" };
 const PLAYED_NAMES = { played: "Played", never: "Never played" };
 const SUBTAG_NAMES = { new: "Recently added", leaving: "Leaving soon" };
 const INSTALLED_NAMES = { yes: "Installed", no: "Not installed" };
@@ -1628,8 +1627,8 @@ function renderDetail(g) {
     <div class="detail-body">
       ${g.isHidden ? `<p class="notice">${g.hidden === 1 ? "You hid this game." : "Hidden automatically: it looks like a playtest, beta, demo or tool rather than a game."} ${g.isWishOnly ? "It doesn't appear on the Wishlist page." : "It's left out of your library, stats and ${CURATOR} unless you tick Hidden in the Library's Type filter."}</p>` : ""}
       <div class="actions">
-        ${g.isWishOnly ? "" : `<div class="status-picker" role="radiogroup" aria-label="Status">
-          ${["", "completed", "dnf"].map((st) => `<button data-s="${st}" class="${(g.status || "") === st ? "on" : ""}" role="radio" aria-checked="${(g.status || "") === st}">${STATUS_ICON[st]}${statusLabel(st)}</button>`).join("")}
+        ${g.isWishOnly ? "" : `<div class="status-picker" role="group" aria-label="Status">
+          <span>Status</span>${["completed", "dnf"].map((st) => `<button data-s="${st}" class="${g.status === st ? "on" : ""}" aria-pressed="${g.status === st}" title="${g.status === st ? "Click again to clear" : ""}">${STATUS_ICON[st]}${statusLabel(st)}</button>`).join("")}
         </div>
         <div class="interest-picker ${g.status || g.isEndless ? "dim" : ""}" role="group" aria-label="${CURATOR}"
           ${g.status || g.isEndless ? `title="${g.status ? "Finished or set-aside games aren't suggested" : "Open-ended games aren't suggested"}"` : ""}>
@@ -1760,6 +1759,7 @@ async function setTtb(id, hours) {
 
 async function setStatus(id, status) {
   const g0 = byId(id);
+  if (status && g0 && g0.status === status) status = "";  // picking the lit one again clears it, as with Curator marks
   const prev = g0 && { status: g0.status || "", status_at: g0.status_at ?? null, status_manual: g0.status_manual ?? null, status_auto: g0.status_auto ?? null };
   try {
     await patchGame(id, { status });
@@ -2083,7 +2083,7 @@ function openAdd() {
     </div>
     <div class="row">
       <label class="field"><span>Last played</span><input type="date" id="add-last"></label>
-      <label class="field"><span>Status</span><select id="add-status"><option value="">Not marked</option><option value="completed">Completed</option><option value="dnf">Will not finish</option></select></label>
+      <label class="field"><span>Status</span><select id="add-status"><option value="">No status</option><option value="completed">Completed</option><option value="dnf">Will not finish</option></select></label>
     </div>
     <div class="dialog-actions"><button class="btn ghost" data-close-dialog>Cancel</button><button class="btn" id="add-save">Add to library</button></div>`;
   if (igdbReady()) {
@@ -3670,7 +3670,7 @@ function openMenu(id, x, y) {
     ${item("open", "open", "Open")}
     ${g.canPlay ? item("play", "play", "Play") : ""}
     <hr>
-    ${g.isWishOnly ? "" : `${["completed", "dnf", ""].map((s) => item("status", s || "unmarked", s === "" ? "Not marked" : statusLabel(s), `data-v="${s}"`, st === s)).join("")}
+    ${g.isWishOnly ? "" : `${["completed", "dnf"].map((s) => item("status", s, statusLabel(s), `data-v="${s}"`, st === s)).join("")}
     <hr>
     ${Object.entries(INTEREST).map(([k, label]) => item("interest", k, label, `data-v="${k}"`, g.interest === k)).join("")}
     <hr>`}

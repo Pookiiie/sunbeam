@@ -247,9 +247,9 @@ input[type=range] { accent-color: var(--accent); width: 110px; }
 
 .detail-body { padding: 10px 36px 50px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 34px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.status-picker { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--ink-2); }
+.status-picker { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--ink-2); }
+.status-picker > span { padding: 0 6px 0 10px; color: var(--faint); font-size: 12px; font-weight: 600; }
 .status-picker button { border: 0; background: none; padding: 7px 14px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 600; }
-.status-picker button.on[data-s=""] { background: var(--ink-3); color: var(--text); }
 .status-picker button.on[data-s=completed] { background: var(--done); color: #0d2a1b; }
 .status-picker button.on[data-s=dnf] { background: var(--dnf); color: #1b1726; }
 .actions .spacer { flex: 1; }
