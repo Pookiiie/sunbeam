@@ -692,9 +692,33 @@ def _match(refresh: bool, scope: str, args):
                 c.execute("UPDATE games SET match_state='none' WHERE id=?", (g["id"],))
         if not g["steam_appid"]:
             _tick()
-    unmatched = db.query("SELECT COUNT(*) n FROM games WHERE match_state='none'")[0]["n"]
+    # Only the games this run couldn't place, and not hidden ones (betas, demos, tools, games you
+    # hid), the same as the Unidentified games window lists.
+    failed = [g["id"] for g in todo if not g.get("done")]
+    unmatched = _visible_unmatched(failed)
     if unmatched:
-        _log(f"{unmatched} games couldn't be identified automatically. Review them in Sync › Library checks.", "warn")
+        _log(f"{unmatched} game{'s' if unmatched != 1 else ''} couldn't be identified automatically. "
+             f"Review {'them' if unmatched != 1 else 'it'} in Sync › Library checks.", "warn")
+
+
+# The page's own rule for "not really a game" (app.js NOT_A_GAME): hidden unless you said otherwise.
+NOT_A_GAME = re.compile(r"\b(play ?test|(open|closed|public|early access) beta|beta( version| test)?$|public test|"
+                        r"test server|demo|dedicated server|sdk|soundtrack|benchmark)\b", re.I)
+
+
+def _visible_unmatched(ids: list[int]) -> int:
+    if not ids:
+        return 0
+    marks = ",".join("?" * len(ids))
+    n = 0
+    for g in db.query(f"SELECT id, title, hidden FROM games WHERE match_state='none' AND id IN ({marks})", tuple(ids)):
+        if g["hidden"] == 1:
+            continue
+        names = [g["title"]] + [r["name"] or "" for r in db.query("SELECT name FROM entries WHERE game_id=?", (g["id"],))]
+        if g["hidden"] is None and any(NOT_A_GAME.search(x) for x in names):
+            continue
+        n += 1
+    return n
 
 
 def _details(refresh: bool, scope: str, args):

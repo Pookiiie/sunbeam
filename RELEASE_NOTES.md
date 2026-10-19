@@ -1,3 +1,3 @@
-Test build 9 of Sunbeam 1.3 (Beta).
+Test build 10 of Sunbeam 1.3 (Beta).
 
-- **Ubisoft Connect: a clearer heads-up.** If the bookmark brings no "stay signed in" pass (Remember me wasn't ticked), Sunbeam says so right away, instead of only warning at a later sync.
+- **The sync's "couldn't be identified" count is right now.** It counts only the games that sync couldn't place, and leaves out hidden ones (betas, demos, tools and games you hid), like the Unidentified games window does. Before, it counted every unidentified game in your library, hidden ones included.
