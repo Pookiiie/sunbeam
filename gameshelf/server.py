@@ -40,6 +40,7 @@ class ApiError(Exception):
 def get_library(req, body, query):
     # Games only on a wishlist come too (wishlist_only): the Wishlist page and Curator's wishlist rows use them.
     return {"games": db.library(with_wishlist=True), "platforms": PLATFORMS, "year": db.year_stats(), "shelves": _shelves(),
+            "wish_order": [r["game_id"] for r in db.query("SELECT game_id FROM wish_order ORDER BY pos")],
             "wishlist_at": int(db.get_meta("wishlist_at", "0") or 0)}
 
 
@@ -191,6 +192,16 @@ def post_shelf_games(req, body, query, shelf_id):
         for gid in body.get("remove") or []:
             c.execute("DELETE FROM shelf_games WHERE shelf_id=? AND game_id=?", (sid, int(gid)))
     return {"shelves": _shelves()}
+
+
+@route("POST", "/api/wishlist/order")
+def post_wish_order(req, body, query):
+    """Wishlist › My order: the whole list, first to last."""
+    ids = [int(x) for x in body.get("ids") or []][:5000]
+    with db.tx() as c:
+        c.execute("DELETE FROM wish_order")
+        c.executemany("INSERT OR IGNORE INTO wish_order(game_id, pos) VALUES (?, ?)", [(gid, i) for i, gid in enumerate(ids)])
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ your year in games

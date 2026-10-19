@@ -1070,3 +1070,15 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
   .ytiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ycols { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---------- Wishlist › My order */
+.wish-mine-hint { margin: 0 0 14px; }
+.wrank { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; margin-right: 6px; border-radius: 10px;
+  background: rgba(255, 255, 255, .08); color: var(--muted); font: 700 11.5px/1 var(--body); vertical-align: 1px; font-variant-numeric: tabular-nums; }
+.wcard[draggable="true"] { cursor: grab; }
+.wcard.dragging { opacity: .35; }
+.wcard.ins-before, .wcard.ins-after { position: relative; }
+.wcard.ins-before::before, .wcard.ins-after::after { content: ""; position: absolute; top: 0; bottom: 0; width: 4px; border-radius: 2px;
+  background: var(--grad); box-shadow: 0 0 14px rgba(255, 92, 158, .7); z-index: 5; }
+.wcard.ins-before::before { left: -9px; }
+.wcard.ins-after::after { right: -9px; }

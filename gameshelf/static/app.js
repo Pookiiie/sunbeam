@@ -835,9 +835,33 @@ function wishSorter(group) {
   return (a, b) => (b.wish.added_at || 0) - (a.wish.added_at || 0) || t(a, b);
 }
 
-function wishCards(list) {
-  return list.map((g) => `
-    <button class="card wcard" data-id="${g.id}">
+// Wishlist › My order: your ranking (wish_order). Before you've moved anything it starts from the
+// reviews; once you have, games added to a wishlist since go on top, newest first.
+function wishOrdered(list) {
+  const order = state.wishOrder || [];
+  if (!order.length) return list.slice().sort(wishByReviews);
+  const pos = new Map(order.map((id, i) => [id, i]));
+  const fresh = list.filter((g) => !pos.has(g.id)).sort((a, b) => (b.wish.added_at || 0) - (a.wish.added_at || 0) || wishByReviews(a, b));
+  return [...fresh, ...list.filter((g) => pos.has(g.id)).sort((a, b) => pos.get(a.id) - pos.get(b.id))];
+}
+const wishByReviews = (a, b) => (recReview(b) ?? -1) - (recReview(a) ?? -1) || (a.rel.ts || Infinity) - (b.rel.ts || Infinity) || a.title.localeCompare(b.title);
+async function saveWishOrder(ids) {
+  state.wishOrder = ids;
+  renderWishlist();
+  try { await api("/api/wishlist/order", { method: "POST", body: { ids } }); } catch (e) { toast(e.message, true); }
+}
+// Moves a game within the whole order (games filtered out of view keep their places).
+function moveInWishOrder(id, targetId, after) {
+  const ids = wishOrdered(allWish().filter((g) => !g.isHidden || typesSel().includes("hidden"))).map((g) => g.id).filter((x) => x !== id);
+  let i = targetId == null ? (after ? ids.length : 0) : ids.indexOf(targetId) + (after ? 1 : 0);
+  if (i < 0) i = ids.length;
+  ids.splice(i, 0, id);
+  saveWishOrder(ids);
+}
+
+function wishCards(list, { ranked = false } = {}) {
+  return list.map((g, i) => `
+    <button class="card wcard" data-id="${g.id}" ${ranked ? `draggable="true"` : ""}>
       <div class="cover">
         ${coverHTML(g)}
         ${wishPills(g)}
@@ -845,7 +869,7 @@ function wishCards(list) {
         ${wishBadges(g)}
         ${playableBadges(g)}
       </div>
-      <div class="card-title">${esc(g.title)}</div>
+      <div class="card-title">${ranked ? `<span class="wrank">${i + 1}</span>` : ""}${esc(g.title)}</div>
       ${g.rel.state === "out"  // already out: no date, just the review score (if any)
         ? (recReview(g) != null ? `<div class="card-meta">${recScoreTag(g)} on ${g.steam_review_pct != null ? "Steam" : "OpenCritic"}</div>` : "")
         : `<div class="card-meta">${esc(wishWhen(g, { soonDays: true }))}</div>`}
@@ -875,10 +899,14 @@ function renderWishlist() {
   const counts = { steam: all.filter((g) => g.wish.stores.some((x) => x.store === "steam")).length,
     psn: all.filter((g) => g.wish.stores.some((x) => x.store === "psn")).length };
   const onSale = all.filter((g) => g.wish.sale && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))).length;
-  const groups = [["out", "Out now"], ["ea", "In early access"], ["soon", "Coming soon"], ["tba", "No date yet"]].map(([k, label]) => {
-    const gs = list.filter((g) => g.rel.state === k).sort(wishSorter(k));
-    return gs.length ? `<section class="wish-group"><h2 class="wish-h">${label} <span>${gs.length}</span></h2><div class="grid">${wishCards(gs)}</div></section>` : "";
-  }).join("");
+  const mine = p.wishSort === "mine";
+  const groups = mine
+    ? (list.length ? `<section class="wish-group wish-mine"><p class="source-note wish-mine-hint">Drag a cover to move it, or right-click › Move to top / Move to bottom. Games you add to a wishlist start at the top.</p>
+        <div class="grid">${wishCards(wishOrdered(list), { ranked: true })}</div></section>` : "")
+    : [["out", "Out now"], ["ea", "In early access"], ["soon", "Coming soon"], ["tba", "No date yet"]].map(([k, label]) => {
+      const gs = list.filter((g) => g.rel.state === k).sort(wishSorter(k));
+      return gs.length ? `<section class="wish-group"><h2 class="wish-h">${label} <span>${gs.length}</span></h2><div class="grid">${wishCards(gs)}</div></section>` : "";
+    }).join("");
   const seg = (v, label, n) => `<button data-wf="wishStore" data-v="${v}" class="${p.wishStore === v ? "on" : ""}" aria-pressed="${p.wishStore === v}">${label}${n != null ? ` <em>${n}</em>` : ""}</button>`;
   setHTML(el, `
     <div class="toolbar wish-toolbar">
@@ -888,7 +916,7 @@ function renderWishlist() {
         <button class="chip ${p.wishSale ? "on" : ""}" data-wf="sale" aria-pressed="${p.wishSale}">On sale <em>${onSale}</em></button>
         <label class="sort"><span>Sort by</span>
           <select id="wish-sort">
-            ${[["release", "Release date"], ["added", "Date added"], ["discount", "Biggest discount"], ["reviews", "Reviews"], ["title", "Title"]]
+            ${[["mine", "My order"], ["release", "Release date"], ["added", "Date added"], ["discount", "Biggest discount"], ["reviews", "Reviews"], ["title", "Title"]]
               .map(([k, l]) => `<option value="${k}" ${p.wishSort === k ? "selected" : ""}>${l}</option>`).join("")}
           </select></label>
         <input type="range" class="wish-size" min="120" max="260" step="10" value="${p.size}" aria-label="Cover size" title="Cover size">
@@ -3429,6 +3457,7 @@ async function reloadLibrary() {
   state.platforms = data.platforms;
   state.wishlistAt = data.wishlist_at;
   state.shelves = data.shelves || [];
+  state.wishOrder = data.wish_order || [];
   state.yearCache = {};  // Your year is worked out again from the new data
   const seen = new Map();
   for (const g of data.games) { const k = g.title.toLowerCase(); seen.set(k, (seen.get(k) || 0) + 1); }
@@ -3610,6 +3639,7 @@ function openMenu(id, x, y) {
     ${Object.entries(INTEREST).map(([k, label]) => `<button data-m="interest" data-v="${k}" class="${g.interest === k ? "on" : ""}">${g.interest === k ? "✓ " : ""}${label}</button>`).join("")}
     <hr>`}
     ${g.isWishOnly ? "" : `<button data-m="shelves">Add to shelf…</button>`}
+    ${g.wish && state.page === "wishlist" && state.prefs.wishSort === "mine" ? `<button data-m="wtop">Move to top</button><button data-m="wbottom">Move to bottom</button><hr>` : ""}
     <button data-m="art">Change art…</button>
     <button data-m="fix">${g.match_state === "none" ? "Identify game…" : "Fix match…"}</button>
     <button data-m="hide">${g.isHidden ? "Unhide" : "Hide"}</button>`;
@@ -3634,6 +3664,7 @@ $("#ctx").addEventListener("click", (e) => {
   if (!g) return;
   const m = b.dataset.m;
   if (m === "play") { playGame(id); return; }
+  if (m === "wtop" || m === "wbottom") { moveInWishOrder(id, null, m === "wbottom"); return; }
   if (m === "open") openGame(id);
   else if (m === "status") setStatus(id, b.dataset.v);
   else if (m === "interest") setInterest(id, b.dataset.v);
@@ -4046,4 +4077,36 @@ async function receiveUbisoft() {
   } catch (e) {
     toast(`Couldn't reach ${APP}. Start it again from its shortcut or the Start ${APP} file.`, true);
   }
+})();
+
+// Wishlist › My order: drag a cover onto another; a pink line shows which side it lands on.
+(() => {
+  const page = $("#page-wishlist");
+  let dragId = null;
+  const clear = () => $$("#page-wishlist .wcard").forEach((c) => c.classList.remove("ins-before", "ins-after", "dragging"));
+  page.addEventListener("dragstart", (e) => {
+    const card = e.target.closest(".wcard[draggable]");
+    if (!card) return;
+    dragId = Number(card.dataset.id);
+    card.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(dragId));
+  });
+  page.addEventListener("dragover", (e) => {
+    const card = e.target.closest(".wcard[draggable]");
+    if (!card || dragId == null) return;
+    e.preventDefault();
+    const r = card.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+    $$("#page-wishlist .wcard").forEach((c) => { if (c !== card) c.classList.remove("ins-before", "ins-after"); });
+    if (Number(card.dataset.id) !== dragId) { card.classList.toggle("ins-after", after); card.classList.toggle("ins-before", !after); }
+  });
+  page.addEventListener("drop", (e) => {
+    const card = e.target.closest(".wcard[draggable]");
+    if (!card || dragId == null) return;
+    e.preventDefault();
+    const target = Number(card.dataset.id), after = card.classList.contains("ins-after"), id = dragId;
+    dragId = null; clear();
+    if (target !== id) moveInWishOrder(id, target, after);
+  });
+  page.addEventListener("dragend", () => { dragId = null; clear(); });
 })();

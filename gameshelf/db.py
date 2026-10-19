@@ -348,6 +348,10 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("""CREATE TABLE IF NOT EXISTS catalog_links (
             service TEXT NOT NULL, item_id TEXT NOT NULL, game_id INTEGER NOT NULL, PRIMARY KEY (service, item_id))""")
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '21')")
+    if version < 22:
+        # Wishlist › Sort by › My order: your own ranking (Sunbeam can't change the stores' lists).
+        c.execute("CREATE TABLE IF NOT EXISTS wish_order (game_id INTEGER PRIMARY KEY, pos INTEGER NOT NULL)")
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '22')")
 
 
 @contextmanager
@@ -509,6 +513,9 @@ def merge_games(c: sqlite3.Connection, keep_id: int, drop_id: int) -> None:
             if str(ext).startswith(pre):
                 c.execute("INSERT OR REPLACE INTO catalog_links(service, item_id, game_id) VALUES (?, ?, ?)", (svc, str(ext)[len(pre):], keep_id))
     c.execute("UPDATE catalog_links SET game_id=? WHERE game_id=?", (keep_id, drop_id))
+    if not c.execute("SELECT 1 FROM wish_order WHERE game_id=?", (keep_id,)).fetchone():
+        c.execute("UPDATE wish_order SET game_id=? WHERE game_id=?", (keep_id, drop_id))  # its place in your wishlist order
+    c.execute("DELETE FROM wish_order WHERE game_id=?", (drop_id,))
     c.execute("UPDATE entries SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE sub_catalog SET game_id=? WHERE game_id=?", (keep_id, drop_id))
     c.execute("UPDATE wishlist SET game_id=? WHERE game_id=?", (keep_id, drop_id))
@@ -543,6 +550,7 @@ def delete_orphans(c: sqlite3.Connection) -> None:
     # (game ids can be reused, so nothing may point at a game that's gone)
     c.execute("DELETE FROM shelf_games WHERE game_id NOT IN (SELECT id FROM games)")
     c.execute("DELETE FROM installs WHERE game_id NOT IN (SELECT id FROM games)")
+    c.execute("DELETE FROM wish_order WHERE game_id NOT IN (SELECT id FROM games)")
 
 
 # ---------------------------------------------------------------- reads
