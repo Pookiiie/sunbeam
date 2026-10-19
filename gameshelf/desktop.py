@@ -126,6 +126,7 @@ def focus_window() -> bool:
 def open_window(url: str) -> None:
     """Show the app window: the one already open if there is one, else a new one."""
     if focus_window():
+        _set_window_icon_soon()  # a window left open from before (an update restarts the app)
         return
     exe = _browser()
     if not exe:
@@ -149,11 +150,17 @@ def open_window(url: str) -> None:
     _set_window_icon_soon()
 
 
+_icon_keeper: threading.Thread | None = None
+
+
 def _set_window_icon_soon() -> None:
     """Give the app window Sunbeam's own .ico (all its sizes), so the taskbar and Alt+Tab
     show a sharp icon: on its own the window only has the page's small favicon, scaled up.
-    Done a few times as the window appears, since the browser sets its own icon once the page loads."""
-    if not is_windows() or not ICON_ICO.exists():
+    The browser puts that favicon back whenever the page's address changes (switching tabs
+    does), so one thread keeps watching the window for as long as the app runs and sets ours
+    again within half a second."""
+    global _icon_keeper
+    if not is_windows() or not ICON_ICO.exists() or (_icon_keeper and _icon_keeper.is_alive()):
         return
 
     def run():
@@ -161,20 +168,40 @@ def _set_window_icon_soon() -> None:
             import ctypes
             user32 = ctypes.windll.user32  # type: ignore[attr-defined]
             user32.LoadImageW.restype = ctypes.c_void_p
-            user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+            user32.SendMessageTimeoutW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p,
+                                                   ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_size_t)]
+            user32.IsWindow.argtypes = [ctypes.c_void_p]
             # larger than the 32 / 16 px Windows asks for at 100%, so scaled displays get a sharp one too
             big = user32.LoadImageW(None, str(ICON_ICO), 1, 64, 64, 0x10)    # IMAGE_ICON, LR_LOADFROMFILE
-            small = user32.LoadImageW(None, str(ICON_ICO), 1, 32, 32, 0x10)
+            small = user32.LoadImageW(None, str(ICON_ICO), 1, 32, 32, 0x10) or big
             if not big:
                 return
-            for wait in (1, 1, 2, 3, 5, 8):
-                time.sleep(wait)
-                for hwnd in _find_window(every=True) or []:
-                    user32.SendMessageW(hwnd, 0x0080, 1, big)          # WM_SETICON, ICON_BIG
-                    user32.SendMessageW(hwnd, 0x0080, 0, small or big)  # ICON_SMALL
+            want = {1: big, 0: small}  # ICON_BIG, ICON_SMALL
+
+            def send(hwnd, msg, wparam, lparam):
+                # with a timeout: a busy or hung window must not stall this thread
+                out = ctypes.c_size_t(0)
+                ok = user32.SendMessageTimeoutW(hwnd, msg, wparam, lparam, 0x2, 300, ctypes.byref(out))  # SMTO_ABORTIFHUNG
+                return out.value if ok else None
+
+            windows: list = []
+            last_look = 0.0
+            while True:
+                now = time.time()
+                if not windows or now - last_look > 3:
+                    windows = _find_window(every=True) or []
+                    last_look = now
+                for hwnd in windows:
+                    if not user32.IsWindow(hwnd):
+                        continue
+                    for which, icon in want.items():
+                        if send(hwnd, 0x007F, which, 0) != icon:              # WM_GETICON
+                            send(hwnd, 0x0080, which, icon)                     # WM_SETICON
+                time.sleep(0.5)
         except Exception:
             pass
-    threading.Thread(target=run, daemon=True, name="window-icon").start()
+    _icon_keeper = threading.Thread(target=run, daemon=True, name="window-icon")
+    _icon_keeper.start()
 
 
 def open_external(url: str) -> None:

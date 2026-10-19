@@ -1116,6 +1116,27 @@ const ACTION_ICON = {
   refresh: svgIcon('<path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4"/>'),
 };
 
+// The right-click menu's icons: the game page's set plus a few more, same line style.
+const MENU_ICON = {
+  open: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle class="dot" cx="12" cy="7.8" r="1.2"/>'),
+  play: svgIcon('<path d="M8 5.5v13l10.5-6.5z"/>'),
+  completed: STATUS_ICON.completed,
+  dnf: STATUS_ICON.dnf,
+  unmarked: svgIcon('<circle cx="12" cy="12" r="8.5" stroke-dasharray="3 3"/>'),
+  more: svgIcon('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  less: svgIcon('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  skip: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+  shelf: svgIcon('<path d="M4 20h16M6 16V5M10 16V7M14.5 16.2l-1.9-8.7M18 16V6"/>'),
+  top: svgIcon('<path d="M5 4h14M12 20V9M7 13l5-5 5 5"/>'),
+  bottom: svgIcon('<path d="M5 20h14M12 4v11M7 11l5 5 5-5"/>'),
+  art: ACTION_ICON.art,
+  fix: ACTION_ICON.fix,
+  identify: svgIcon('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.4-4.4"/>'),
+  hide: ACTION_ICON.hide,
+  unhide: svgIcon('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>'),
+  check: STATUS_ICON.completed,
+};
+
 const badgesHTML = (g) => g.platforms.map(platformBadge).join("") + interestMark(g);
 
 function renderGrid(list) {
@@ -3635,20 +3656,22 @@ function openMenu(id, x, y) {
   state.menuY = scrollY;
   const st = g.status || "";
   const m = $("#ctx");
+  const item = (m, icon, label, extra = "", on = false) =>
+    `<button data-m="${m}" ${extra} class="${on ? "on" : ""}">${MENU_ICON[icon] || ""}<span>${label}</span>${on ? MENU_ICON.check.replace('class="ico"', 'class="ico now"') : ""}</button>`;
   m.innerHTML = `
     <div class="ctx-title">${esc(g.title)}</div>
-    <button data-m="open">Open</button>
-    ${g.canPlay ? `<button data-m="play">Play</button>` : ""}
+    ${item("open", "open", "Open")}
+    ${g.canPlay ? item("play", "play", "Play") : ""}
     <hr>
-    ${g.isWishOnly ? "" : `${["completed", "dnf", ""].map((s) => `<button data-m="status" data-v="${s}" class="${st === s ? "on" : ""}">${st === s ? "✓ " : ""}${s === "" ? "Not marked" : statusLabel(s)}</button>`).join("")}
+    ${g.isWishOnly ? "" : `${["completed", "dnf", ""].map((s) => item("status", s || "unmarked", s === "" ? "Not marked" : statusLabel(s), `data-v="${s}"`, st === s)).join("")}
     <hr>
-    ${Object.entries(INTEREST).map(([k, label]) => `<button data-m="interest" data-v="${k}" class="${g.interest === k ? "on" : ""}">${g.interest === k ? "✓ " : ""}${label}</button>`).join("")}
+    ${Object.entries(INTEREST).map(([k, label]) => item("interest", k, label, `data-v="${k}"`, g.interest === k)).join("")}
     <hr>`}
-    ${g.isWishOnly ? "" : `<button data-m="shelves">Add to shelf…</button>`}
-    ${g.wish && state.page === "wishlist" && state.prefs.wishSort === "mine" ? `<button data-m="wtop">Move to top</button><button data-m="wbottom">Move to bottom</button><hr>` : ""}
-    <button data-m="art">Change art…</button>
-    <button data-m="fix">${g.match_state === "none" ? "Identify game…" : "Fix match…"}</button>
-    <button data-m="hide">${g.isHidden ? "Unhide" : "Hide"}</button>`;
+    ${g.isWishOnly ? "" : item("shelves", "shelf", "Add to shelf…")}
+    ${g.wish && state.page === "wishlist" && state.prefs.wishSort === "mine" ? `${item("wtop", "top", "Move to top")}${item("wbottom", "bottom", "Move to bottom")}<hr>` : ""}
+    ${item("art", "art", "Change art…")}
+    ${g.match_state === "none" ? item("fix", "identify", "Identify game…") : item("fix", "fix", "Fix match…")}
+    ${g.isHidden ? item("hide", "unhide", "Unhide") : item("hide", "hide", "Hide")}`;
   m.hidden = false;
   const r = m.getBoundingClientRect();
   m.style.left = Math.min(x, innerWidth - r.width - 8) + "px";

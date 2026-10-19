@@ -551,6 +551,12 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 }
 .ctx-title { padding: 6px 10px 8px; font-weight: 600; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctx button { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; background: none; border-radius: var(--radius-s); cursor: pointer; font-size: 14px; }
+.ctx button[data-m] { display: flex; align-items: center; gap: 10px; }
+.ctx button[data-m] > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx button[data-m] .ico { color: var(--muted); }
+.ctx button[data-m]:hover .ico, .ctx button[data-m]:focus-visible .ico { color: var(--text); }
+.ctx button.on .ico, .ctx button.on:hover .ico { color: var(--accent); }
+.ctx button[data-m] .ico.now { width: 14px; height: 14px; margin-left: 4px; }
 .ctx button:hover, .ctx button:focus-visible { background: var(--ink-3); outline: none; }
 .ctx button.on { color: var(--accent); }
 .ctx hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }
