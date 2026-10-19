@@ -4012,7 +4012,9 @@ async function receiveUbisoft() {
   try {
     const res = await api("/api/ubisoft/link", { method: "POST", body: { payload } });
     await loadSettings();
-    toast(`Ubisoft Connect linked${res.name ? ` as ${res.name}` : ""}: ${res.games} games. Adding them now…`);
+    toast(res.remember ? `Ubisoft Connect linked${res.name ? ` as ${res.name}` : ""}: ${res.games} games. Adding them now…`
+      : `Ubisoft Connect linked for today only: Ubisoft didn't hand over a "stay signed in" pass, so later syncs can't refresh by themselves. `
+        + `Sign out on connect.ubisoft.com, sign in again with Remember me ticked, then click the bookmark again.`, !res.remember);
     if (!state.sync?.running) {
       state.sync = await api("/api/sync", { method: "POST", body: { sources: ["ubisoft"] } });
       startPolling();
