@@ -21,7 +21,7 @@
   --accent-ink: #2b0a18;   /* text on the accent */
   --error: #ff6b5e;
   --done: #74d6a0;         /* completed */
-  --dnf: #a69fbf;          /* did not finish: neutral, not a failure */
+  --dnf: #a69fbf;          /* will not finish (WNF): neutral, not a failure */
   --s-great: #5fd68f; --s-good: #a9d96b; --s-mixed: #f2c84e; --s-meh: #f59f55; --s-poor: #ff6b5e;
   --radius-s: 6px;
   --radius-m: 10px;

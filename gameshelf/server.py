@@ -59,7 +59,7 @@ def patch_game(req, body, query, game_id):
         if "status" in body:
             status = body["status"] or ""
             if status not in ("", "completed", "dnf"):
-                raise ApiError(400, "Status must be completed, dnf or empty.")
+                raise ApiError(400, "Status must be completed, dnf (will not finish) or empty.")
             c.execute("UPDATE games SET status=?, status_at=?, status_manual=1, status_auto=NULL WHERE id=?",
                       (status, db.now() if status else None, gid))
         if "restore_status" in body:
@@ -67,7 +67,7 @@ def patch_game(req, body, query, game_id):
             r = body["restore_status"] or {}
             status = r.get("status") or ""
             if status not in ("", "completed", "dnf"):
-                raise ApiError(400, "Status must be completed, dnf or empty.")
+                raise ApiError(400, "Status must be completed, dnf (will not finish) or empty.")
             at, manual, auto = r.get("status_at"), r.get("status_manual"), r.get("status_auto")
             c.execute("UPDATE games SET status=?, status_at=?, status_manual=?, status_auto=? WHERE id=?",
                       (status, int(at) if isinstance(at, (int, float)) else None,

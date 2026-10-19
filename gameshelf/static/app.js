@@ -411,7 +411,7 @@ function visibleGames() {
 //                 when Steam has few reviews; no score at all counts as middling (60);
 //   time 30%    — fewer hours to the credits is more inviting (5 h or less is best);
 //   your say    — "Keen" +10, "Meh" −10, "Skip" leaves it out.
-// Completed, did-not-finish, hidden and open-ended games aren't suggested.
+// Completed, will-not-finish, hidden and open-ended games aren't suggested.
 const INTEREST = { more: "Keen", less: "Meh", skip: "Skip" };
 // Thumbs up / down and a skip mark, drawn in the same line style as the other icons
 // (svgIcon is defined further down; these are only used once the page runs).
@@ -1110,7 +1110,7 @@ const steamClass = (g) => STEAM_DESC[(g.steam_review_desc || "").toLowerCase()] 
 function scoreHTML(v, empty = "—", cls = null) {
   return v == null || v === 0 ? empty : `<span class="score ${cls || scoreClass(v)}">${Math.round(v)}%</span>`;
 }
-const statusLabel = (s) => ({ completed: "Completed", dnf: "Did not finish" }[s] || "Not marked");
+const statusLabel = (s) => ({ completed: "Completed", dnf: "Will not finish" }[s] || "Not marked");
 // Little icons on the game page's controls (drawn here, in the text colour).
 const svgIcon = (d) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const STATUS_ICON = { "": "", completed: svgIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'), dnf: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>') };
@@ -1154,7 +1154,7 @@ function renderGrid(list) {
         ${g.isHidden ? `<span class="stamp hidden-stamp">Hidden</span>` : ""}
         ${subPill(g)}
         ${g.isEA ? eaPill(g).replace('class="ea-pill"', `class="ea-pill corner${subPill(g) ? " below" : ""}"`) : ""}
-        ${g.status === "completed" ? `<span class="stamp completed check" title="Completed" aria-label="Completed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>` : g.status === "dnf" ? `<span class="stamp dnf" title="Did not finish">DNF</span>` : ""}
+        ${g.status === "completed" ? `<span class="stamp completed check" title="Completed" aria-label="Completed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>` : g.status === "dnf" ? `<span class="stamp dnf" title="Will not finish">WNF</span>` : ""}
         <div class="badges">${badgesHTML(g)}</div>
         ${instMark(g)}
       </div>
@@ -1213,7 +1213,7 @@ function renderStats() {
 
 // Each filter is a dropdown chip above the covers. Changes apply at once; a pink tag per
 // active filter clears it in one click. In a menu, tick boxes to combine, or "only" for one.
-const STATUS_NAMES = { "": "Not marked", completed: "Completed", dnf: "Did not finish" };
+const STATUS_NAMES = { "": "Not marked", completed: "Completed", dnf: "Will not finish" };
 const PLAYED_NAMES = { played: "Played", never: "Never played" };
 const SUBTAG_NAMES = { new: "Recently added", leaving: "Leaving soon" };
 const INSTALLED_NAMES = { yes: "Installed", no: "Not installed" };
@@ -1763,7 +1763,7 @@ async function setStatus(id, status) {
   const prev = g0 && { status: g0.status || "", status_at: g0.status_at ?? null, status_manual: g0.status_manual ?? null, status_auto: g0.status_auto ?? null };
   try {
     await patchGame(id, { status });
-    toast(status === "completed" ? "Marked completed" : status === "dnf" ? "Marked as did not finish" : "Status cleared", false,
+    toast(status === "completed" ? "Marked completed" : status === "dnf" ? "Marked as will not finish" : "Status cleared", false,
       prev ? () => undoPatch(id, { restore_status: prev }, "Status put back") : null);
   } catch (e) { toast(e.message, true); }
 }
@@ -2083,7 +2083,7 @@ function openAdd() {
     </div>
     <div class="row">
       <label class="field"><span>Last played</span><input type="date" id="add-last"></label>
-      <label class="field"><span>Status</span><select id="add-status"><option value="">Not marked</option><option value="completed">Completed</option><option value="dnf">Did not finish</option></select></label>
+      <label class="field"><span>Status</span><select id="add-status"><option value="">Not marked</option><option value="completed">Completed</option><option value="dnf">Will not finish</option></select></label>
     </div>
     <div class="dialog-actions"><button class="btn ghost" data-close-dialog>Cancel</button><button class="btn" id="add-save">Add to library</button></div>`;
   if (igdbReady()) {

@@ -2,7 +2,7 @@
 
 Two tables:
   games    one row per *game* (merged across platforms), holds metadata, art and
-           your personal status (completed / DNF), notes.
+           your personal status (completed / will not finish, stored as dnf), notes.
   entries  one row per *copy on a platform* (your Steam copy, your PS5 copy, a
            manually added Switch 2 copy), holds playtime and last played.
 """
