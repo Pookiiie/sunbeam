@@ -69,7 +69,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   border-bottom: 1px solid rgba(51,45,69,.6);
 }
 .brand { display: flex; align-items: center; gap: 10px; font: 700 20px/1 var(--display); letter-spacing: -.01em; }
-.brand-mark { width: 26px; height: 26px; fill: var(--accent); stroke: none; }
+.brand-mark { width: 28px; height: 28px; display: block; }
 .search {
   display: flex; align-items: center; gap: 10px; padding: 0 12px; height: 40px;
   background: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; color: var(--muted);

@@ -1,3 +1,4 @@
-Test build 13 of Sunbeam 1.3 (Beta).
+Test build 14 of Sunbeam 1.3 (Beta).
 
-- **Wishlist section bar.** Out now, In early access, Coming soon and No date yet, with their counts, in a bar that stays at the top while you scroll. Click one to jump to it; the section you're looking at is lit.
+- **A new icon:** a sun rising over a controller, its rays fanning out and its light catching the controller's edge. It's in the header, the window, the taskbar, the tray and the shortcuts. (Windows sometimes keeps showing the old picture on existing shortcuts for a while; it catches up on its own.)
+- **No gap between the header and the Wishlist section bar** on scaled displays.

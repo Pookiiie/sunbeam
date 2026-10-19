@@ -1,1 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><g fill="#ff5c9e"><rect x="4" y="6" width="6" height="20" rx="1.5"/><rect x="12" y="4" width="6" height="22" rx="1.5"/><rect x="20.5" y="7" width="6" height="19" rx="1.5" transform="rotate(8 23.5 16.5)"/><rect x="2" y="27" width="28" height="2.5" rx="1.25"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 2 60 60">
+  <defs>
+    <linearGradient id="sb-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22174d"/><stop offset=".55" stop-color="#a8307a"/><stop offset="1" stop-color="#ff8a5c"/></linearGradient>
+    <linearGradient id="sb-sun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe066"/><stop offset="1" stop-color="#ff8a3d"/></linearGradient>
+    <radialGradient id="sb-glow" cx=".5" cy=".62" r=".5"><stop offset="0" stop-color="#ffd27a" stop-opacity=".75"/><stop offset="1" stop-color="#ffd27a" stop-opacity="0"/></radialGradient>
+    <clipPath id="sb-tile"><rect x="2" y="2" width="60" height="60" rx="14"/></clipPath>
+  </defs>
+  <g clip-path="url(#sb-tile)">
+    <rect x="2" y="2" width="60" height="60" fill="url(#sb-sky)"/>
+    <g fill="#ffd27a" opacity=".22" transform="translate(32 40)">
+      <path d="M0 0L-40 -30L-30 -40z"/><path d="M0 0L-12 -48L0 -50z"/><path d="M0 0L12 -48L22 -46z"/><path d="M0 0L36 -36L44 -26z"/><path d="M0 0L-44 -10L-46 -2z"/>
+    </g>
+    <circle cx="32" cy="40" r="20" fill="url(#sb-glow)"/>
+    <circle cx="32" cy="39" r="11" fill="url(#sb-sun)"/>
+    <path d="M6 48c0-4.5 3.5-7.5 8-7.5h36c4.5 0 8 3 8 7.5v8a6 6 0 0 1-6 6H12a6 6 0 0 1-6-6z" fill="#1b1326"/>
+    <path d="M7 46.5c.6-3.6 3.6-6 7-6h36c3.4 0 6.4 2.4 7 6" fill="none" stroke="#ffd27a" stroke-width="2" stroke-linecap="round"/>
+    <path d="M15 46v6M12 49h6" stroke="#ff9c7a" stroke-width="2.4" stroke-linecap="round"/>
+    <circle cx="46" cy="47" r="1.8" fill="#ff9c7a"/><circle cx="50" cy="51" r="1.8" fill="#ff9c7a"/>
+  </g>
+</svg>

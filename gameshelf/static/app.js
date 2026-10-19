@@ -4142,6 +4142,8 @@ addEventListener("scroll", () => {
   wishJumpTick = true;
   requestAnimationFrame(() => { wishJumpTick = false; markWishJump(); });
 }, { passive: true });
-new MutationObserver(() => { markWishJump(); document.documentElement.style.setProperty("--topbar-h", ($(".topbar")?.offsetHeight || 68) + "px"); })
-  .observe($("#wishlist"), { childList: true });
-addEventListener("resize", () => document.documentElement.style.setProperty("--topbar-h", ($(".topbar")?.offsetHeight || 68) + "px"));
+// Where the header ends (fractional on scaled displays: rounded down and overlapped by a pixel so no gap shows).
+const setTopbarH = () => document.documentElement.style.setProperty("--topbar-h", Math.max(0, Math.floor($(".topbar")?.getBoundingClientRect().height || 68) - 1) + "px");
+new MutationObserver(() => { markWishJump(); setTopbarH(); }).observe($("#wishlist"), { childList: true });
+addEventListener("resize", setTopbarH);
+setTopbarH();
