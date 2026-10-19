@@ -388,6 +388,8 @@ function visibleGames() {
     added_at: (g) => g.added_at,
     // Curator's score; games you've started get a small lead.
     recommended: (g) => { const sc = recScore(g); return sc == null ? null : sc + (g.neverPlayed ? 0 : 5); },
+    // Curator mark: More interested, Default, Less interested, Not right now (then by title)
+    interest: (g) => ({ more: 3, "": 2, less: 1, skip: 0 })[g.interest || ""],
   }[key] || ((g) => g.title);
   const dir = p.dir === "asc" ? 1 : -1;
   list.sort((a, b) => {
@@ -1158,8 +1160,8 @@ const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", 
 const anyInstalled = () => state.games.some((g) => g.canPlay);
 const shelfName = (id) => (state.shelves || []).find((s) => s.id === id)?.name || "";
 // Curator: what you told Curator about a game ("" = nothing).
-const INTEREST_KEYS = ["more", "less", "skip", ""];
-const INTEREST_FILTER_NAMES = { more: "More interested", less: "Less interested", skip: "Not right now", "": "Not marked" };
+const INTEREST_KEYS = ["more", "", "less", "skip"];
+const INTEREST_FILTER_NAMES = { more: "More interested", "": "Default", less: "Less interested", skip: "Not right now" };
 // Type: every game is one of these (a hidden game counts as Hidden, then VR, then early access).
 const TYPE_NAMES = { regular: "Regular games", ea: "Early access", vr: "VR", hidden: "Hidden" };
 const gameType = (g) => g.isHidden ? "hidden" : g.vr ? "vr" : g.isEA ? "ea" : "regular";

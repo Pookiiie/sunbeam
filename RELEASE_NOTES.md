@@ -1,3 +1,4 @@
-Test build 10 of Sunbeam 1.3 (Beta).
+Test build 11 of Sunbeam 1.3 (Beta).
 
-- **The sync's "couldn't be identified" count is right now.** It counts only the games that sync couldn't place, and leaves out hidden ones (betas, demos, tools and games you hid), like the Unidentified games window does. Before, it counted every unidentified game in your library, hidden ones included.
+- **Curator filter:** "Not marked" is now **Default**, listed between More interested and Less interested.
+- **Sort › Curator mark:** More interested first, then Default, Less interested and Not right now (reverse it with the arrows button).
