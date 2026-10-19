@@ -388,7 +388,7 @@ function visibleGames() {
     added_at: (g) => g.added_at,
     // Curator's score; games you've started get a small lead.
     recommended: (g) => { const sc = recScore(g); return sc == null ? null : sc + (g.neverPlayed ? 0 : 5); },
-    // Curator mark: More interested, Default, Less interested, Not right now (then by title)
+    // Curator mark: Keen, Default, Meh, Skip (then by title)
     interest: (g) => ({ more: 3, "": 2, less: 1, skip: 0 })[g.interest || ""],
   }[key] || ((g) => g.title);
   const dir = p.dir === "asc" ? 1 : -1;
@@ -410,9 +410,17 @@ function visibleGames() {
 //   reviews 70% — Steam's rating leads (70/30 with OpenCritic), leaning on OpenCritic
 //                 when Steam has few reviews; no score at all counts as middling (60);
 //   time 30%    — fewer hours to the credits is more inviting (5 h or less is best);
-//   your say    — "More interested" +10, "Less interested" −10, "Not right now" leaves it out.
+//   your say    — "Keen" +10, "Meh" −10, "Skip" leaves it out.
 // Completed, did-not-finish, hidden and open-ended games aren't suggested.
-const INTEREST = { more: "More interested", less: "Less interested", skip: "Not right now" };
+const INTEREST = { more: "Keen", less: "Meh", skip: "Skip" };
+// Thumbs up / down and a skip mark, drawn in the same line style as the other icons
+// (svgIcon is defined further down; these are only used once the page runs).
+const THUMB = '<path d="M7 10.5V20H4.5a1 1 0 0 1-1-1v-7.5a1 1 0 0 1 1-1zM7 10.5l3.6-6.6a1.9 1.9 0 0 1 3.5 1.3L13.4 9h5.1a2 2 0 0 1 2 2.4l-1.4 6.9A2.2 2.2 0 0 1 17 20H7"/>';
+const INTEREST_ICON = {
+  more: (c = "ico") => `<svg class="${c}" viewBox="0 0 24 24" aria-hidden="true">${THUMB}</svg>`,
+  less: (c = "ico") => `<svg class="${c}" viewBox="0 0 24 24" aria-hidden="true"><g transform="matrix(1 0 0 -1 0 24)">${THUMB}</g></svg>`,
+  skip: (c = "ico") => `<svg class="${c}" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 5.5v13l9-6.5zM18.5 5.5v13"/></svg>`,
+};
 const INTEREST_NUDGE = { more: 10, less: -10 };
 
 // Not played for over a year: you'd start over, so the whole game counts, not what's left.
@@ -690,9 +698,8 @@ function recShort(g) {
   return bits.join(" · ");
 }
 
-const interestMark = (g) => g.interest === "more" ? `<span class="imark more" title="More interested">▲</span>`
-  : g.interest === "less" ? `<span class="imark less" title="Less interested">▼</span>`
-  : g.interest === "skip" ? `<span class="imark skip" title="Not right now">zz</span>` : "";
+const interestMark = (g) => INTEREST_ICON[g.interest]
+  ? `<span class="imark ${g.interest}" title="${INTEREST[g.interest]}">${INTEREST_ICON[g.interest]("ico")}</span>` : "";
 
 async function setInterest(id, v) {
   const g0 = byId(id);
@@ -1082,7 +1089,7 @@ function cardMeta(g) {
     case "critic_score": return g.critic ? `OpenCritic ${Math.round(g.critic)}%` : "No OpenCritic score";
     case "steam_review_pct": return g.steam_review_pct != null ? `${Math.round(g.steam_review_pct)}% positive on Steam` : "No Steam reviews";
     case "added_at": return `Added ${relDate(g.added_at).toLowerCase()}`;
-    case "recommended": return recScore(g) != null ? recReason(g) : g.interest === "skip" ? "Not right now" : "Not suggested";
+    case "recommended": return recScore(g) != null ? recReason(g) : g.interest === "skip" ? "Skipped" : "Not suggested";
     default: return g.last_played ? relDate(g.last_played) : (g.playtime_min ? `${fmtHours(g.played_h)}, date unknown` : "Not played");
   }
 }
@@ -1107,7 +1114,7 @@ const statusLabel = (s) => ({ completed: "Completed", dnf: "Did not finish" }[s]
 // Little icons on the game page's controls (drawn here, in the text colour).
 const svgIcon = (d) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const STATUS_ICON = { "": "", completed: svgIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'), dnf: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>') };
-const INTEREST_SHORT = { more: `<span aria-hidden="true">▲</span> More`, less: `<span aria-hidden="true">▼</span> Less`, skip: "Not now" };
+const INTEREST_SHORT = { more: INTEREST_ICON.more() + "Keen", less: INTEREST_ICON.less() + "Meh", skip: INTEREST_ICON.skip() + "Skip" };
 const ACTION_ICON = {
   more: svgIcon('<circle class="dot" cx="5" cy="12" r="1.7"/><circle class="dot" cx="12" cy="12" r="1.7"/><circle class="dot" cx="19" cy="12" r="1.7"/>'),
   fix: svgIcon('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>'),
@@ -1123,9 +1130,9 @@ const MENU_ICON = {
   completed: STATUS_ICON.completed,
   dnf: STATUS_ICON.dnf,
   unmarked: svgIcon('<circle cx="12" cy="12" r="8.5" stroke-dasharray="3 3"/>'),
-  more: svgIcon('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  less: svgIcon('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  skip: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+  more: INTEREST_ICON.more(),
+  less: INTEREST_ICON.less(),
+  skip: INTEREST_ICON.skip(),
   shelf: svgIcon('<path d="M4 20h16M6 16V5M10 16V7M14.5 16.2l-1.9-8.7M18 16V6"/>'),
   top: svgIcon('<path d="M5 4h14M12 20V9M7 13l5-5 5 5"/>'),
   bottom: svgIcon('<path d="M5 20h14M12 4v11M7 11l5 5 5-5"/>'),
@@ -1216,7 +1223,7 @@ const anyInstalled = () => state.games.some((g) => g.canPlay);
 const shelfName = (id) => (state.shelves || []).find((s) => s.id === id)?.name || "";
 // Curator: what you told Curator about a game ("" = nothing).
 const INTEREST_KEYS = ["more", "", "less", "skip"];
-const INTEREST_FILTER_NAMES = { more: "More interested", "": "Default", less: "Less interested", skip: "Not right now" };
+const INTEREST_FILTER_NAMES = { more: "Keen", "": "Default", less: "Meh", skip: "Skip" };
 // Type: every game is one of these (a hidden game counts as Hidden, then VR, then early access).
 const TYPE_NAMES = { regular: "Regular games", ea: "Early access", vr: "VR", hidden: "Hidden" };
 const gameType = (g) => g.isHidden ? "hidden" : g.vr ? "vr" : g.isEA ? "ea" : "regular";

@@ -655,7 +655,9 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
   background: rgba(14,12,20,.42); backdrop-filter: blur(2px); color: #fff; }
 .imark.more { color: #ffb0cf; }
 .imark.less { color: var(--muted); }
-.imark.skip { color: var(--muted); letter-spacing: .04em; font-size: 9.5px; }
+.imark.skip { color: var(--muted); }
+.imark .ico { width: 12px; height: 12px; stroke-width: 2.2; }
+.interest-picker .ico { width: 14px; height: 14px; }
 .bookmarklet { cursor: grab; margin-left: 4px; vertical-align: middle; }
 .fact-link { color: inherit; text-decoration: underline; text-decoration-color: rgba(255,92,158,.6); text-underline-offset: 2px; }
 .fact-link:hover { color: var(--accent); }

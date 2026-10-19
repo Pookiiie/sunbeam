@@ -278,7 +278,7 @@ def _migrate(c: sqlite3.Connection) -> None:
     if version < 13:
         cols = {r[1] for r in c.execute("PRAGMA table_info(games)")}
         if "interest" not in cols:
-            # For Curator: 'more', 'less', 'skip' (not right now) or NULL.
+            # For Curator: 'more', 'less', 'skip' (shown as Keen, Meh, Skip) or NULL.
             c.execute("ALTER TABLE games ADD COLUMN interest TEXT")
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '13')")
     if version < 14:
