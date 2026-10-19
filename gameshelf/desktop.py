@@ -145,6 +145,36 @@ def open_window(url: str) -> None:
         ], creationflags=NO_WINDOW, close_fds=True)
     except OSError:
         webbrowser.open(url)
+        return
+    _set_window_icon_soon()
+
+
+def _set_window_icon_soon() -> None:
+    """Give the app window Sunbeam's own .ico (all its sizes), so the taskbar and Alt+Tab
+    show a sharp icon: on its own the window only has the page's small favicon, scaled up.
+    Done a few times as the window appears, since the browser sets its own icon once the page loads."""
+    if not is_windows() or not ICON_ICO.exists():
+        return
+
+    def run():
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            user32.LoadImageW.restype = ctypes.c_void_p
+            user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+            # larger than the 32 / 16 px Windows asks for at 100%, so scaled displays get a sharp one too
+            big = user32.LoadImageW(None, str(ICON_ICO), 1, 64, 64, 0x10)    # IMAGE_ICON, LR_LOADFROMFILE
+            small = user32.LoadImageW(None, str(ICON_ICO), 1, 32, 32, 0x10)
+            if not big:
+                return
+            for wait in (1, 1, 2, 3, 5, 8):
+                time.sleep(wait)
+                for hwnd in _find_window(every=True) or []:
+                    user32.SendMessageW(hwnd, 0x0080, 1, big)          # WM_SETICON, ICON_BIG
+                    user32.SendMessageW(hwnd, 0x0080, 0, small or big)  # ICON_SMALL
+        except Exception:
+            pass
+    threading.Thread(target=run, daemon=True, name="window-icon").start()
 
 
 def open_external(url: str) -> None:
