@@ -3208,7 +3208,7 @@ function timelineHTML(items) {
 
 function syncPreview() {
   const picked = $$("input[name=src]:checked", $("#sync-body")).map((i) => i.value);
-  const names = { steam: "Steam", playstation: "PlayStation", epic: "Epic Games Store", xbox: "Xbox", ubisoft: "Ubisoft Connect", battlenet: "Battle.net" };
+  const names = Object.fromEntries(syncSources().map((x) => [x.id, x.name]));  // one list, so a new store can't be missed
   const est = state.settings?.settings || {};
   const igdb = est.igdb_client_id && est.igdb_client_secret?.set;
   const items = [
