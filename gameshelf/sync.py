@@ -703,8 +703,9 @@ def _match(refresh: bool, scope: str, args):
 
 
 # The page's own rule for "not really a game" (app.js NOT_A_GAME): hidden unless you said otherwise.
-NOT_A_GAME = re.compile(r"\b(play ?test|(open|closed|public|early access) beta|beta( version| test)?$|public test|"
-                        r"test server|demo|dedicated server|sdk|soundtrack|benchmark)\b", re.I)
+NOT_A_GAME = re.compile(r"\b(play ?test|(open|closed|public|online|early access) beta|beta( version| test)?$|public test|"
+                        r"test server|demo|dedicated server|sdk|soundtrack|benchmark|expansion pass|season pass|redkit|"
+                        r"mod ?(kit|tools)|modding tools|level editor|art ?book)\b|\((open |closed |public |online )?beta\)", re.I)
 
 
 def _visible_unmatched(ids: list[int]) -> int:

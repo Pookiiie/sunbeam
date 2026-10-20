@@ -86,10 +86,16 @@ def _spend_locked(search: bool) -> None:
         raise BudgetSpent()
     if search and (b["stop_searches"] or b["searches"] >= DAILY_SEARCHES):
         raise BudgetSpent(searches_only=True)
+    new_day = _meta().get("oc_day") != b["day"]
     b["requests"] += 1
     if search:
         b["searches"] += 1
-    _save(day=b["day"], requests=b["requests"], searches=b["searches"])
+    if new_day:
+        # A new (UTC) day starts with a clean slate: yesterday's "paused" note must not carry over.
+        # (It used to: the day changed, the old note stayed, and lookups stopped after the first one.)
+        _save(day=b["day"], requests=b["requests"], searches=b["searches"], stop="", stop_searches="")
+    else:
+        _save(day=b["day"], requests=b["requests"], searches=b["searches"])
 
 
 def _obey_headers(headers) -> None:

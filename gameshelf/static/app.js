@@ -207,7 +207,8 @@ function autoEndless(g) {
 }
 
 // Not really games: playtests, betas, demos, test servers, tools.
-const NOT_A_GAME = /\b(play ?test|(open|closed|public|early access) beta|beta( version| test)?$|public test|test server|demo|dedicated server|sdk|soundtrack|benchmark)\b/i;
+// Playtests, betas, demos, servers, tools and add-on passes: in the library but hidden unless you say otherwise.
+const NOT_A_GAME = /\b(play ?test|(open|closed|public|online|early access) beta|beta( version| test)?$|public test|test server|demo|dedicated server|sdk|soundtrack|benchmark|expansion pass|season pass|redkit|mod ?(kit|tools)|modding tools|level editor|art ?book)\b|\((open |closed |public |online )?beta\)/i;
 const autoHidden = (g) => NOT_A_GAME.test(g.title) || (g.entries || []).some((e) => NOT_A_GAME.test(e.name || ""));
 
 // VR games: IGDB's "Virtual Reality" perspective on a game that only exists on PC and
