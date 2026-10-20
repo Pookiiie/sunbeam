@@ -2630,7 +2630,7 @@ SERVICES.push({
   steps: [
     `Create a free account at <a href="https://rapidapi.com" target="_blank" rel="noopener">rapidapi.com</a>.`,
     `Open the <a href="https://rapidapi.com/opencritic-opencritic-default/api/opencritic-api/pricing" target="_blank" rel="noopener">OpenCritic API</a> and subscribe to the free <b>Basic</b> plan.`,
-    `Copy your <b>X-RapidAPI-Key</b> from the API's page and paste it below. ${APP} stays well inside the free plan: at most 140 lookups a day, and it stops early if RapidAPI reports that less than a quarter of your allowance is left. A big library fills in over a few days.`,
+    `Copy your <b>X-RapidAPI-Key</b> from the API's page and paste it below. ${APP} stays well inside the free plan: at most 180 lookups a day, and it stops early if RapidAPI reports that only a tenth of your allowance is left. A big library fills in over a few days.`,
   ],
   fields: [["opencritic_key", "RapidAPI key", true]],
 });
@@ -3183,7 +3183,7 @@ const REFRESH_STEPS = [
   { id: "art", label: "Artwork", hint: "Covers, banners and logos", unit: "missing" },
   { id: "reviews", label: "Steam user reviews", hint: "Every 14 days, plus Steam versions of console games", unit: "to check" },
   { id: "ttb", label: "Time to beat", hint: "Main, extras and 100% times", unit: "missing" },
-  { id: "critics", label: "OpenCritic scores", hint: "Stays well inside the free plan (at most 140 lookups a day); the rest carry over", need: "opencritic", unit: "to look up" },
+  { id: "critics", label: "OpenCritic scores", hint: "Stays well inside the free plan (at most 180 lookups a day); the rest carry over", need: "opencritic", unit: "to look up" },
   { id: "completions", label: "Finished games", hint: "Marks games completed from your achievements and trophies. Statuses you set yourself stay put", unit: "to check" },
 ];
 

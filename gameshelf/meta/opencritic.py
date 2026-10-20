@@ -19,10 +19,11 @@ from .. import brand, db, net, settings
 HOST = "opencritic-api.p.rapidapi.com"
 # The free plan allows 200 requests and 25 searches a day, and RapidAPI can bill for going over.
 # The app stays well under: its own daily cap, plus RapidAPI's own "remaining" counts, which
-# it reads from every response and obeys (stopping once less than 25% of the allowance is left).
-DAILY_REQUESTS = 140
+# it reads from every response and obeys (stopping once 10% or less of the allowance is left, 20 of 200).
+# 180 a day (raised from 140 at the user's request, Oct 2026) leaves a margin of 20.
+DAILY_REQUESTS = 180
 DAILY_SEARCHES = 15
-KEEP_FREE = 0.25
+KEEP_FREE = 0.10
 WIKIDATA = "https://query.wikidata.org/sparql"
 # Wikidata properties: OpenCritic ID, IGDB game ID (slug), Steam application ID
 SPARQL = """SELECT ?oc ?igdb ?steam WHERE {
