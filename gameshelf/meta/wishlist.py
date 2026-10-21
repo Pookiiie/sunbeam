@@ -7,10 +7,11 @@
   same NPSSO token as your PlayStation library. Each product's release date and
   price come from the store's product queries.
 
-Each game is priced on both stores: when it's only on one wishlist, the other store's
-price is looked up too (Steam by the game's Steam app id, else a Steam store search; the
-PlayStation Store by its own search, full games with the same name only), unless you
-already own it there. The lowest price is the one shown on the card.
+Each game is priced on every store: Steam, PlayStation, GOG and Epic. When a store's wishlist
+doesn't have it (GOG and Epic never do: their wishlists aren't read), that store's price is
+looked up (Steam by the game's Steam app id, else a Steam store search; the
+PlayStation Store, GOG and Epic by their own searches, full games with the same name only),
+unless you already own it there. The lowest price is the one shown on the card.
 
 The app only reads the wishlists; it can't change them. Every wishlist game is
 linked to the matching game in your library (owned, or on XGP / PS+), else it
@@ -29,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .. import db, net, settings
 from .catalogs import _plain
 
-STORES = {"steam": "Steam", "psn": "PlayStation"}
+STORES = {"steam": "Steam", "psn": "PlayStation", "gog": "GOG", "epic": "Epic Games Store"}
 STEAM_API = "https://api.steampowered.com"
 PS_GRAPHQL = "https://web.np.playstation.com/api/graphql/v1/op"
 PS_LOCALE = "en-CA"
@@ -39,6 +40,12 @@ PS_PRODUCT = ("metGetProductById", "a128042177bd93dd831164103d53b73ef790d56f51da
 PS_PRICE = ("productRetrieveForCtasWithPrice", "1f0ca607e170abbfb7d67bd76c9bbc97f21fe2e807be49e5fe764e14566cb605")
 PS_SEARCH = ("getSearchResults", "4df6284f982e57bec70f23c77e2c219dc792eb19af7fb3d3a81767aa3f1958aa")
 STEAM_SEARCH = "https://store.steampowered.com/api/storesearch/"
+GOG_PRICES = "https://api.gog.com/products/prices"
+GOG_CATALOG = "https://catalog.gog.com/v1/catalog"
+# The Epic launcher's own store service (store.epicgames.com sits behind bot checks; this one
+# answers the launcher, which is what Heroic and Playnite's plugins use).
+EPIC_GRAPHQL = "https://launcher.store.epicgames.com/graphql"
+EPIC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) EpicGamesLauncher"
 RESEARCH_AFTER = 14 * 86400  # a game not found on the other store is searched for again after this long
 
 PLATFORM = "wishlist"  # the platform of a wishlist copy (external_id "steam:<appid>" / "psn:<id>")
@@ -247,6 +254,136 @@ def fetch_psn() -> list[dict]:
         return list(ex.map(details, items))
 
 
+# ------------------------------------------------------------------ GOG
+
+def _gog_cents(v) -> int | None:
+    """GOG's prices: "5999 CAD" (price service) or "59.99" (catalog)."""
+    if v in (None, ""):
+        return None
+    s = str(v).strip().split()[0]
+    try:
+        return int(s) if s.isdigit() else round(float(s) * 100)
+    except ValueError:
+        return None
+
+
+def _gog_prices(ids: list[str]) -> dict[str, dict]:
+    """Canadian prices for GOG product ids, from GOG's price service (no sign-in needed)."""
+    out: dict[str, dict] = {}
+    for i in range(0, len(ids), 50):
+        chunk = ids[i:i + 50]
+        try:
+            data = net.get_json(GOG_PRICES, params={"ids": ",".join(chunk), "countryCode": "CA", "currency": "CAD"},
+                                retries=1) or {}
+        except net.HttpError:
+            continue
+        for item in ((data.get("_embedded") or {}).get("items")) or []:
+            pid = str((((item.get("_embedded") or {}).get("product")) or {}).get("id") or "")
+            prices = [p for p in (item.get("_embedded") or {}).get("prices") or []
+                      if ((p.get("currency") or {}).get("code") or "CAD") == "CAD"]
+            if not pid or not prices:
+                continue
+            p = prices[0]
+            final, base = _gog_cents(p.get("finalPrice")), _gog_cents(p.get("basePrice"))
+            if final is None:
+                continue
+            pct = round(100 * (1 - final / base)) if base and final < base else None
+            out[pid] = {"price_text": _money(final), "base_text": _money(base) if pct else None,
+                        "price_cents": final, "base_cents": base if base is not None else final, "discount_pct": pct}
+    return out
+
+
+def _gog_find(title: str) -> dict | None:
+    """A full game on GOG with this name, and its Canadian price (GOG's store search)."""
+    data = net.get_json(GOG_CATALOG, params={"limit": 20, "query": f"like:{_plain(title)}", "order": "desc:score",
+                                             "productType": "in:game,pack", "page": 1, "countryCode": "CA",
+                                             "currencyCode": "CAD", "locale": "en-US"}, retries=1) or {}
+    want = _key(title)
+    for p in data.get("products") or []:
+        if p.get("productType") != "game" or _key(p.get("title")) != want:
+            continue
+        price = p.get("price") or {}
+        money = price.get("finalMoney") or {}
+        if money.get("currency") and money.get("currency") != "CAD":
+            return {"id": str(p["id"]), "slug": p.get("slug"), "link": p.get("storeLink")}
+        final = _gog_cents(money.get("amount"))
+        base = _gog_cents((price.get("baseMoney") or {}).get("amount"))
+        pct = round(100 * (1 - final / base)) if final is not None and base and final < base else None
+        return {"id": str(p["id"]), "slug": p.get("slug"), "link": p.get("storeLink"),
+                "price": None if final is None else {"price_text": _money(final), "base_text": _money(base) if pct else None,
+                                                     "price_cents": final, "base_cents": base if base is not None else final,
+                                                     "discount_pct": pct}}
+    return None
+
+
+# ------------------------------------------------------------------ Epic
+
+EPIC_PRICE = """price(country: $country) { totalPrice { discountPrice originalPrice currencyCode currencyInfo { decimals } }
+  lineOffers { appliedRules { endDate } } }"""
+EPIC_SEARCH_Q = """query searchStoreQuery($keywords: String, $country: String!, $allowCountries: String, $locale: String,
+  $count: Int, $category: String) {
+  Catalog { searchStore(keywords: $keywords, country: $country, allowCountries: $allowCountries, locale: $locale,
+    count: $count, category: $category) { elements { title id namespace offerType productSlug urlSlug
+      catalogNs { mappings(pageType: "productHome") { pageSlug pageType } } offerMappings { pageSlug pageType }
+      """ + EPIC_PRICE + """ } } } }"""
+
+
+def _epic_gql(query: str, variables: dict, token: str | None = None) -> dict:
+    headers = {"User-Agent": EPIC_UA, "Content-Type": "application/json", "Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"bearer {token}"
+    resp = net.request("POST", EPIC_GRAPHQL, json_body={"query": query, "variables": variables}, headers=headers, retries=1)
+    if "json" not in (resp.headers.get("Content-Type") or "").lower():
+        raise WishlistError("the Epic store didn't answer (it may be checking for bots); trying again at the next sync")
+    return resp.json() or {}
+
+
+def _epic_slug(o: dict) -> str | None:
+    for m in ((o.get("catalogNs") or {}).get("mappings") or []) + (o.get("offerMappings") or []):
+        if m.get("pageSlug"):
+            return m["pageSlug"]
+    return o.get("productSlug") or o.get("urlSlug")
+
+
+def _epic_price(o: dict) -> dict:
+    tp = ((o.get("price") or {}).get("totalPrice")) or {}
+    if tp.get("discountPrice") is None or (tp.get("currencyCode") or "CAD") != "CAD":
+        return {}
+    d = int((tp.get("currencyInfo") or {}).get("decimals") or 2)
+    final = round(int(tp["discountPrice"]) * 100 / 10 ** d)
+    base = round(int(tp.get("originalPrice") or tp["discountPrice"]) * 100 / 10 ** d)
+    pct = round(100 * (1 - final / base)) if base and final < base else None
+    ends = None
+    if pct:
+        for line in (o.get("price") or {}).get("lineOffers") or []:
+            for rule in line.get("appliedRules") or []:
+                e = _iso_ts(rule.get("endDate"))
+                ends = max(ends or 0, e or 0) or None
+    return {"price_text": _money(final), "base_text": _money(base) if pct else None, "price_cents": final,
+            "base_cents": base, "discount_pct": pct, "sale_ends": ends}
+
+
+def _iso_ts(s) -> int | None:
+    if not s:
+        return None
+    try:
+        return int(datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
+
+
+def _epic_find(title: str) -> dict | None:
+    d = _epic_gql(EPIC_SEARCH_Q, {"keywords": _plain(title), "country": "CA", "allowCountries": "CA", "locale": "en-CA",
+                                  "count": 10, "category": "games/edition/base"})
+    want = _key(title)
+    for o in ((((d.get("data") or {}).get("Catalog") or {}).get("searchStore")) or {}).get("elements") or []:
+        if _key(o.get("title")) == want and (o.get("offerType") in (None, "BASE_GAME")):
+            slug = _epic_slug(o)
+            return {"id": o.get("id"), "url": f"https://store.epicgames.com/en-US/p/{slug}" if slug else None,
+                    "price": _epic_price(o)}
+    return None
+
+
 # ------------------------------------------------------------------ the other store's price
 
 def _key(title: str) -> str:
@@ -303,8 +440,28 @@ def _other_psn(g: dict, prev: dict) -> dict:
     return {"item_id": pid, "url": f"https://store.playstation.com/{PS_LOCALE.lower()}/product/{pid}", **p}
 
 
-OTHER = {"steam": _other_steam, "psn": _other_psn}
-OWN_PLATFORM = {"steam": "steam", "psn": "playstation"}
+def _other_gog(g: dict, prev: dict) -> dict:
+    if prev.get("item_id"):  # found before: just its price now
+        p = _gog_prices([prev["item_id"]]).get(prev["item_id"])
+        if p:
+            return {"item_id": prev["item_id"], "url": prev.get("url"), **p}
+    hit = _gog_find(g["title"])
+    if not hit:
+        return {"item_id": None}
+    url = (f"https://www.gog.com{hit['link']}" if (hit.get("link") or "").startswith("/") else hit.get("link")) \
+        or f"https://www.gog.com/en/game/{hit.get('slug') or hit['id']}"
+    return {"item_id": hit["id"], "url": url, **(hit.get("price") or {})}
+
+
+def _other_epic(g: dict, prev: dict) -> dict:
+    hit = _epic_find(g["title"])
+    if not hit:
+        return {"item_id": None}
+    return {"item_id": hit["id"], "url": hit.get("url"), **(hit.get("price") or {})}
+
+
+OTHER = {"steam": _other_steam, "psn": _other_psn, "gog": _other_gog, "epic": _other_epic}
+OWN_PLATFORM = {"steam": "steam", "psn": "playstation", "gog": "gog", "epic": "epic"}
 PRICE_FIELDS = ("item_id", "url", "price_text", "base_text", "price_cents", "base_cents", "discount_pct", "sale_ends", "sale_note")
 
 
@@ -441,11 +598,14 @@ def configured() -> dict[str, bool]:
     return {"steam": bool(settings.get("steam_id")), "psn": bool(settings.get("psn_npsso"))}
 
 
+FETCH = {"steam": lambda: fetch_steam(), "psn": lambda: fetch_psn()}
+
+
 def refresh() -> dict:
-    """Update both wishlists. Each one fails on its own without stopping the other."""
+    """Update every wishlist. Each one fails on its own without stopping the others."""
     out: dict = {}
     on = configured()
-    for store, fn in (("steam", fetch_steam), ("psn", fetch_psn)):
+    for store, fn in FETCH.items():
         if not on[store]:
             continue
         try:
@@ -540,7 +700,7 @@ def _summary(rows: list[dict], owned_on: list[str], others: list[dict] | None = 
     # Every price we know, cheapest first: the wishlists' own and the other store's ("wished": False).
     # Both stores are asked for Canadian prices; written the same way ("C$38.99") so they compare at a glance.
     # A store where you own it shows "Owned" on the game page instead of a price, and isn't the card's price.
-    owned_stores = {st for st, plat in (("steam", "steam"), ("psn", "playstation")) if plat in owned_on}
+    owned_stores = {st for st, plat in OWN_PLATFORM.items() if plat in owned_on}
     prices = []
     for wished, rs in ((True, rows), (False, others)):
         for r in rs:
@@ -567,10 +727,10 @@ def _summary(rows: list[dict], owned_on: list[str], others: list[dict] | None = 
 
 
 def test() -> str:
-    """Read both wishlists without saving anything (for checking the connection)."""
+    """Read the wishlists without saving anything (for checking the connection)."""
     on = configured()
     parts = []
-    for store, fn in (("steam", fetch_steam), ("psn", fetch_psn)):
+    for store, fn in FETCH.items():
         if not on[store]:
             continue
         try:

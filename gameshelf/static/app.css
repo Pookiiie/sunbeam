@@ -991,7 +991,9 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .shelf-new { display: flex; gap: 6px; padding: 6px 4px 2px; border-top: 1px solid var(--line); margin-top: 4px; }
 .shelf-picker > .shelf-new:first-child { border-top: 0; margin-top: 0; }
 .shelf-new input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--ink); color: var(--text); font: 14px var(--body); }
-.shelf-frow .shelf-tools { display: flex; gap: 2px; }
+.shelf-frow .shelf-tools { display: none; gap: 2px; }  /* only while pointing at the row, so names get the room */
+.shelf-frow:hover .shelf-tools, .shelf-frow:focus-within .shelf-tools { display: flex; }
+.fpop.shelves-pop { min-width: 300px; }
 .shelf-frow .fonly { font-size: 11.5px; padding: 4px 3px; }
 .shelves-pop .shelf-new { margin-top: 6px; }
 .ctx .shelf-picker { min-width: 240px; }
@@ -1099,3 +1101,14 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .wish-jump button.on { background: var(--grad); color: var(--accent-ink); border-color: transparent; }
 .wish-jump button em { font-style: normal; opacity: .7; margin-left: 5px; font-size: 12px; }
 @media (max-width: 900px) { .wish-jump { margin: 12px -16px 0; padding: 8px 16px; } }
+
+/* ---------- smart shelves */
+.spark { width: 14px; height: 14px; fill: currentColor; color: #ffb0cf; vertical-align: -2px; margin-right: 4px; flex: none; }
+.save-smart { display: inline-flex; align-items: center; gap: 2px; padding: 6px 12px; border-radius: 999px; border: 1px dashed rgba(255,92,158,.7);
+  background: rgba(255,92,158,.08); color: #ffd3e4; font: 600 13px var(--body); cursor: pointer; white-space: nowrap; }
+.save-smart:hover { background: rgba(255,92,158,.16); }
+.rule-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
+.rule-chips span { padding: 4px 10px; border-radius: 999px; background: var(--ink-3); font-size: 13px; }
+.shelf-pill.smart { padding-right: 10px; }
+.fpop-note .spark { width: 12px; height: 12px; }
+#smart-dialog { width: min(460px, 92vw); }

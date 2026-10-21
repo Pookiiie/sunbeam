@@ -248,7 +248,7 @@ def start_sync(sources: list[str]) -> bool:
                      "hint": "What's included, recently added and leaving soon", "state": "upcoming"})
     if any(wishlist.configured().values()):
         timeline.append({"id": "wishlists", "label": "Update wishlists",
-                         "hint": "Steam and PlayStation: release dates and prices", "state": "upcoming"})
+                         "hint": "Release dates, and prices on Steam, PlayStation, GOG and Epic", "state": "upcoming"})
     timeline += _info_timeline(ALL_STEPS, for_new=True)
     started = _begin("sync", _run_sync_all, (sources,), sources=sources, timeline=timeline)
     if started:

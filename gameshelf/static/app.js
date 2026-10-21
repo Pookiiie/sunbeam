@@ -36,6 +36,7 @@ const DEFAULT_PREFS = {
   sort: "last_played", dir: "desc", view: "grid", size: 170, types: null,
   hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], interests: ["more", "less", "skip", ""],
   subTags: [], wishSort: "release", wishStore: "all", wishSale: false, installed: ["yes", "no"], shelves: [],
+  length: [], reviews: null, players: [],
 };
 
 const state = {
@@ -67,7 +68,10 @@ function loadPrefs() {
     if (!Array.isArray(p.interests)) p.interests = ["more", "less", "skip", ""];
     if (!Array.isArray(p.installed)) p.installed = ["yes", "no"];
     if (!Array.isArray(p.shelves)) p.shelves = [];
-  if (!["steam", "psn"].includes(p.wishStore)) p.wishStore = "all";
+    if (!Array.isArray(p.length)) p.length = [];
+    if (!Array.isArray(p.players)) p.players = [];
+    if (typeof p.reviews !== "number") p.reviews = null;
+  if (!["steam", "psn", "gog", "epic"].includes(p.wishStore)) p.wishStore = "all";
     return p;
   } catch { return { ...DEFAULT_PREFS }; }
 }
@@ -352,27 +356,38 @@ document.addEventListener("error", (e) => {
 
 /* ------------------------------------------------------------ filter + sort */
 
-function visibleGames() {
-  const p = state.prefs;
-  const q = state.q.trim().toLowerCase();
-  const hidden = new Set(p.hiddenPlatforms);
-  const statuses = new Set(p.status);
-  const types = new Set(typesSel());
-  const keep = (g) => {
+// The Library's filters as one test, used by the Library itself and by smart shelves (whose
+// rules are a saved copy of these filters). `f` may lack newer filters: they count as "any".
+function filterTest(f, q = "", { manualShelves = false } = {}) {
+  const d = FILTER_DEFAULTS();
+  f = { ...d, ...f };
+  q = (q || "").trim().toLowerCase();
+  const hidden = new Set(f.hiddenPlatforms);
+  const statuses = new Set(f.status);
+  const types = new Set(f.types || defaultTypes());
+  const installedOn = anyInstalled();
+  return (g) => {
     // Type: regular / early access / VR / hidden (by default what Settings › Hidden game types allows).
     if (!types.has(gameType(g))) return false;
-    if (!p.interests.includes(g.interest || "")) return false;  // Curator filter
+    if (!f.interests.includes(g.interest || "")) return false;  // Curator filter
     if (q && !g._search.includes(q)) return false;
     if (hidden.size && !g.platforms.some((x) => !hidden.has(x))) return false;
     if (!statuses.has(g.status || "")) return false;
-    if (!p.played.includes(g.neverPlayed ? "never" : "played")) return false;
-    if (p.genres.length && !(g.genres || []).some((x) => p.genres.includes(x))) return false;
-    if (p.subTags.length && subsLabel() && !subMatch(g, p.subTags)) return false;  // (no menu without XGP or PS+)
-    if (anyInstalled() && !p.installed.includes(g.canPlay ? "yes" : "no")) return false;
-    if (p.shelves.length && !g.shelves.some((s) => p.shelves.includes(s))) return false;
+    if (!f.played.includes(g.neverPlayed ? "never" : "played")) return false;
+    if (f.genres.length && !(g.genres || []).some((x) => f.genres.includes(x))) return false;
+    if (f.subTags.length && subsLabel() && !subMatch(g, f.subTags)) return false;  // (no menu without XGP or PS+)
+    if (installedOn && !f.installed.includes(g.canPlay ? "yes" : "no")) return false;
+    if (f.shelves.length && !(manualShelves ? g.shelves : onShelves(g)).some((s) => f.shelves.includes(s))) return false;
+    if (f.length.length && !f.length.includes(lengthKey(g))) return false;
+    if (f.reviews != null && !(reviewOf(g) >= f.reviews)) return false;
+    if (f.players.length && !playerKeys(g).some((k) => f.players.includes(k))) return false;
     return true;
   };
-  const list = state.games.filter(keep);
+}
+
+function visibleGames() {
+  const p = state.prefs;
+  const list = state.games.filter(filterTest(p, state.q));
   const key = p.sort;
   const val = {
     // Dated games by date; then games with hours but no date (Steam before 2009, Epic);
@@ -626,18 +641,18 @@ $("#cur-edit").addEventListener("drop", (e) => {
 // (Settings › Display). A card or "See all" opens the Library on that shelf.
 function renderShelfRows() {
   const el = $("#shelfrows");
-  const shelves = (state.shelves || []).map((s) => ({ ...s, games: state.games.filter((g) => g.shelves.includes(s.id) && !g.isHidden) }))
+  const shelves = (state.shelves || []).map((s) => ({ ...s, games: state.games.filter((g) => onShelves(g).includes(s.id) && !g.isHidden) }))
     .filter((s) => s.games.length);
   if (!shelves.length) { setHTML(el, ""); return; }
   const rows = (state.settings?.settings?.curator_shelves || "cards") === "rows";
   const body = rows
     ? shelves.map((s) => `<div class="shelf-line">
-        <div class="shelf-line-name"><b>${esc(s.name)}</b><span>${s.games.length} game${s.games.length === 1 ? "" : "s"}</span><button type="button" class="link" data-shelf-open="${s.id}">See all ›</button></div>
+        <div class="shelf-line-name"><b>${shelfLabel(s.id)}</b><span>${s.games.length} game${s.games.length === 1 ? "" : "s"}</span><button type="button" class="link" data-shelf-open="${s.id}">See all ›</button></div>
         <div class="shelf-strip" data-count="${s.games.length}">${s.games.map((g) => `<button class="shelf-cover" data-id="${g.id}" title="${esc(g.title)}"><div class="cover">${coverHTML(g)}${instMark(g)}</div></button>`).join("")}</div>
       </div>`).join("")
     : `<div class="shelf-cards">${shelves.map((s) => `<button type="button" class="shelf-card" data-shelf-open="${s.id}" title="Open ${esc(s.name)} in the Library">
         <div class="shelf-mosaic">${s.games.slice(0, 8).map((g) => `<div class="cover">${coverHTML(g)}</div>`).join("")}</div>
-        <b>${esc(s.name)}</b><span>${s.games.length} game${s.games.length === 1 ? "" : "s"}</span></button>`).join("")}</div>`;
+        <b>${shelfLabel(s.id)}</b><span>${s.games.length} game${s.games.length === 1 ? "" : "s"}</span></button>`).join("")}</div>`;
   setHTML(el, `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">Your shelves</h2></div>${body}</section>`);
   if (rows) requestAnimationFrame(fitShelfStrips);
 }
@@ -715,9 +730,11 @@ async function setInterest(id, v) {
 
 /* ------------------------------------------------------------ Wishlist */
 
-// Your Steam and PlayStation wishlists (the app reads them; it can't change them).
-const WISH_PLATFORM = { steam: "steam", psn: "playstation" };
-const WISH_STORE = { steam: "Steam", psn: "PlayStation" };
+// Your Steam and PlayStation wishlists (the app reads them; it can't change them), priced on GOG and Epic too.
+const WISH_PLATFORM = { steam: "steam", psn: "playstation", gog: "gog", epic: "epic" };
+const WISH_STORE = { steam: "Steam", psn: "PlayStation", gog: "GOG", epic: "Epic Games Store" };
+const WISH_SHORT = { steam: "Steam", psn: "PlayStation", gog: "GOG", epic: "Epic" };
+const WISH_LETTER = { steam: "S", psn: "PS", gog: "G", epic: "E" };  // shown when the store icons can't load
 const WISH_DAYS = 60;  // Curator's "Recently released" and "Coming out soon" windows
 const nowS = () => Date.now() / 1000;
 
@@ -803,13 +820,13 @@ function subMark(sv) {
 function storeMark(store, wished) {
   if (wished) return wishBadge(store);
   const name = WISH_STORE[store];
-  return `<span class="smark" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[WISH_PLATFORM[store]])}')"></i><b>${store === "psn" ? "PS" : "S"}</b></span>`;
+  return `<span class="smark" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[WISH_PLATFORM[store]])}')"></i><b>${WISH_LETTER[store] || "?"}</b></span>`;
 }
 
 // Wishlist marker: a heart with the store's icon inside, so it never reads as a copy you own.
 function wishBadge(store) {
   const p = WISH_PLATFORM[store], name = `On your ${WISH_STORE[store]} wishlist`;
-  return `<span class="wheart" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[p])}')"></i><b>${store === "psn" ? "PS" : "S"}</b></span>`;
+  return `<span class="wheart" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[p])}')"></i><b>${WISH_LETTER[store] || "?"}</b></span>`;
 }
 // Bottom-left, like library covers: the platforms you can already play it on (owned, or on XGP / PS+).
 function playableBadges(g) {
@@ -898,15 +915,15 @@ function renderWishlist() {
   if (!all.length) {
     el.innerHTML = `<div class="empty"><h2>${state.wishlistAt ? "Your wishlists are empty" : "Your wishlists will show up here"}</h2>
       <p>${state.wishlistAt
-        ? "Nothing on your Steam or PlayStation wishlist right now. If that's not right, check that your Steam profile's game details are public."
-        : "The next sync reads your Steam wishlist (from your Steam profile; its game details need to be public) and your PlayStation wishlist (with your NPSSO token from Settings)."}</p>
+        ? "Nothing on your wishlists right now. If that's not right, check that your Steam profile's game details are public."
+        : "The next sync reads your wishlists: Steam (from your Steam profile; its game details need to be public) and PlayStation (with your NPSSO token from Settings)."}</p>
       <button class="btn" id="wish-sync">Sync now</button></div>`;
     return;
   }
   const p = state.prefs;
   const list = wishVisible();
-  const counts = { steam: all.filter((g) => g.wish.stores.some((x) => x.store === "steam")).length,
-    psn: all.filter((g) => g.wish.stores.some((x) => x.store === "psn")).length };
+  const counts = Object.fromEntries(Object.keys(WISH_STORE).map((st) => [st, all.filter((g) => g.wish.stores.some((x) => x.store === st)).length]));
+  const withGames = Object.keys(WISH_STORE).filter((st) => counts[st]);
   const onSale = all.filter((g) => g.wish.sale && (p.wishStore === "all" || g.wish.stores.some((x) => x.store === p.wishStore))).length;
   const mine = p.wishSort === "mine";
   const groups = mine
@@ -925,7 +942,7 @@ function renderWishlist() {
     <div class="toolbar wish-toolbar">
       <div class="result-count"><b>${list.length.toLocaleString()}</b> ${list.length === all.length ? `game${all.length === 1 ? "" : "s"} on your wishlists` : `of ${all.length.toLocaleString()} wishlist games`}${state.wishlistAt ? ` <span class="source-note">· checked ${esc(relDate(state.wishlistAt).toLowerCase())}</span>` : ""}</div>
       <div class="toolbar-right">
-        ${counts.steam && counts.psn ? `<div class="segmented wish-stores" role="group" aria-label="Wishlist">${seg("all", "All")}${seg("steam", "Steam", counts.steam)}${seg("psn", "PlayStation", counts.psn)}</div>` : ""}
+        ${withGames.length > 1 ? `<div class="segmented wish-stores" role="group" aria-label="Wishlist">${seg("all", "All")}${withGames.map((st) => seg(st, WISH_SHORT[st], counts[st])).join("")}</div>` : ""}
         <button class="chip ${p.wishSale ? "on" : ""}" data-wf="sale" aria-pressed="${p.wishSale}">On sale <em>${onSale}</em></button>
         <label class="sort"><span>Sort by</span>
           <select id="wish-sort">
@@ -984,8 +1001,8 @@ function wishBox(g) {
   if (!g.wish) return "";
   const w = g.wish;
   // Owned on Steam / PlayStation: that store's box says so. Other stores (Switch, Epic…) are listed below the boxes.
-  const ownedStores = ["steam", "psn"].filter((st) => (w.owned_on || []).includes(WISH_PLATFORM[st]));
-  const tags = (w.owned_on || []).filter((p) => p !== "xbox" && !["steam", "playstation"].includes(p)).map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`);
+  const ownedStores = Object.keys(WISH_STORE).filter((st) => (w.owned_on || []).includes(WISH_PLATFORM[st]));
+  const tags = (w.owned_on || []).filter((p) => p !== "xbox" && !["steam", "playstation", "gog", "epic"].includes(p)).map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`);
   const when = (x) => {
     if (!x || x.released === 1 || g.rel.state === "out") return "";  // out already: the date doesn't matter
     if (x.release_ts) return `Coming ${fmtRelease({ ts: x.release_ts, prec: x.precision || "day" })}`;
@@ -1011,7 +1028,8 @@ function wishBox(g) {
       <span class="pbox-top">${storeMark(st, !!listed[st])}<b>${esc(WISH_STORE[st])}</b></span>
       <span class="pbox-price">Owned</span><small>It's in your library</small>
       ${listed[st]?.added_at ? `<small class="pbox-added">Wishlisted ${esc(fmtDate(listed[st].added_at))}</small>` : ""}</${listed[st]?.url ? "a" : "div"}>`),
-    ...(w.missing || []).map((st) => `<div class="pbox none"><span class="pbox-top">${storeMark(st, false)}<b>${esc(WISH_STORE[st])}</b></span><small>Not sold on ${st === "psn" ? "the PlayStation Store" : "Steam"}</small></div>`),
+    // Not sold there: said for Steam and PlayStation; GOG and Epic only show up when they sell it
+    ...(w.missing || []).filter((st) => st === "steam" || st === "psn").map((st) => `<div class="pbox none"><span class="pbox-top">${storeMark(st, false)}<b>${esc(WISH_STORE[st])}</b></span><small>Not sold on ${st === "psn" ? "the PlayStation Store" : "Steam"}</small></div>`),
     ...["gamepass", "psplus"].map(subBox),
   ];
   function subBox(sv) {
@@ -1217,10 +1235,62 @@ const STATUS_NAMES = { "": "No status", completed: "Completed", dnf: "Will not f
 const PLAYED_NAMES = { played: "Played", never: "Never played" };
 const SUBTAG_NAMES = { new: "Recently added", leaving: "Leaving soon" };
 const INSTALLED_NAMES = { yes: "Installed", no: "Not installed" };
-const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], types: null, interests: [...INTEREST_KEYS], subTags: [], installed: ["yes", "no"], shelves: [] });
+const FILTER_DEFAULTS = () => ({ hiddenPlatforms: [], status: ["", "completed", "dnf"], played: ["played", "never"], genres: [], types: null, interests: [...INTEREST_KEYS], subTags: [], installed: ["yes", "no"], shelves: [], length: [], reviews: null, players: [] });
+const filterKeys = () => Object.keys(FILTER_DEFAULTS());  // (a function: INTEREST_KEYS comes later in the file)
 // The Installed filter shows once Sunbeam has found an installed game (Windows, a launcher it knows).
 const anyInstalled = () => state.games.some((g) => g.canPlay);
 const shelfName = (id) => (state.shelves || []).find((s) => s.id === id)?.name || "";
+const shelfById = (id) => (state.shelves || []).find((s) => s.id === id);
+const isSmart = (id) => !!shelfById(id)?.rules;
+// Smart shelves fill themselves: which games each one has right now, worked out once per task.
+let smartCache = null;
+function smartMembers() {
+  if (smartCache) return smartCache;
+  smartCache = new Map();
+  for (const s of state.shelves || []) {
+    if (!s.rules) continue;
+    const test = filterTest(s.rules, s.rules.q, { manualShelves: true });
+    for (const g of state.games) if (test(g)) (smartCache.get(g.id) || smartCache.set(g.id, []).get(g.id)).push(s.id);
+  }
+  queueMicrotask(() => { smartCache = null; });
+  return smartCache;
+}
+// Every shelf a game is on: the ones you put it on, then the smart ones it fits.
+const onShelves = (g) => [...g.shelves, ...(smartMembers().get(g.id) || [])];
+const SPARK = `<svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.1 6.2 6.4 2.3-6.4 2.3L12 19.5l-2.1-6.2L3.5 11l6.4-2.3z"/></svg>`;
+const shelfLabel = (id) => `${isSmart(id) ? SPARK : ""}${esc(shelfName(id))}`;
+// Length: Main + Extras (what the progress bars use); open-ended games and games without data are their own group.
+const LENGTH_NAMES = { u5: "Under 5 h", u10: "5 to 10 h", u20: "10 to 20 h", u40: "20 to 40 h", long: "40 h or more", none: "Open-ended or unknown" };
+const LENGTH_STEPS = ["u5", "u10", "u20", "u40", "long"];
+const LENGTH_EDGES = { u5: [0, 5], u10: [5, 10], u20: [10, 20], u40: [20, 40], long: [40, null] };
+const lengthKey = (g) => g.isEndless || !g.ttb ? "none" : g.ttb < 5 ? "u5" : g.ttb < 10 ? "u10" : g.ttb < 20 ? "u20" : g.ttb < 40 ? "u40" : "long";
+// Reviews: the score the covers show (Steam's, else OpenCritic's).
+const REVIEW_STEPS = [90, 85, 80, 75, 60];
+const reviewOf = (g) => g.steam_review_pct ?? g.oc_score ?? null;
+// Players: from IGDB's game modes.
+const PLAYER_NAMES = { single: "Single-player", coop: "Co-op", couch: "Couch co-op (split screen)", multi: "Online multiplayer" };
+function playerKeys(g) {
+  const m = g.modes || [], out = [];
+  if (m.includes("Single player")) out.push("single");
+  if (m.includes("Co-operative")) out.push("coop");
+  if (m.includes("Split screen")) out.push("couch");
+  if (m.some((x) => x === "Multiplayer" || x.startsWith("Massively") || x === "Battle Royale")) out.push("multi");
+  return out;
+}
+function lengthSummary(sel) {
+  if (!sel.length) return null;
+  if (sel.length === 1) return LENGTH_NAMES[sel[0]];
+  const steps = LENGTH_STEPS.filter((k) => sel.includes(k));
+  if (steps.length === sel.length) {
+    const i0 = LENGTH_STEPS.indexOf(steps[0]), i1 = LENGTH_STEPS.indexOf(steps.at(-1));
+    if (i1 - i0 + 1 === steps.length) {
+      if (i0 === 0) return `Under ${LENGTH_EDGES[steps.at(-1)][1]} h`;
+      if (steps.at(-1) === "long") return `${LENGTH_EDGES[steps[0]][0]} h or more`;
+      return `${LENGTH_EDGES[steps[0]][0]} to ${LENGTH_EDGES[steps.at(-1)][1]} h`;
+    }
+  }
+  return `${sel.length} lengths`;
+}
 // Curator: what you told Curator about a game ("" = nothing).
 const INTEREST_KEYS = ["more", "", "less", "skip"];
 const INTEREST_FILTER_NAMES = { more: "Keen", "": "Default", less: "Meh", skip: "Skip" };
@@ -1237,7 +1307,7 @@ function filterFacts() {
   // Counts cover the games the Type filter lets through (hidden, VR… only when picked there).
   const types = new Set(typesSel());
   const visible = state.games.filter((g) => types.has(gameType(g)));
-  const plat = {}, status = {}, played = {}, genres = {}, subs = { new: 0, leaving: 0 }, installed = { yes: 0, no: 0 }, shelves = {};
+  const plat = {}, status = {}, played = {}, genres = {}, subs = { new: 0, leaving: 0 }, installed = { yes: 0, no: 0 }, shelves = {}, length = {}, reviews = {}, players = {};
   for (const g of visible) for (const p of g.platforms) plat[p] = (plat[p] || 0) + 1;
   for (const g of visible) {
     status[g.status || ""] = (status[g.status || ""] || 0) + 1;
@@ -1245,10 +1315,14 @@ function filterFacts() {
     for (const x of g.genres || []) genres[x] = (genres[x] || 0) + 1;
     for (const t of Object.keys(subs)) if (subMatch(g, [t])) subs[t]++;
     installed[g.canPlay ? "yes" : "no"]++;
-    for (const s of g.shelves) shelves[s] = (shelves[s] || 0) + 1;
+    for (const s of onShelves(g)) shelves[s] = (shelves[s] || 0) + 1;
+    const lk = lengthKey(g); length[lk] = (length[lk] || 0) + 1;
+    const r = reviewOf(g);
+    if (r != null) for (const t of REVIEW_STEPS) if (r >= t) reviews[t] = (reviews[t] || 0) + 1;
+    for (const k of playerKeys(g)) players[k] = (players[k] || 0) + 1;
   }
   const platforms = Object.keys(state.platforms).filter((p) => plat[p]);
-  return { plat, platforms, status, played, genres, subs, installed, shelves,
+  return { plat, platforms, status, played, genres, subs, installed, shelves, length, reviews, players, total: visible.length,
     types: state.games.reduce((n, g) => { const t = gameType(g); n[t] = (n[t] || 0) + 1; return n; }, {}),
     interests: visible.reduce((n, g) => { const k = g.interest || ""; n[k] = (n[k] || 0) + 1; return n; }, {}) };
 }
@@ -1279,7 +1353,11 @@ function filterSummaries(f) {
   const inst = !anyInstalled() || p.installed.length === 2 ? null : !p.installed.length ? "None" : INSTALLED_NAMES[p.installed[0]];
   const sh = p.shelves.filter((s) => shelfName(s));
   const shelves = !sh.length ? null : sh.length === 1 ? shelfName(sh[0]) : `${sh.length} shelves`;
-  return { platform: plat, status: st, played: pl, genre: gen, type, curator: cur, more: more.length ? more.join(", ") : null, installed: inst, shelves };
+  const len = lengthSummary(p.length);
+  const rev = p.reviews != null ? `${p.reviews}%+` : null;
+  const ply = !p.players.length ? null : p.players.length === 1 ? PLAYER_NAMES[p.players[0]].replace(" (split screen)", "") : `${p.players.length} kinds`;
+  return { platform: plat, status: st, played: pl, genre: gen, type, curator: cur, more: more.length ? more.join(", ") : null, installed: inst,
+    length: len, reviews: rev, players: ply, shelves };
 }
 
 function renderFilters() {
@@ -1290,7 +1368,8 @@ function renderFilters() {
       ${label} <b>${esc(sum[id] || empty)}</b><i aria-hidden="true">▾</i></button>`;
   const any = Object.values(sum).some(Boolean);
   bar.innerHTML = `
-    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${chip("curator", CURATOR)}${subsLabel() ? chip("more", subsLabel(), "Any") : ""}${anyInstalled() ? chip("installed", "Installed") : ""}${chip("shelves", "Shelves")}
+    ${chip("platform", "Platform", "All")}${chip("status", "Status")}${chip("played", "Played")}${chip("genre", "Genre")}${chip("type", "Type", "Default")}${chip("curator", CURATOR)}${subsLabel() ? chip("more", subsLabel(), "Any") : ""}${anyInstalled() ? chip("installed", "Installed") : ""}${chip("length", "Length")}${chip("reviews", "Reviews")}${chip("players", "Players")}${chip("shelves", "Shelves")}
+    ${smartButton(sum)}
     ${any ? `<button type="button" class="link fclear-all" data-fclear="all">Clear all</button>` : ""}
     ${state.openFilter ? `<div class="fpop ${state.openFilter === "genre" ? "wide" : ""} ${state.openFilter === "shelves" ? "shelves-pop" : ""}" role="dialog" aria-label="Filter">${filterMenu(state.openFilter, f)}</div>` : ""}`;
   const pop = $(".fpop", bar), anchor = $(`[data-fopen="${state.openFilter}"]`, bar);
@@ -1330,15 +1409,23 @@ function filterMenu(id, f) {
     return head("Type", "type") + Object.entries(TYPE_NAMES).map(([v, l]) => row("type", v, l, f.types[v] || 0, sel.includes(v))).join("")
       + `<p class="fpop-note">${off.length ? `${off.join(" and ")} games are hidden by default (Settings › Hidden game types). ` : ""}Hidden: games you hid, and betas, demos and tools.</p>`;
   }
+  if (id === "length") return head("Time to beat", "length") + Object.entries(LENGTH_NAMES).map(([v, l]) => row("length", v, l, f.length[v] || 0, p.length.includes(v))).join("")
+    + `<p class="fpop-note">Main story plus extras, the same time the progress bars use.</p>`;
+  if (id === "reviews") return `<div class="fpop-head"><span>Review score</span></div>`
+    + [null, ...REVIEW_STEPS].map((t) => `<div class="frow"><label><input type="radio" name="freviews" data-freviews="${t ?? ""}" ${p.reviews === t ? "checked" : ""}><span>${t == null ? "Any score" : `${t}% or more`}</span></label><em>${t == null ? "" : f.reviews[t] || 0}</em></div>`).join("")
+    + `<p class="fpop-note">The score on the covers: Steam's, else OpenCritic's. Games without one are left out once you pick a score.</p>`;
+  if (id === "players") return head("Players", "players") + Object.entries(PLAYER_NAMES).map(([v, l]) => row("players", v, l, f.players[v] || 0, p.players.includes(v))).join("")
+    + `<p class="fpop-note">Games with any of the ticked ways to play, from IGDB.</p>`;
   if (id === "installed") return head("On this PC", "installed") + Object.entries(INSTALLED_NAMES).map(([v, l]) => row("installed", v, l, f.installed[v] || 0, p.installed.includes(v))).join("")
-    + `<p class="fpop-note">Games installed through Steam, Epic, Ubisoft Connect, Battle.net or the Xbox app on this PC.</p>`;
+    + `<p class="fpop-note">Games installed through Steam, Epic, GOG, Ubisoft Connect, Battle.net or the Xbox app on this PC.</p>`;
   if (id === "shelves") {
     const list = state.shelves || [];
     const rows = list.map((s) => `<div class="frow shelf-frow">
-      <label><input type="checkbox" data-fgroup="shelves" value="${s.id}" ${p.shelves.includes(s.id) ? "checked" : ""}><span>${esc(s.name)}</span></label>
-      <span class="shelf-tools"><button type="button" class="fonly" data-fonly="shelves" data-v="${s.id}" aria-label="Only ${esc(s.name)}">only</button><button type="button" class="fonly" data-shelf-rename="${s.id}">rename</button><button type="button" class="fonly" data-shelf-delete="${s.id}">delete</button></span><em>${f.shelves[s.id] || 0}</em></div>`).join("");
+      <label ${s.rules ? `title="A smart shelf: it fills itself from its rules"` : ""}><input type="checkbox" data-fgroup="shelves" value="${s.id}" ${p.shelves.includes(s.id) ? "checked" : ""}><span>${shelfLabel(s.id)}</span></label>
+      <span class="shelf-tools"><button type="button" class="fonly" data-fonly="shelves" data-v="${s.id}" aria-label="Only ${esc(s.name)}">only</button>${s.rules ? `<button type="button" class="fonly" data-smart-edit="${s.id}">rules</button>` : ""}<button type="button" class="fonly" data-shelf-rename="${s.id}">rename</button><button type="button" class="fonly" data-shelf-delete="${s.id}">delete</button></span><em>${f.shelves[s.id] || 0}</em></div>`).join("");
     return `<div class="fpop-head"><span>${p.shelves.length > 1 ? "Games on any of the ticked shelves" : "Your shelves"}</span>${list.length ? `<span><button type="button" class="link" data-fnone="shelves">Clear</button></span>` : ""}</div>
       ${rows || `<p class="fpop-note">Shelves are lists you make: "Couch co-op", "Comfort games"… Add games from a game's page or by right-clicking a cover.</p>`}
+      <p class="fpop-note">${SPARK} Smart shelves fill themselves: set the filters, then choose <b>Save as smart shelf</b>.</p>
       <form class="shelf-new" data-shelf-form><input type="text" name="name" placeholder="New shelf" maxlength="60" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore><button type="submit" class="btn small">Add</button></form>`;
   }
   // (internally still "more": XGP / PS+ catalog changes)
@@ -1358,16 +1445,18 @@ function setFilterGroup(group, values) {
   if (group === "curator") p.interests = values;
   if (group === "installed") p.installed = values;
   if (group === "shelves") p.shelves = values.map(Number);
+  if (group === "length") p.length = values;
+  if (group === "players") p.players = values;
   savePrefs(); renderFilters(); render();
 }
 function groupValues(group) {
   const p = state.prefs, f = filterFacts();
   return { platform: f.platforms.filter((x) => !p.hiddenPlatforms.includes(x)), status: p.status, played: p.played,
-    genre: p.genres, subtags: p.subTags, type: typesSel(), curator: p.interests, installed: p.installed, shelves: p.shelves.map(String) }[group];
+    genre: p.genres, subtags: p.subTags, type: typesSel(), curator: p.interests, installed: p.installed, shelves: p.shelves.map(String), length: p.length, players: p.players }[group];
 }
 function allValues(group) {
   const f = filterFacts();
-  return { platform: f.platforms, status: Object.keys(STATUS_NAMES), played: Object.keys(PLAYED_NAMES), genre: [], subtags: [], type: Object.keys(TYPE_NAMES), curator: [...INTEREST_KEYS], installed: ["yes", "no"], shelves: [] }[group];
+  return { platform: f.platforms, status: Object.keys(STATUS_NAMES), played: Object.keys(PLAYED_NAMES), genre: [], subtags: [], type: Object.keys(TYPE_NAMES), curator: [...INTEREST_KEYS], installed: ["yes", "no"], shelves: [], length: [], players: [] }[group];
 }
 function clearFilter(id) {
   const d = FILTER_DEFAULTS(), p = state.prefs;
@@ -1381,6 +1470,9 @@ function clearFilter(id) {
   if (id === "more") p.subTags = d.subTags;
   if (id === "installed") p.installed = d.installed;
   if (id === "shelves") p.shelves = d.shelves;
+  if (id === "length") p.length = d.length;
+  if (id === "reviews") p.reviews = d.reviews;
+  if (id === "players") p.players = d.players;
   savePrefs(); renderFilters(); render();
 }
 
@@ -1406,6 +1498,10 @@ function bindFilters() {
     if (ren) { renameShelfInline(ren.closest(".frow"), Number(ren.dataset.shelfRename)); return; }
     const del = t.closest("[data-shelf-delete]");
     if (del) { deleteShelf(Number(del.dataset.shelfDelete)); return; }
+    const sedit = t.closest("[data-smart-edit]");
+    if (sedit) { editSmartShelf(Number(sedit.dataset.smartEdit)); return; }
+    const smart = t.closest("[data-smart]");
+    if (smart) { state.openFilter = null; onSmartButton(smart.dataset.smart); return; }
   });
   bar.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1419,6 +1515,10 @@ function bindFilters() {
   });
   bar.addEventListener("change", (e) => {
     const t = e.target;
+    if (t.dataset.freviews != null) {
+      state.prefs.reviews = t.dataset.freviews === "" ? null : Number(t.dataset.freviews);
+      savePrefs(); renderFilters(); render(); return;
+    }
     if (t.dataset.fgroup) {
       const g = t.dataset.fgroup;
       const vals = new Set(groupValues(g));
@@ -1838,7 +1938,7 @@ function afterShelves(shelves) {
   if (shelves) state.shelves = shelves;
   state.prefs.shelves = state.prefs.shelves.filter((s) => state.shelves.some((x) => x.id === s));
   savePrefs();
-  renderFilters(); render();
+  renderFilters(); render(); renderShelfRows();  // (Curator's Your shelves too)
   if (state.openId) { const g = byId(state.openId); const row = $("#detail .shelf-row"); if (g && row) row.outerHTML = shelfRow(g); }
   const pick = $("#ctx .shelf-picker");
   if (pick && state.menuId) pick.outerHTML = shelfPicker(byId(state.menuId));
@@ -1875,7 +1975,8 @@ async function renameShelf(id, name) {
   } catch (e) { toast(e.message, true); }
 }
 async function deleteShelf(id) {
-  const name = shelfName(id);
+  const name = shelfName(id), rules = shelfById(id)?.rules || null;
+  if (state.editSmart === id) state.editSmart = null;
   const games = state.games.filter((g) => g.shelves.includes(id)).map((g) => g.id);
   try {
     const r = await api(`/api/shelves/${id}`, { method: "DELETE" });
@@ -1884,7 +1985,7 @@ async function deleteShelf(id) {
     toast(`Deleted the shelf ${name}`, false, async () => {
       // Undo: the shelf comes back with the same games
       try {
-        const r2 = await api("/api/shelves", { method: "POST", body: { name, games } });
+        const r2 = await api("/api/shelves", { method: "POST", body: rules ? { name, rules } : { name, games } });
         for (const g of state.games) if (games.includes(g.id)) g.shelves.push(r2.id);
         afterShelves(r2.shelves);
         toast(`${name} is back`);
@@ -1892,9 +1993,97 @@ async function deleteShelf(id) {
     });
   } catch (e) { toast(e.message, true); }
 }
+/* Smart shelves: the Library's filters, saved. "Save as smart shelf" next to the filters makes
+   one; "rules" in the Shelves menu brings its filters back to change them, then "Update". */
+const RULE_LABELS = () => ({ platform: "Platform", status: "Status", played: "Played", genre: "Genre", type: "Type", curator: CURATOR,
+  more: subsLabel(), installed: "Installed", length: "Length", reviews: "Reviews", players: "Players", shelves: "Shelves" });
+function currentRules() {
+  const p = state.prefs, rules = {};
+  for (const k of filterKeys()) rules[k] = Array.isArray(p[k]) ? [...p[k]] : p[k];
+  rules.shelves = rules.shelves.filter((id) => !isSmart(id));  // a smart shelf can't be built on another one
+  if (state.q.trim()) rules.q = state.q.trim();
+  return rules;
+}
+function ruleChips() {
+  const sum = filterSummaries(filterFacts()), labels = RULE_LABELS();
+  const chips = Object.entries(sum).filter(([k, v]) => v && !(k === "shelves" && !currentRules().shelves.length)).map(([k, v]) => `${labels[k]}: ${v}`);
+  if (state.q.trim()) chips.push(`Search: “${state.q.trim()}”`);
+  return chips;
+}
+function smartButton(sum) {
+  const editing = state.editSmart && shelfById(state.editSmart);
+  if (editing) return `<button type="button" class="save-smart" data-smart="update">${SPARK}Update ${esc(editing.name)}</button>
+    <button type="button" class="link" data-smart="cancel">Stop editing</button>`;
+  const ruled = Object.entries(sum).some(([k, v]) => v && k !== "shelves") || state.q.trim();
+  return ruled ? `<button type="button" class="save-smart" data-smart="new" title="A shelf that fills itself with every game that fits these filters">${SPARK}Save as smart shelf</button>` : "";
+}
+// After saving: the Library shows just that shelf, the way it'll look from now on.
+function showOnlyShelf(id) {
+  Object.assign(state.prefs, FILTER_DEFAULTS(), { shelves: [id] });
+  state.q = ""; $("#search").value = "";
+  savePrefs(); showPage("library"); renderFilters(); render();
+}
+async function onSmartButton(kind) {
+  if (kind === "new") { openSmartDialog(); return; }
+  const id = state.editSmart;
+  if (kind === "cancel") {
+    state.editSmart = null;
+    if (state.editPrev) { Object.assign(state.prefs, state.editPrev.prefs); state.q = state.editPrev.q; $("#search").value = state.q; savePrefs(); }
+    renderFilters(); render(); return;
+  }
+  if (kind === "update" && id) {
+    try {
+      const r = await api(`/api/shelves/${id}`, { method: "PATCH", body: { rules: currentRules() } });
+      state.editSmart = null;
+      afterShelves(r.shelves);
+      showOnlyShelf(id);
+      toast(`Updated ${shelfName(id)}: ${state.games.filter((g) => onShelves(g).includes(id)).length} games`);
+    } catch (e) { toast(e.message, true); }
+  }
+}
+function openSmartDialog() {
+  const n = visibleGames().length;
+  $("#smart-body").innerHTML = `<p class="source-note" style="margin-top:0">It fills itself with every game that fits these filters, and keeps up as your library changes.</p>
+    <form id="smart-form">
+      <label class="field"><span>Name</span><input type="text" name="name" maxlength="60" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore required></label>
+      <div class="rule-chips">${ruleChips().map((c) => `<span>${esc(c)}</span>`).join("")}</div>
+      <p class="source-note">${n.toLocaleString()} game${n === 1 ? "" : "s"} right now.</p>
+      <div class="dialog-actions"><button type="button" class="btn ghost" data-close-dialog>Cancel</button><button type="submit" class="btn">Save shelf</button></div>
+    </form>`;
+  $("#smart-dialog").showModal();
+  $("#smart-form input").focus();
+}
+$("#smart-body").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = e.target.elements.name.value.trim();
+  if (!name) return;
+  try {
+    const r = await api("/api/shelves", { method: "POST", body: { name, rules: currentRules() } });
+    $("#smart-dialog").close();
+    afterShelves(r.shelves);
+    showOnlyShelf(r.id);
+    const n = state.games.filter((g) => onShelves(g).includes(r.id)).length;
+    toast(`New smart shelf: ${name} (${n} game${n === 1 ? "" : "s"})`);
+  } catch (err) { toast(err.message, true); }
+});
+// "rules" in the Shelves menu: its filters come back; change them, then Update (or Stop editing).
+function editSmartShelf(id) {
+  const s = shelfById(id);
+  if (!s?.rules) return;
+  const keep = {};
+  for (const k of filterKeys()) keep[k] = Array.isArray(state.prefs[k]) ? [...state.prefs[k]] : state.prefs[k];
+  state.editPrev = { prefs: keep, q: state.q };
+  const { q, ...rules } = s.rules;
+  Object.assign(state.prefs, FILTER_DEFAULTS(), rules);
+  state.q = q || ""; $("#search").value = state.q;
+  state.editSmart = id; state.openFilter = null;
+  savePrefs(); showPage("library"); renderFilters(); render();
+  toast(`Change the filters, then choose Update ${s.name}`);
+}
+
 function shelfPicker(g) {
   if (!g) return "";
-  const list = state.shelves || [];
+  const list = (state.shelves || []).filter((s) => !s.rules);  // smart shelves fill themselves
   return `<div class="shelf-picker" data-game="${g.id}">
     ${list.map((s) => `<label class="shelf-opt"><input type="checkbox" data-shelf-toggle="${s.id}" ${g.shelves.includes(s.id) ? "checked" : ""}><span>${esc(s.name)}</span></label>`).join("")}
     <form class="shelf-new" data-shelf-new><input type="text" name="name" placeholder="${list.length ? "New shelf" : "Name your first shelf"}" maxlength="60" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore><button type="submit" class="btn small">Add</button></form>
@@ -1903,8 +2092,9 @@ function shelfPicker(g) {
 function shelfRow(g) {
   if (g.isWishOnly) return "";
   return `<div class="shelf-row">
-    ${g.shelves.length ? `<span class="shelf-label">Shelves</span>` : ""}
+    ${onShelves(g).length ? `<span class="shelf-label">Shelves</span>` : ""}
     ${g.shelves.map((s) => `<span class="shelf-pill">${esc(shelfName(s))}<button type="button" data-shelf-off="${s}" aria-label="Take it off ${esc(shelfName(s))}">✕</button></span>`).join("")}
+    ${onShelves(g).filter((s) => isSmart(s)).map((s) => `<span class="shelf-pill smart" title="A smart shelf: this game fits its rules">${shelfLabel(s)}</span>`).join("")}
     <span class="shelf-add"><button type="button" class="shelf-add-btn" data-act="shelf-add" aria-expanded="false">+ Add to shelf</button><div class="shelf-add-pop" hidden>${shelfPicker(g)}</div></span>
   </div>`;
 }

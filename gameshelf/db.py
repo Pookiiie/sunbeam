@@ -352,6 +352,13 @@ def _migrate(c: sqlite3.Connection) -> None:
         # Wishlist › Sort by › My order: your own ranking (Sunbeam can't change the stores' lists).
         c.execute("CREATE TABLE IF NOT EXISTS wish_order (game_id INTEGER PRIMARY KEY, pos INTEGER NOT NULL)")
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '22')")
+    if version < 23:
+        # Smart shelves: a shelf with rules (the Library's filters, as JSON) fills itself; the page
+        # works out which games match. A shelf without rules is one you fill by hand.
+        cols = {r[1] for r in c.execute("PRAGMA table_info(shelves)")}
+        if "rules" not in cols:
+            c.execute("ALTER TABLE shelves ADD COLUMN rules TEXT")
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '23')")
 
 
 @contextmanager

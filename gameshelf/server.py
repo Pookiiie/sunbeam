@@ -130,9 +130,29 @@ def post_install(req, body, query, game_id):
 # ------------------------------------------------------------------ shelves
 
 def _shelves() -> list[dict]:
-    return [dict(r) for r in db.query(
-        """SELECT s.id, s.name, s.position, COUNT(sg.game_id) AS count FROM shelves s
-           LEFT JOIN shelf_games sg ON sg.shelf_id = s.id GROUP BY s.id ORDER BY s.position, s.id""")]
+    out = []
+    for r in db.query("""SELECT s.id, s.name, s.position, s.rules, COUNT(sg.game_id) AS count FROM shelves s
+                         LEFT JOIN shelf_games sg ON sg.shelf_id = s.id GROUP BY s.id ORDER BY s.position, s.id"""):
+        d = dict(r)
+        try:
+            d["rules"] = json.loads(d["rules"]) if d["rules"] else None
+        except ValueError:
+            d["rules"] = None
+        out.append(d)
+    return out
+
+
+def _shelf_rules(body):
+    """A smart shelf's rules: the Library's filters as the page sends them (kept as they are)."""
+    rules = body.get("rules")
+    if rules is None:
+        return None
+    if not isinstance(rules, dict):
+        raise ApiError(400, "A smart shelf's rules didn't come through.")
+    text = json.dumps(rules)
+    if len(text) > 20000:
+        raise ApiError(400, "That smart shelf has too many rules.")
+    return text
 
 
 def _shelf_name(body) -> str:
@@ -154,7 +174,8 @@ def post_shelf(req, body, query):
         if c.execute("SELECT 1 FROM shelves WHERE lower(name)=lower(?)", (name,)).fetchone():
             raise ApiError(400, f"There's already a shelf called {name}.")
         pos = c.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM shelves").fetchone()[0]
-        cur = c.execute("INSERT INTO shelves(name, position, created_at) VALUES (?, ?, ?)", (name, pos, db.now()))
+        cur = c.execute("INSERT INTO shelves(name, position, created_at, rules) VALUES (?, ?, ?, ?)",
+                        (name, pos, db.now(), _shelf_rules(body)))
         sid = cur.lastrowid
         for gid in body.get("games") or []:
             c.execute("INSERT OR IGNORE INTO shelf_games(shelf_id, game_id, added_at) VALUES (?, ?, ?)", (sid, int(gid), db.now()))
@@ -169,6 +190,8 @@ def patch_shelf(req, body, query, shelf_id):
             if c.execute("SELECT 1 FROM shelves WHERE lower(name)=lower(?) AND id<>?", (name, int(shelf_id))).fetchone():
                 raise ApiError(400, f"There's already a shelf called {name}.")
             c.execute("UPDATE shelves SET name=? WHERE id=?", (name, int(shelf_id)))
+        if body.get("rules") is not None:
+            c.execute("UPDATE shelves SET rules=? WHERE id=?", (_shelf_rules(body), int(shelf_id)))
     return {"shelves": _shelves()}
 
 
@@ -185,8 +208,11 @@ def post_shelf_games(req, body, query, shelf_id):
     """{"add": [game ids], "remove": [game ids]}"""
     sid = int(shelf_id)
     with db.tx() as c:
-        if not c.execute("SELECT 1 FROM shelves WHERE id=?", (sid,)).fetchone():
+        row = c.execute("SELECT rules FROM shelves WHERE id=?", (sid,)).fetchone()
+        if not row:
             raise ApiError(404, "That shelf is gone.")
+        if row[0]:
+            raise ApiError(400, "A smart shelf fills itself: change its rules instead.")
         for gid in body.get("add") or []:
             c.execute("INSERT OR IGNORE INTO shelf_games(shelf_id, game_id, added_at) VALUES (?, ?, ?)", (sid, int(gid), db.now()))
         for gid in body.get("remove") or []:
