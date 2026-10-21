@@ -1009,42 +1009,49 @@ function wishBox(g) {
     return x.release_text || (g.rel.state === "soon" ? `Coming ${fmtRelease(g.rel)}` : "");
   };
   const listed = Object.fromEntries((w.stores || []).map((x) => [x.store, x]));  // on that store's wishlist
-  const box = (x, best) => {
-    const on = listed[x.store];
-    const price = x.discount_pct ? `Sale${x.sale_note ? ` ${x.sale_note}` : ""}${x.sale_ends ? ` until ${fmtDate(x.sale_ends)}` : ""}`
-      : x.price_text ? "Regular price" : (when(on) || "No price yet");
-    const added = on?.added_at ? `Wishlisted ${fmtDate(on.added_at)}` : on ? "On your wishlist" : "";
-    return `<a class="pbox ${best ? "best" : ""}" ${x.url ? `href="${esc(x.url)}" target="_blank" rel="noopener" title="Open the store page"` : ""}>
-      <span class="pbox-top">${storeMark(x.store, !!on)}<b>${esc(WISH_STORE[x.store])}</b>${x.discount_pct ? `<i class="wpill sale">-${x.discount_pct}%</i>` : ""}</span>
-      <span class="pbox-price">${x.price_text ? `<span class="${x.discount_pct ? "on-sale" : ""}">${esc(x.price_text)}</span>${x.base_text ? ` <s>${esc(x.base_text)}</s>` : ""}` : "—"}</span>
-      <small>${esc(price)}</small>${added ? `<small class="pbox-added"${x.store === "psn" ? ` title="The PlayStation Store doesn't say when: this is when ${APP} first saw it"` : ""}>${esc(added)}</small>` : ""}</a>`;
+  // One row of compact boxes, in this order: where you own it (green), services it's included in
+  // (green), prices cheapest first (the cheapest outlined), then the rest. Details that don't fit
+  // (the usual price, when you wishlisted it) are in the box's tooltip.
+  const short = (ts) => new Date(ts * 1000).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+  const wishedTip = (st) => listed[st] ? (listed[st].added_at
+    ? `On your ${WISH_STORE[st]} wishlist since ${fmtDate(listed[st].added_at)}${st === "psn" ? ` (when ${APP} first saw it)` : ""}`
+    : `On your ${WISH_STORE[st]} wishlist`) : "";
+  const shell = ({ cls = "", url, tip = [], mark, name, price, small = "" }) => {
+    const t = [...tip, url ? "Open the store page" : ""].filter(Boolean).join(". ");
+    const tag = url ? `a href="${esc(url)}" target="_blank" rel="noopener"` : "div";
+    return `<${tag} class="pbox ${cls}"${t ? ` title="${esc(t)}"` : ""}>
+      <span class="pbox-top">${mark}<b>${esc(name)}</b></span>
+      <span class="pbox-price">${price}</span><small>${small}</small></${url ? "a" : "div"}>`;
   };
   const prices = w.prices || [];
-  const boxes = [
-    // the cheapest outlined, only when it really is cheaper
-    ...prices.map((x, i) => box(x, i === 0 && prices.length > 1 && x.price_cents < prices[1].price_cents)),
-    ...(w.stores || []).filter((s) => !prices.some((x) => x.store === s.store) && !ownedStores.includes(s.store)).map((s) => box({ store: s.store, url: s.url }, false)),
-    ...ownedStores.map((st) => `<${listed[st]?.url ? `a href="${esc(listed[st].url)}" target="_blank" rel="noopener" title="Open the store page"` : "div"} class="pbox owned">
-      <span class="pbox-top">${storeMark(st, !!listed[st])}<b>${esc(WISH_STORE[st])}</b></span>
-      <span class="pbox-price">Owned</span><small>It's in your library</small>
-      ${listed[st]?.added_at ? `<small class="pbox-added">Wishlisted ${esc(fmtDate(listed[st].added_at))}</small>` : ""}</${listed[st]?.url ? "a" : "div"}>`),
-    // Not sold there: said for Steam and PlayStation; GOG and Epic only show up when they sell it
-    ...(w.missing || []).filter((st) => st === "steam" || st === "psn").map((st) => `<div class="pbox none"><span class="pbox-top">${storeMark(st, false)}<b>${esc(WISH_STORE[st])}</b></span><small>Not sold on ${st === "psn" ? "the PlayStation Store" : "Steam"}</small></div>`),
-    ...["gamepass", "psplus"].map(subBox),
-  ];
-  function subBox(sv) {
-    if (!subscribed(sv)) return `<div class="pbox sub none">
-      <span class="pbox-top">${subMark(sv)}<b>${SUB_SHORT[sv]}</b></span>
-      <span class="pbox-price"><span class="dim">Not subscribed</span></span>
-      <small>Settings › Subscriptions</small></div>`;
+  const cheapest = prices.length > 1 && prices[0].price_cents < prices[1].price_cents ? prices[0].store : null;
+  const items = [];  // [rank, html]
+  for (const st of ownedStores) items.push([0, shell({ cls: "owned", url: listed[st]?.url, tip: [wishedTip(st)], mark: storeMark(st, !!listed[st]),
+    name: WISH_SHORT[st], price: "Owned", small: "In your library" })]);
+  for (const sv of ["gamepass", "psplus"]) {
+    const name = SUB_SHORT[sv], what = sv === "gamepass" ? "PC Game Pass" : "Extra catalog";
+    if (!subscribed(sv)) { items.push([6, shell({ cls: "sub none", tip: ["Settings › Subscriptions"], mark: subMark(sv), name, price: `<span class="dim">Not subscribed</span>`, small: "See Settings" })]); continue; }
     const x = (g.subs || []).find((t) => t.s === sv);
     const link = (g.store_links || []).find((l) => l.s === sv);
-    const small = !x ? "" : x.leaving ? `<small class="leaving">Leaving soon</small>` : x.new && x.since ? `<small>Added ${esc(relDate(x.since).toLowerCase())}</small>` : "";
-    return `<${x && link ? `a href="${esc(link.url)}" target="_blank" rel="noopener" title="Open it on the ${sv === "gamepass" ? "Xbox" : "PlayStation"} store"` : "div"} class="pbox sub ${x ? "in" : "none"}">
-      <span class="pbox-top">${subMark(sv)}<b>${SUB_SHORT[sv]}</b></span>
-      <span class="pbox-price">${x ? "Included" : `<span class="dim">Not included</span>`}</span>
-      ${small || `<small>${sv === "gamepass" ? "Xbox PC Game Pass" : "PlayStation Plus Extra"}</small>`}</${x && link ? "a" : "div"}>`;
+    if (!x) { items.push([5, shell({ cls: "sub", mark: subMark(sv), name, price: `<span class="dim">Not included</span>`, small: what })]); continue; }
+    const small = x.leaving ? `<span class="leaving">Leaving soon</span>` : x.new && x.since ? `Added ${esc(relDate(x.since).toLowerCase())}` : what;
+    items.push([1, shell({ cls: "sub in", url: link?.url, mark: subMark(sv), name, price: "Included", small })]);
   }
+  prices.forEach((x, i) => {
+    const tip = [x.base_text ? `Usually ${x.base_text}` : "", x.sale_note ? `Sale price ${x.sale_note}` : "", wishedTip(x.store)];
+    const small = x.discount_pct ? (x.sale_ends ? `Until ${short(x.sale_ends)}` : `Sale${x.sale_note ? ` ${x.sale_note}` : ""}`) : "Regular price";
+    items.push([2 + i / 100, shell({ cls: x.store === cheapest ? "best" : "", url: x.url, tip, mark: storeMark(x.store, !!listed[x.store]), name: WISH_SHORT[x.store],
+      price: `<span class="${x.discount_pct ? "on-sale" : ""}">${esc(x.price_text)}</span>${x.discount_pct ? `<i class="poff">-${x.discount_pct}%</i>` : ""}`,
+      small: esc(small) })]);
+  });
+  for (const s of (w.stores || []).filter((s) => !prices.some((x) => x.store === s.store) && !ownedStores.includes(s.store))) {
+    items.push([3, shell({ url: s.url, tip: [wishedTip(s.store)], mark: storeMark(s.store, true), name: WISH_SHORT[s.store], price: "—", small: esc(when(s) || "No price yet") })]);
+  }
+  // Not sold there: said for Steam and PlayStation; GOG and Epic only show up when they sell it
+  for (const st of (w.missing || []).filter((st) => st === "steam" || st === "psn")) {
+    items.push([4, shell({ cls: "none", tip: [`Not sold on ${st === "psn" ? "the PlayStation Store" : "Steam"}`], mark: storeMark(st, false), name: WISH_SHORT[st], price: `<span class="dim">Not sold</span>`, small: "Not on this store" })]);
+  }
+  const boxes = items.sort((a, b) => a[0] - b[0]).map((x) => x[1]);
   return `<section class="wish-box">
     <h2>Wishlist and prices</h2>
     <div class="pboxes">${boxes.join("")}</div>

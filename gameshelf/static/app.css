@@ -832,12 +832,18 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .wp-store .smark i { width: 9px; height: 9px; }
 .wp-store .smark b { font-size: 6px; }
 /* game page */
-.pboxes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-@media (max-width: 900px) { .pboxes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pboxes { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 1150px) { .pboxes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .pbox { display: flex; flex-direction: column; gap: 2px; padding: 8px 11px 9px; border-radius: var(--radius-m); border: 1px solid var(--line);
   background: rgba(255,255,255,.02); color: var(--text) !important; text-decoration: none; min-width: 0; }
 a.pbox[href]:hover { border-color: #4a4263; }
 .pbox.best { border-color: rgba(255,92,158,.6); background: rgba(255,92,158,.07); }
+.pbox.owned { border-color: rgba(116,214,160,.6); background: rgba(116,214,160,.08); }
+.pbox.sub.in { border-color: rgba(116,214,160,.45); }
+a.pbox.owned[href]:hover, a.pbox.sub.in[href]:hover { border-color: rgba(116,214,160,.85); }
+.pbox-price { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.pbox-price .poff { font: 700 11.5px/1.2 var(--body); font-style: normal; padding: 1px 6px; border-radius: 999px; background: var(--grad); color: var(--accent-ink); }
+.pbox small .leaving { color: #ffb36b; }
 a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .pbox-top { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .pbox-top .wheart { width: 24px; height: 22px; }
@@ -878,7 +884,7 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .pbox small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pbox.sub.in .pbox-price, .pbox.owned .pbox-price { color: var(--done); }
 .pbox .dim { color: var(--faint); font-weight: 600; }
-.pbox small.leaving { color: var(--accent); }
+.pbox small.leaving { color: #ffb36b; }
 
 /* Owned / XGP / PS+ under wishlist covers: little pills */
 .wtags { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
