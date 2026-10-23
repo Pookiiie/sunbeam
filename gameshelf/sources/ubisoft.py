@@ -307,7 +307,8 @@ def fetch() -> list[dict]:
         why = str(e) if isinstance(e, UbisoftError) else "Ubisoft didn't answer"
         ago = "today" if age < 1 else f"{int(age)} day{'s' if int(age) != 1 else ''} ago"
         notice = (f"Couldn't refresh ({why}): these are the games and hours from {ago}. "
-                  f"Sign in once more in Settings › Ubisoft Connect, with Remember me ticked.")
+                  f"Sign in once more in Settings › Ubisoft Connect, with Remember me ticked (on Ubisoft's "
+                  f"\"Welcome back!\" page, choose \"Not you? Click here\" to get the full sign-in, where Remember me is).")
     local = local_last_played()
     for it in items:
         saved = local.get(db.normalize_title(it["name"]))

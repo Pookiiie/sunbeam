@@ -1,3 +1,7 @@
+Sunbeam 1.7.0 beta 2: clearer Ubisoft sign-in.
+
+- **Ubisoft's "Welcome back!" page**: when Ubisoft greets you with your account and a Continue button, there's no Remember me box, so Sunbeam couldn't get a "stay signed in" pass. The instructions now say to choose **Not you? Click here** there instead: it opens the full sign-in, where Remember me is.
+
 Sunbeam 1.7.0 beta 1: Nintendo Switch syncs by itself, and every sign-in is encrypted.
 
 - **Nintendo Switch and Switch 2 sync like any other store.** Sign in to your Nintendo Account once (Settings › Nintendo Switch), and every sync reads the Play Activity the Nintendo Store app shows: every game you've played, exact play time and days played, first and last played, Switch or Switch 2, and each day's play (added to the game's Play history). No more screen recordings.

@@ -3145,10 +3145,10 @@ SERVICES.push({
     const last = Number(s.ubi_refreshed_at || 0);
     const status = !signedIn ? ""
       : auto ? `<p class="ubi-status ok">Signed in${s.ubi_name ? ` as <b>${esc(s.ubi_name)}</b>` : ""}. ${APP} refreshes your Ubisoft games, hours and last played by itself at every sync${last ? ` (last refreshed ${esc(relDate(last).toLowerCase())})` : ""}.</p>`
-      : `<p class="ubi-status warn">Signed in${s.ubi_name ? ` as <b>${esc(s.ubi_name)}</b>` : ""}, but without a "stay signed in" pass, so ${APP} can't refresh by itself${last ? ` (last refreshed ${esc(relDate(last).toLowerCase())})` : ""}. Sign in once more, with <b>Remember me</b> ticked.</p>`;
+      : `<p class="ubi-status warn">Signed in${s.ubi_name ? ` as <b>${esc(s.ubi_name)}</b>` : ""}, but without a "stay signed in" pass, so ${APP} can't refresh by itself${last ? ` (last refreshed ${esc(relDate(last).toLowerCase())})` : ""}. Sign in once more, with <b>Remember me</b> ticked: if Ubisoft greets you with <b>Welcome back!</b> and a Continue button, choose <b>Not you? Click here</b> instead, which opens the full sign-in where Remember me is.</p>`;
     const how = [
       `Drag this button to your browser's bookmarks bar (drag it, don't click it): <a class="btn small bookmarklet" href="__UBI_BOOKMARK__" onclick="event.preventDefault(); toast('Drag the button to your bookmarks bar instead of clicking it')">Send to ${APP}</a>`,
-      `Open <a href="https://connect.ubisoft.com/login?appId=b8fde481-327d-4031-85ce-7c10a202a700&lang=en-US" target="_blank" rel="noopener">connect.ubisoft.com</a>, sign in with <b>Remember me</b> ticked (two-step codes work as usual), then click the bookmark on that page. It hands your games and the "stay signed in" pass to ${APP}, which refreshes by itself from then on.`,
+      `Open <a href="https://connect.ubisoft.com/login?appId=b8fde481-327d-4031-85ce-7c10a202a700&lang=en-US" target="_blank" rel="noopener">connect.ubisoft.com</a>, sign in with <b>Remember me</b> ticked (if you see <b>Welcome back!</b> with a Continue button, choose <b>Not you? Click here</b> to get the full sign-in, where Remember me is; two-step codes work as usual), then click the bookmark on that page. It hands your games and the "stay signed in" pass to ${APP}, which refreshes by itself from then on.`,
     ];
     return signedIn && auto ? [status] : signedIn ? [status, ...how] : how;
   },
@@ -4762,7 +4762,7 @@ async function receiveUbisoft() {
     await loadSettings();
     toast(res.remember ? `Ubisoft Connect linked${res.name ? ` as ${res.name}` : ""}: ${res.games} games. Adding them now…`
       : `Ubisoft Connect linked for today only: Ubisoft didn't hand over a "stay signed in" pass, so later syncs can't refresh by themselves. `
-        + `Sign out on connect.ubisoft.com, sign in again with Remember me ticked, then click the bookmark again.`, !res.remember);
+        + `On connect.ubisoft.com, sign out, then sign in again with Remember me ticked (on a "Welcome back!" page, choose "Not you? Click here" for the full sign-in), then click the bookmark again.`, !res.remember);
     if (!state.sync?.running) {
       state.sync = await api("/api/sync", { method: "POST", body: { sources: ["ubisoft"] } });
       startPolling();
