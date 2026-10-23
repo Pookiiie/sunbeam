@@ -1,9 +1,7 @@
-Sunbeam 1.6.1: better screenshots, cleaner Curator, OpenCritic on autopilot.
+Sunbeam 1.7.0 beta 1: Nintendo Switch syncs by itself, and every sign-in is encrypted.
 
-- **Screenshots lead with the best one**, in Curator's previews and on the game's page alike. The order comes from the store, where the developer chose it: Steam first (with sharper copies), then GOG, then the Microsoft Store. Games on none of those get IGDB's screenshots ranked by Sunbeam: widescreen, colourful and detailed first; dark title cards, menus and logos last. Your library is sorted in the background a couple of minutes after Sunbeam starts.
-- **Show this one first**: in the full-size screenshot viewer, make any screenshot the one that leads. "Back to automatic order" undoes it.
-- **Previews tell you about your copy**: the stores you have it on (with their icons; XGP and PS+ games show the Xbox or PlayStation icon, "with XGP"), and your time with it with a progress bar: "4.5 h played · about 33 h left", "Not played yet · about 4 h to beat", "played over a year ago · about 5 h from the start". They also show the year, up to three genres, and the Steam and OpenCritic scores as small chips.
-- **A cleaner Curator**: no titles under the covers (the preview has them), and the score and hours on their own lines under the picks, In season and Hidden gems.
-- **OpenCritic scores fill in by themselves** while Sunbeam is open: the day's allowance (up to 180) is read in the background, again after midnight UTC (8 pm in Toronto). Settings › OpenCritic shows how many are left and can turn it off.
-- **Fixed: OpenCritic stopping for the day after a few lookups.** A "too many at once" from RapidAPI was taken as "that's all for today". Lookups now go one a second, and a slow-down only pauses 15 minutes. Searches (15 a day) are no longer spent on games from before 2014, demos, playtests or betas.
-- Refresh assets: the OpenCritic line reads properly ("942 left" over "more after 8:00 PM").
+- **Nintendo Switch and Switch 2 sync like any other store.** Sign in to your Nintendo Account once (Settings › Nintendo Switch), and every sync reads the Play Activity the Nintendo Store app shows: every game you've played, exact play time and days played, first and last played, Switch or Switch 2, and each day's play (added to the game's Play history). No more screen recordings.
+- Signing in: Sunbeam opens Nintendo's own sign-in page in your browser; right-click **Select this account**, copy the link and paste it into Sunbeam. Your password only goes to Nintendo. The sign-in lasts about two years.
+- Games you imported from screen recordings become the synced copies (matched by name), so nothing is counted twice and their statuses, art and shelves stay.
+- **Every key, sign-in and account name is now encrypted** in `settings.json`, with Windows' own data protection, tied to your Windows account on this PC. Ones saved by earlier versions are encrypted the first time this version starts.
+- The screen-recording import is still there (Sync › Nintendo Switch, without signing in).

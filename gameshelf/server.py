@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from . import __version__, brand, db, duplicates, installed, settings, switch_import, switch_video, sync
 from .meta import hltb, igdb, opencritic, sgdb, wishlist
 from .paths import DATA_DIR, STATIC_DIR
-from .sources import PLATFORMS, battlenet, epic, gog, playstation, steam, ubisoft, xbox
+from .sources import PLATFORMS, battlenet, epic, gog, nintendo, playstation, steam, ubisoft, xbox
 
 ROUTES: list[tuple[str, re.Pattern, callable]] = []
 
@@ -481,7 +481,8 @@ def delete_entry(req, body, query, entry_id):
 @route("GET", "/api/settings")
 def get_settings(req, body, query):
     return {"settings": settings.public_view(), "hltb_installed": hltb.HowLongToBeat is not None,
-            "version": __version__, "gog_galaxy": gog.has_galaxy(), "oc": sync.oc_status()}
+            "version": __version__, "gog_galaxy": gog.has_galaxy(), "oc": sync.oc_status(),
+            "encrypted": settings.available(), "unreadable": settings.unreadable()}
 
 
 @route("POST", "/api/settings")
@@ -504,8 +505,14 @@ def clear_setting(req, body, query, key):
     return get_settings(req, body, query)
 
 
-TESTS = {"steam": steam.test, "playstation": playstation.test, "epic": epic.test, "gog": gog.test, "xbox": xbox.test, "battlenet": battlenet.test, "ubisoft": ubisoft.test, "igdb": igdb.test, "sgdb": sgdb.test,
+TESTS = {"nintendo": nintendo.test, "steam": steam.test, "playstation": playstation.test, "epic": epic.test, "gog": gog.test, "xbox": xbox.test, "battlenet": battlenet.test, "ubisoft": ubisoft.test, "igdb": igdb.test, "sgdb": sgdb.test,
          "opencritic": opencritic.test, "wishlist": wishlist.test}
+
+
+@route("POST", "/api/nintendo/auth")
+def post_nintendo_auth(req, body, query):
+    """Nintendo's sign-in page for this one sign-in (it checks the link pasted back answers it)."""
+    return {"url": nintendo.auth_url()}
 
 
 @route("POST", r"/api/test/(\w+)")
@@ -806,6 +813,10 @@ mimetypes.add_type("image/svg+xml", ".svg")
 def serve(port: int) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
+    try:
+        settings.encrypt_existing()  # sign-ins saved by older versions in plain text
+    except Exception as e:
+        print(f"  Couldn't encrypt saved sign-ins: {e}")
     sync.start_oc_auto()  # OpenCritic scores, a day's allowance at a time, by themselves
     sync.start_shots_auto()  # screenshots in the best order (meta/shots.py)
     return httpd

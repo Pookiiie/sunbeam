@@ -2616,7 +2616,7 @@ function openAdd() {
   const options = Object.entries(state.platforms).filter(([k]) => k !== "steam" && k !== "playstation")
     .map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
   body.innerHTML = `
-    <p class="lede">For Switch 2 and anywhere ${APP} can't import from yet. Art and details fill in automatically.</p>
+    <p class="lede">For anywhere ${APP} can't import from. Art and details fill in automatically.</p>
     <button class="btn quiet small shots-link" data-open-shots>Import Nintendo Switch games from a screen recording instead</button>
     <div id="add-search"></div>
     <label class="field"><span>Title</span><input type="text" id="add-name" placeholder="Game title"></label>
@@ -3167,6 +3167,23 @@ SERVICES.push({
   fields: [["bnet_games", "Games list (pasted)", true]],
 });
 SERVICES.push({
+  id: "nintendo", name: "Nintendo Switch and Switch 2", blurb: "Every game you've played, with play time and first and last played, from your Nintendo Account",
+  ready: (s) => s.nin_session.set,
+  steps: () => {
+    const s = state.settings.settings;
+    const how = [
+      `<button type="button" class="btn small" data-nin-auth>Open Nintendo's sign-in</button> It opens in your browser: sign in with the Nintendo Account your Switch uses.`,
+      `On the next page, <b>right-click</b> the <b>Select this account</b> button (don't click it) and choose <b>Copy link</b>.`,
+      `Paste it below and choose Save and test. Your password only goes to Nintendo. ${APP} keeps the sign-in encrypted on this PC; it lasts about two years.`,
+    ];
+    return s.nin_session.set
+      ? [`<p class="ubi-status">Signed in${s.nin_name ? ` as <b>${esc(s.nin_name)}</b>` : ""}. Every sync reads your Play Activity: play time, first and last played, and each day's play. New play shows up there within a day.</p>`]
+      : how;
+  },
+  fields: [["nin_link", "Link from Nintendo's page", true]],
+  clears: ["nin_session", "nin_link", "nin_pending", "nin_name"],
+});
+SERVICES.push({
   id: "opencritic", name: "Critic scores: OpenCritic", blurb: "Optional. Top critic average, % recommended and tier",
   ready: (s) => s.opencritic_key.set,
   steps: [
@@ -3207,7 +3224,6 @@ function ocDaily() {
 }
 
 const LATER = [
-  ["Nintendo Switch and Switch 2", "Import from a screen recording (Sync › Nintendo Switch)"],
 ];
 
 async function loadSettings() {
@@ -3240,7 +3256,9 @@ function serviceBody(svc) {
 function renderSettings(openId) {
   const s = state.settings.settings;
   const body = $("#settings-body");
-  body.innerHTML = updatesBlock() + displayBlock() + hiddenTypesSection(openId) + subsSection(openId) + shortcutsSection(openId) + SERVICES.map((svc) => {
+  const lost = state.settings.unreadable || [];
+  body.innerHTML = (lost.length ? `<p class="auto-note">Some sign-ins were saved on another PC or Windows account, so they can't be read here (they're encrypted for the account that saved them). Set those stores up again below.</p>` : "")
+    + updatesBlock() + displayBlock() + hiddenTypesSection(openId) + subsSection(openId) + shortcutsSection(openId) + SERVICES.map((svc) => {
     const ok = svc.ready(s);
     return `<details class="service" data-svc="${svc.id}" ${openId === svc.id || (!openId && !ok && svc.id !== "sgdb" && !body.dataset.seen) ? "open" : ""}>
       <summary><div><h3>${svc.name}</h3><p>${svc.blurb}</p></div><span class="state ${ok ? "ok" : "todo"}">${ok ? "Connected" : "Not set up"}</span></summary>
@@ -3384,6 +3402,19 @@ function watchWindow() {
   setInterval(report, 4000);  // moving a window has no event: check now and then
   setTimeout(report, 1500);
 }
+
+// Nintendo's sign-in page, made for this one sign-in, in your normal browser.
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-nin-auth]");
+  if (!b) return;
+  e.preventDefault();
+  try {
+    const { url } = await api("/api/nintendo/auth", { method: "POST", body: {} });
+    if (state.desktop?.app) await api("/api/open", { method: "POST", body: { url } });
+    else window.open(url, "_blank", "noopener");
+    toast("Nintendo's sign-in opened in your browser");
+  } catch (err) { toast(err.message, true); }
+});
 
 // In the app window, links to other sites open in your normal browser (where you're signed in).
 document.addEventListener("click", (e) => {
@@ -3606,7 +3637,7 @@ const setup = { i: 0, stores: [], subs: {} };
 
 function setupSteps() {
   const d = state.desktop || {};
-  return ["welcome", "igdb", "stores", ...setup.stores.filter((x) => x !== "switch"), "subs", "extras",
+  return ["welcome", "igdb", "stores", ...setup.stores.map((x) => x === "switch" ? "nintendo" : x), "subs", "extras",
     ...(d.windows && d.packaged ? ["shortcuts"] : []), "done"];
 }
 
@@ -3628,7 +3659,7 @@ function renderSetup() {
       <p>Pick every one you'd like in ${APP}. You'll set them up one by one next.</p>
       <div class="setup-stores">${SETUP_STORES.map(([id, name]) => `<label class="chip ${setup.stores.includes(id) ? "on" : ""}">
         <input type="checkbox" value="${id}" ${setup.stores.includes(id) ? "checked" : ""}>${esc(name)}</label>`).join("")}</div>
-      ${setup.stores.includes("switch") ? `<p class="source-note">Nintendo doesn't share libraries online: once setup is done, use <b>Sync › Nintendo Switch</b> to import a screen recording of your Play History from the Nintendo Store phone app (iPhone or Android).</p>` : ""}`;
+      ${setup.stores.includes("switch") ? `<p class="source-note">Nintendo Switch: you'll sign in to your Nintendo Account, and ${APP} reads the Play Activity the Nintendo Store app shows.</p>` : ""}`;
   } else if (step === "subs") {
     body = `<h2 class="setup-h">Subscriptions</h2>
       <p>Do you have either of these? ${APP} then shows the games they include alongside your own, and in its suggestions.</p>
@@ -3756,6 +3787,7 @@ function syncSources() {
     { id: "xbox", name: "Xbox", ok: s.xbl_key?.set },
     { id: "ubisoft", name: "Ubisoft Connect", ok: !!s.ubi_user },
     { id: "battlenet", name: "Battle.net", ok: s.bnet_games?.set },
+    { id: "nintendo", name: "Nintendo Switch", ok: s.nin_session?.set },
   ];
 }
 
@@ -3911,7 +3943,7 @@ function renderJobDialog() {
     <div class="sync-sources">
       ${sources.map((x) => `<label class="${x.ok ? "" : "off"}"><input type="checkbox" name="src" value="${x.id}" ${x.ok ? "checked" : "disabled"}><span>${x.name}</span><small>${x.ok ? "Ready" : `<button type="button" class="link" data-setup="${x.id}">Set up</button>`}</small></label>`).join("")}
     </div>
-    <div class="sync-sources"><label class="shots-row"><span>Nintendo Switch</span><small><button type="button" class="link" data-open-shots>Import from a screen recording</button></small></label></div>
+    <div class="sync-sources"><label class="shots-row"><span>Nintendo Switch, without signing in</span><small><button type="button" class="link" data-open-shots>Import from a screen recording</button></small></label></div>
     <p class="source-note">Games already in your library only get their playtime and last played updated. To update their details or art, use Refresh assets.</p>
     ${libraryChecks()}
     ${finished}

@@ -30,15 +30,16 @@ Sunbeam opens in its own window. While it runs, its icon by the clock reopens th
 | Xbox (and XGP) | Games you've played on PC (Xbox app), playtime, last played (Xbox 360 and console-only games are left out) | A free OpenXBL API key (sign in at xbl.io with your Microsoft account) |
 | Ubisoft Connect | PC games you own, playtime and last played (from each game's Ubisoft stats, plus save dates from the Ubisoft Connect app on this PC) | A one-time sign-in: drag the "Send to Sunbeam" bookmark from Settings to your bookmarks bar, sign in at connect.ubisoft.com with **Remember me** ticked (two-step code included), then click the bookmark there. After that, every sync refreshes your Ubisoft games by itself; Settings shows when it last did. Your password is never stored |
 | Battle.net | Blizzard and Activision games you own; last played for games launched on this PC (Blizzard doesn't share playtime) | Open account.battle.net/api/games-and-subs while signed in and paste what it shows (Settings explains). Paste again after getting a new game |
+| Nintendo Switch and Switch 2 | Every game you've played on Switch and Switch 2, with play time, days played, first and last played, and each day's play (the Play Activity the Nintendo Store app shows) | A one-time sign-in to your Nintendo Account: Settings › Nintendo Switch opens Nintendo's sign-in page; right-click **Select this account**, copy the link and paste it into Sunbeam. It lasts about two years. Your password only goes to Nintendo. New play shows up within a day (the console uploads it while sleeping online) |
 | SteamGridDB (optional) | Nicer covers, banners and logos for console games, and lots of choices in Change art | Free API key |
 | OpenCritic (optional) | Critic scores: top critic average, % recommended, tier | Free RapidAPI key (Basic plan: about 200 games a day) |
 | HowLongToBeat | Main / Extras / 100% times | Nothing; set up automatically when possible |
 
 Each section in Settings has step-by-step instructions and a **Save and test** button.
 
-Switch 2 (and anything else) can be added with **Add game**: search, pick, and the art and details fill in.
+Anything else can be added with **Add game**: search, pick, and the art and details fill in.
 
-For Nintendo Switch and Switch 2 games, use **Sync › Nintendo Switch › Import from a screen recording** (also under Add game). On your phone, open the **Nintendo Store** app (iPhone or Android) and sign in. Go to your profile › **Play History** and tap the first game to open its card. Start a screen recording (iPhone: Control Center › record button; Android: swipe down twice › Screen record), go through the games one by one with about a second on each card, stop the recording, get the video onto your PC and drop it into Sunbeam. It reads each game's card: time played, first and last played, days played, the day-by-day list, and whether it's a Switch or Switch 2 game (from the badge). You check the list before anything is added. The day-by-day list shows up as **Play history** on the game's page. Importing again later updates dates and history, and raises hours but never lowers them. The first recording needs a one-time download of a small video tool (ffmpeg, about 30 MB). Screenshots of the Play History list still work too, with hours only.
+Without signing in to Nintendo, Switch games can come from **Sync › Nintendo Switch, without signing in › Import from a screen recording** (also under Add game). On your phone, open the **Nintendo Store** app (iPhone or Android) and sign in. Go to your profile › **Play History** and tap the first game to open its card. Start a screen recording (iPhone: Control Center › record button; Android: swipe down twice › Screen record), go through the games one by one with about a second on each card, stop the recording, get the video onto your PC and drop it into Sunbeam. It reads each game's card: time played, first and last played, days played, the day-by-day list, and whether it's a Switch or Switch 2 game (from the badge). You check the list before anything is added. The day-by-day list shows up as **Play history** on the game's page. Importing again later updates dates and history, and raises hours but never lowers them. The first recording needs a one-time download of a small video tool (ffmpeg, about 30 MB). Screenshots of the Play History list still work too, with hours only.
 
 ## Using it
 
@@ -78,7 +79,7 @@ For Nintendo Switch and Switch 2 games, use **Sync › Nintendo Switch › Impor
 
 Everything lives in the `data` folder next to the app:
 - `library.db`: your library and statuses
-- `settings.json`: your keys and tokens
+- `settings.json`: your settings, keys and sign-ins. Every key, sign-in and account name in it is encrypted with Windows' own data protection, tied to your Windows account on this PC: the file is useless anywhere else. Copied to another PC or Windows user, the sign-ins can't be read there and need doing again (Settings says which)
 - `window`: the app window's own browser profile (its size and position)
 - `gameshelf.log`: messages from the last runs, useful if something goes wrong
 - `backups`: copies of `library.db`, made before each new version of Sunbeam starts and once a week (the newest 6 are kept). To go back to one, quit Sunbeam and copy it over `library.db`.

@@ -80,6 +80,9 @@ jobs:
           $page = (Invoke-WebRequest http://127.0.0.1:8790/ -UseBasicParsing).Content
           if ($page -notmatch "<title>${{ steps.ver.outputs.name }}</title>") { throw "the page doesn't carry the app's name" }
           Stop-Process $p.Id
+          # Sign-ins are saved encrypted (Windows DPAPI) and read back.
+          & "$root/runtime/python.exe" tools/ci_settings_check.py
+          if ($LASTEXITCODE) { throw "encrypted settings check failed" }
           # Shortcuts are made the way the app makes them.
           & "$root/runtime/python.exe" -c "from gameshelf import desktop; print(desktop.make_shortcuts(['desktop', 'startmenu']))"
           if ($LASTEXITCODE) { throw "shortcuts failed" }
