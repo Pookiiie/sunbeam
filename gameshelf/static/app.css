@@ -1147,10 +1147,23 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .peek-thumbs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
 .peek-thumbs button:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
 .peek-body { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 4px; }
-.peek-body b { font-size: 15px; }
-.peek-body small { color: var(--muted); font-size: 12.5px; }
-.peek-facts { font-size: 12.5px; color: var(--muted); }
-.peek-facts .score { font-weight: 700; }
+.peek-head { display: flex; align-items: baseline; gap: 8px; }
+.peek-head b { font-size: 16px; line-height: 1.25; }
+.peek-head span { color: var(--faint); font-size: 13px; font-variant-numeric: tabular-nums; }
+.peek-genres { color: var(--muted); font-size: 12.5px; }
+.peek-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.peek-chip { display: inline-flex; align-items: baseline; gap: 5px; padding: 3px 9px; border-radius: 999px; background: var(--ink-3); font-size: 12.5px; color: var(--muted); }
+.peek-chip .score { font-weight: 700; }
+.peek-you { margin-top: 6px; padding: 8px 10px; border-radius: var(--radius-s); background: rgba(255,255,255,.035); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 6px; }
+.peek-own { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.peek-k { color: var(--faint); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.peek-plats { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.peek-plats .badge { position: static; }
+.peek-sub { color: var(--done); font-weight: 600; }
+.peek-spine { margin: 0; }
+.peek-time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.peek-time b { color: var(--text); font-weight: 650; }
 .peek-body p { margin: 4px 0 0; font-size: 13px; line-height: 1.4; color: var(--text); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .peek-actions { display: flex; gap: 8px; margin-top: 8px; }
 .peek-actions svg { width: 13px; height: 13px; fill: currentColor; vertical-align: -2px; }
@@ -1185,3 +1198,11 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .ypace li em { font-style: normal; color: var(--faint); font-size: 12.5px; }
 .ypace .source-note { margin-top: 10px; }
 @media (max-width: 900px) { .ypace-grid { grid-template-columns: 1fr; } }
+
+/* ---------- Curator: no titles under covers (the cover shows the game; the name stays for screen
+   readers), score and hours on their own lines in the picks, In season and Hidden gems */
+#page-curator .rec-title, #page-curator #recent .card-title {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; }
+#page-curator .rec-why { margin-top: 6px; }
+.why-l1, .why-l2 { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.why-l2 { color: var(--muted); }

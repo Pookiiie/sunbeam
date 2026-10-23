@@ -526,7 +526,7 @@ function renderUpNext() {
     <button class="rec" data-id="${g.id}" data-why="picks">
       <div class="cover">${coverHTML(g)}<span class="rec-n">${i + 1}</span>${interestMark(g)}${instMark(g)}</div>
       <div class="rec-title">${esc(g.title)}</div>
-      <div class="rec-why" title="Why this pick?">${recShort(g)}</div>
+      <div class="rec-why" title="Why this pick?">${recLines(g)}</div>
     </button>`;
   const row = (title, hint, list, empty) => `
     <div class="cur-sub">
@@ -750,9 +750,9 @@ function renderCuratorExtras() {
   const strip = (el, title, hint, list, why, kind) => setHTML($(el), list.length
     ? `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">${title}</h2><span class="cur-hint">${hint}</span></div>
        <div class="cur-strip">${list.map((g) => stripCard(g, why(g), kind)).join("")}</div></section>` : "");
-  strip("#cur-season", x.season ? `In season: ${esc(x.season.title)}` : "In season", x.season ? esc(x.season.hint) : "", x.seasonList, (g) => recShort(g), "season");
+  strip("#cur-season", x.season ? `In season: ${esc(x.season.title)}` : "In season", x.season ? esc(x.season.hint) : "", x.seasonList, (g) => recLines(g), "season");
   strip("#cur-gems", "Hidden gems", "loved by the few who've played them", x.gems,
-    (g) => `${scoreTag(g)} of ${g.steam_review_count.toLocaleString()} Steam reviews`, "gems");
+    (g) => `<span class="why-l1">${scoreTag(g)} Steam</span><span class="why-l2">${g.steam_review_count.toLocaleString()} reviews</span>`, "gems");
   strip("#cur-classics", "Classics worth it", "ten years or more, and still great", x.classics,
     (g) => `${yearOf(g)} · ${scoreTag(g) || `${Math.round(recReview(g))}%`}`, "classics");
 }
@@ -812,13 +812,34 @@ $("#page-curator").addEventListener("click", (e) => {
 // Point at a cover in Curator: a small card with a screenshot, the summary, and Play or Install.
 let peekTimer = null, peekHide = null, peekId = null;
 const previewsOn = () => state.settings?.settings?.curator_previews !== false;  // Settings › Display (on unless switched off)
+// What the preview says about you and this game: where you have it, and your time with it.
+function peekYou(g) {
+  const subs = (g.subs || []).map((x) => SUB_SHORT[x.s]).filter(Boolean);
+  const own = g.isCatalog
+    ? `<span class="peek-k">Not in your library</span>${subs.length ? `<span class="peek-sub">On ${esc(subs.join(" and "))}</span>` : ""}`
+    : `<span class="peek-k">Yours on</span><span class="peek-plats">${g.platforms.map(platformBadge).join("")}</span>${subs.length ? `<span class="peek-sub">also on ${esc(subs.join(" and "))}</span>` : ""}`;
+  const played = g.played_h > 0 ? fmtHours(g.played_h) : null;
+  let time;
+  if (g.status === "completed") time = `Completed${played ? ` · ${played} played` : ""}`;
+  else if (g.isEndless) time = played ? `${played} played · open-ended` : "Open-ended · not played yet";
+  else if (!played) time = g.ttb ? `Not played yet · about <b>${fmtHours(g.ttb)}</b> to beat` : "Not played yet";
+  else if (recRestart(g)) time = `${played} played, over a year ago · about <b>${fmtHours(g.ttb_extra || g.ttb_main || g.ttb)}</b> from the start`;
+  else if (g.remaining > 0.25) time = `${played} played · about <b>${fmtHours(g.remaining)}</b> left`;
+  else if (g.ttb) time = `${played} played · past the usual ${fmtHours(g.ttb)}`;
+  else time = `${played} played`;
+  return `<div class="peek-you">
+      <div class="peek-own">${own}</div>
+      ${!g.isEndless && g.progress != null && played ? spine(g, "peek-spine") : ""}
+      <div class="peek-time">${time}</div>
+    </div>`;
+}
 function peekHTML(g) {
   const shots = (g.screenshots || []).length ? g.screenshots.slice(0, 5) : g.hero_url ? [g.hero_url] : [];
-  const bits = [yearOf(g), (g.genres || []).slice(0, 2).map(genreLabel).join(", ")].filter(Boolean).join(" · ");
-  const facts = [
-    g.steam_review_pct != null ? `<span class="score ${steamClass(g)}">${Math.round(g.steam_review_pct)}%</span> Steam` : "",
-    g.oc_score != null ? `<span class="score ${criticClass(g)}">${Math.round(g.oc_score)}%</span> OpenCritic${g.oc_tier ? ` (${esc(g.oc_tier)})` : ""}` : "",
-    g.ttb ? `about ${esc(fmtHours(g.ttb))} to beat` : g.isEndless ? "Open-ended" : ""].filter(Boolean).join(" · ");
+  const genres = (g.genres || []).slice(0, 3).map(genreLabel).join(", ");
+  const chips = [
+    g.steam_review_pct != null ? `<span class="peek-chip"><span class="score ${steamClass(g)}">${Math.round(g.steam_review_pct)}%</span> Steam</span>` : "",
+    g.oc_score != null ? `<span class="peek-chip"><span class="score ${criticClass(g)}">${Math.round(g.oc_score)}%</span> OpenCritic${g.oc_tier ? ` · ${esc(g.oc_tier)}` : ""}</span>` : "",
+  ].join("");
   const inst = !g.canPlay ? installOrder(g)[0] : null;
   // The first screenshot large, the next ones as thumbnails (point at one to see it large; click to open them full size).
   // Shown whole (never cropped), on a dark backing when a shot isn't 16:9.
@@ -827,9 +848,10 @@ function peekHTML(g) {
       ${shots.length > 1 ? `<div class="peek-thumbs">${shots.slice(1).map((u, i) => `<button type="button" data-peek="shots" data-i="${i + 1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}
     </div>` : ""}
     <div class="peek-body">
-      <b>${esc(g.title)}</b>
-      ${bits ? `<small>${esc(bits)}</small>` : ""}
-      ${facts ? `<div class="peek-facts">${facts}</div>` : ""}
+      <div class="peek-head"><b>${esc(g.title)}</b>${yearOf(g) ? `<span>${yearOf(g)}</span>` : ""}</div>
+      ${genres ? `<small class="peek-genres">${esc(genres)}</small>` : ""}
+      ${chips ? `<div class="peek-chips">${chips}</div>` : ""}
+      ${peekYou(g)}
       ${g.summary ? `<p>${esc(g.summary)}</p>` : ""}
       <div class="peek-actions">
         ${g.canPlay ? `<button type="button" class="btn small" data-peek="play">${PLAY_SVG} Play</button>`
@@ -982,6 +1004,11 @@ function showPage(page, { push = true } = {}) {
   if (page === "year") renderYear();
 }
 
+// The same on two lines under a Curator cover: the score, then the hours ("4.3h to beat").
+function recLines(g) {
+  const [a = "", b = ""] = recShort(g).split(" · ");
+  return `<span class="why-l1">${a}</span><span class="why-l2">${b}</span>`;
+}
 // The to-the-point version of recReason for Curator: "97% Steam · 4.3h to beat".
 function recShort(g) {
   const bits = [];
