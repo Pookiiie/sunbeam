@@ -32,15 +32,21 @@ SPARQL = """SELECT ?oc ?igdb ?steam WHERE {
   OPTIONAL { ?item wdt:P1733 ?steam . }
 }"""
 
-_limiter = net.RateLimiter(3.5)
+# One call a second. (It was 3.5 a second until Oct 2026: RapidAPI answered "too many requests"
+# after a quick burst of searches, and that used to pause lookups for the rest of the day.)
+_limiter = net.RateLimiter(1.0)
+COOL_DOWN = 15 * 60  # after a "slow down" from RapidAPI, wait this long before the next lookup
+LEGACY_STOP = "RapidAPI said the limit was reached"  # written by 1.6.1-beta.3 and earlier for any 429
 _map_cache: dict = {}
 
 
 class BudgetSpent(Exception):
-    """Today's allowance is used up. `searches_only` means plain lookups can continue."""
-    def __init__(self, searches_only: bool = False):
-        super().__init__("OpenCritic daily limit reached")
+    """Today's allowance is used up. `searches_only` means plain lookups can continue.
+    `cooling` means RapidAPI asked to slow down: lookups carry on in a few minutes, not tomorrow."""
+    def __init__(self, searches_only: bool = False, cooling: bool = False):
+        super().__init__("OpenCritic asked to slow down" if cooling else "OpenCritic daily limit reached")
         self.searches_only = searches_only
+        self.cooling = cooling
 
 
 def configured() -> bool:
@@ -68,8 +74,20 @@ def _budget() -> dict:
     m = _meta()
     if m.get("oc_day") != _today():
         return {"day": _today(), "requests": 0, "searches": 0, "stop": "", "stop_searches": ""}
+    stop = m.get("oc_stop", "")
+    if stop == LEGACY_STOP:
+        stop = ""  # older versions paused the whole day on any "too many requests", even a "slow down"
     return {"day": m["oc_day"], "requests": int(m.get("oc_requests", 0)), "searches": int(m.get("oc_searches", 0)),
-            "stop": m.get("oc_stop", ""), "stop_searches": m.get("oc_stop_searches", "")}
+            "stop": stop, "stop_searches": m.get("oc_stop_searches", "")}
+
+
+def cooling_until() -> float:
+    """When lookups may resume after RapidAPI asked to slow down (0 = they may now)."""
+    try:
+        t = float(_meta().get("oc_cool_until") or 0)
+    except ValueError:
+        t = 0
+    return t if t > time.time() else 0
 
 
 _spend_lock = __import__("threading").Lock()  # a sync and a single-game refresh can look up at once
@@ -85,6 +103,8 @@ def _spend_locked(search: bool) -> None:
     b = _budget()
     if b["stop"] or b["requests"] >= DAILY_REQUESTS:
         raise BudgetSpent()
+    if cooling_until():
+        raise BudgetSpent(cooling=True)
     if search and (b["stop_searches"] or b["searches"] >= DAILY_SEARCHES):
         raise BudgetSpent(searches_only=True)
     new_day = _meta().get("oc_day") != b["day"]
@@ -131,7 +151,7 @@ def budget_left() -> dict:
     left_s = 0 if (b["stop"] or b["stop_searches"]) else max(DAILY_SEARCHES - b["searches"], 0)
     return {"requests": left_r, "searches": left_s, "used_today": b["requests"],
             "rapidapi": m.get("oc_quota") if m.get("oc_day") == _today() else None,
-            "paused": bool(b["stop"])}
+            "paused": bool(b["stop"]), "cooling_until": int(cooling_until()) or None}
 
 
 def _get(path: str, params: dict | None = None, search: bool = False):
@@ -146,8 +166,15 @@ def _get(path: str, params: dict | None = None, search: bool = False):
         return resp.json()
     except net.HttpError as e:
         if e.status == 429:
-            _save(stop="RapidAPI said the limit was reached")
-            raise BudgetSpent() from None
+            # RapidAPI says 429 both for "that's all for today" and for "too many at once". Only the first
+            # pauses until tomorrow; the second waits a few minutes. (Not retried either way.)
+            body = (e.body or b"")[:400].decode("utf-8", "replace")
+            _save(last_429=f"{int(time.time())} {body}")
+            if re.search(r"daily|quota|month", body, re.I) and not re.search(r"per (second|minute|hour)|rate limit", body, re.I):
+                _save(stop=f"RapidAPI: {body[:120] or 'limit reached'}")
+                raise BudgetSpent() from None
+            _save(cool_until=str(int(time.time() + COOL_DOWN)))
+            raise BudgetSpent(cooling=True) from None
         if e.status in (401, 403):
             raise RuntimeError("OpenCritic (RapidAPI) rejected the key, or you're not subscribed to the "
                                "OpenCritic API's Basic plan yet.") from None
@@ -193,6 +220,19 @@ def id_map() -> dict:
 def igdb_slug(igdb_url: str | None) -> str | None:
     m = re.search(r"igdb\.com/games/([^/?#]+)", igdb_url or "")
     return m.group(1).lower() if m else None
+
+
+# OpenCritic started in 2015 and covers few older games; demos, playtests and the like aren't on it.
+FIRST_YEAR_TS = 1388534400  # 1 Jan 2014: a little before, for games reviewed when it launched
+NOT_ON_OC = re.compile(r"\b(demo|playtest|test server|public test|beta|soundtrack|OST|dedicated server|"
+                       r"benchmark|season pass|expansion pass)\b", re.I)
+
+
+def worth_searching(title: str, release_ts: int | None) -> bool:
+    """Whether a search (15 a day) could plausibly find this game. Matches from Wikidata cost no search."""
+    if release_ts and release_ts < FIRST_YEAR_TS:
+        return False
+    return not NOT_ON_OC.search(title or "")
 
 
 def search(title: str) -> int | None:

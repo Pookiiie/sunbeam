@@ -1,3 +1,10 @@
+Sunbeam 1.6.1 beta 4: OpenCritic keeps going by itself, and XGP / PS+ games are yours in previews.
+
+- **OpenCritic scores fill in by themselves.** While Sunbeam is open, it reads the day's allowance (up to 180) in the background: a couple of minutes after it starts, then every half hour, picking up again when a new allowance starts at midnight UTC (8 pm in Toronto, 7 pm once the clocks go back). Settings › OpenCritic shows how many games are left and has a switch to turn it off.
+- **Fixed: OpenCritic stopping for the day after a few lookups.** A quick burst of lookups got a "too many at once" from RapidAPI, and Sunbeam took it as "that's all for today". It now asks once a second, and a "slow down" only pauses 15 minutes. Today's pause is lifted.
+- **Searches go further.** OpenCritic searches (15 a day) are no longer spent on games from before 2014, demos, playtests or betas, which OpenCritic doesn't have.
+- **XGP and PS+ games are yours in previews**: "Yours on" with the Xbox or PlayStation icon, "with XGP". The game page no longer says "Not in your library" for them.
+
 Sunbeam 1.6.1 beta 3: a cleaner Curator and richer previews.
 
 - **No titles under the covers in Curator** (the cover shows the game; point at it for the preview). The picks keep their 1 to 5 numbers and their size.

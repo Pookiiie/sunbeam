@@ -36,6 +36,7 @@ FIELDS = {
     "igdb_client_secret": True,
     "sgdb_api_key": True,
     "opencritic_key": True,
+    "oc_auto": False,            # read OpenCritic scores by itself each day while the app is open (default: on)
     "hltb_enabled": False,
     "hide_early_access": False,  # keep early access games out of the library and Curator (default: shown)
     "hide_vr": False,            # keep VR games out of the library and Curator (default: hidden)

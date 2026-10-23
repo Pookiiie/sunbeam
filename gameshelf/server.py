@@ -474,7 +474,7 @@ def delete_entry(req, body, query, entry_id):
 @route("GET", "/api/settings")
 def get_settings(req, body, query):
     return {"settings": settings.public_view(), "hltb_installed": hltb.HowLongToBeat is not None,
-            "version": __version__, "gog_galaxy": gog.has_galaxy()}
+            "version": __version__, "gog_galaxy": gog.has_galaxy(), "oc": sync.oc_status()}
 
 
 @route("POST", "/api/settings")
@@ -799,4 +799,5 @@ mimetypes.add_type("image/svg+xml", ".svg")
 def serve(port: int) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
+    sync.start_oc_auto()  # OpenCritic scores, a day's allowance at a time, by themselves
     return httpd

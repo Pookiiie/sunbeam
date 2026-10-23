@@ -815,9 +815,9 @@ const previewsOn = () => state.settings?.settings?.curator_previews !== false;  
 // What the preview says about you and this game: where you have it, and your time with it.
 function peekYou(g) {
   const subs = (g.subs || []).map((x) => SUB_SHORT[x.s]).filter(Boolean);
-  const own = g.isCatalog
-    ? `<span class="peek-k">Not in your library</span>${subs.length ? `<span class="peek-sub">On ${esc(subs.join(" and "))}</span>` : ""}`
-    : `<span class="peek-k">Yours on</span><span class="peek-plats">${g.platforms.map(platformBadge).join("")}</span>${subs.length ? `<span class="peek-sub">also on ${esc(subs.join(" and "))}</span>` : ""}`;
+  // XGP and PS+ games are yours too (Xbox / PlayStation icon): the service is just how you have them.
+  const own = `<span class="peek-k">Yours on</span><span class="peek-plats">${g.platforms.map(platformBadge).join("")}</span>`
+    + (subs.length ? `<span class="peek-sub">${g.isCatalog ? "with" : "also on"} ${esc(subs.join(" and "))}</span>` : "");
   const played = g.played_h > 0 ? fmtHours(g.played_h) : null;
   let time;
   if (g.status === "completed") time = `Completed${played ? ` · ${played} played` : ""}`;
@@ -2061,7 +2061,7 @@ function renderDetail(g) {
       </div>
       <div class="detail-notes">
         ${shelfRow(g)}
-        ${(g.subs || []).length && !g.wish ? `<div class="sub-line">${g.isCatalog ? `<span>Not in your library</span>` : ""}${g.subs.map((x) =>
+        ${(g.subs || []).length && !g.wish ? `<div class="sub-line">${g.subs.map((x) =>
           `<span title="${esc(SUB_NAME[x.s])}">${x.leaving ? "Leaving" : "Included with"} ${SUB_SHORT[x.s]}${x.leaving ? " soon" : ""}${x.new ? `, added ${relDate(x.since).toLowerCase()}` : ""}${storeLink(x.s)}</span>`).join("")}</div>` : ""}
         ${g.isEA ? `<p class="sub-note">In early access${g.eaFull ? `, full release ${esc(fmtDate(g.eaFull))}` : ""}: time to beat and progress may still change, and it won't be marked completed automatically.</p>` : ""}
         ${g.status === "completed" && g.status_auto ? `<p class="auto-note">✓ Marked completed automatically: ${esc(g.status_auto)}${g.status_at ? `, ${esc(fmtDate(g.status_at))}` : ""}. Not right? Pick another status above.</p>` : ""}
@@ -3170,10 +3170,32 @@ SERVICES.push({
   steps: [
     `Create a free account at <a href="https://rapidapi.com" target="_blank" rel="noopener">rapidapi.com</a>.`,
     `Open the <a href="https://rapidapi.com/opencritic-opencritic-default/api/opencritic-api/pricing" target="_blank" rel="noopener">OpenCritic API</a> and subscribe to the free <b>Basic</b> plan.`,
-    `Copy your <b>X-RapidAPI-Key</b> from the API's page and paste it below. ${APP} stays well inside the free plan: at most 180 lookups a day, and it stops early if RapidAPI reports that only a tenth of your allowance is left. A big library fills in over a few days.`,
+    `Copy your <b>X-RapidAPI-Key</b> from the API's page and paste it below. ${APP} stays well inside the free plan: at most 180 lookups a day, and it stops early if RapidAPI reports that only a tenth of your allowance is left. A big library fills in over a few days, by itself while ${APP} is open.`,
   ],
   fields: [["opencritic_key", "RapidAPI key", true]],
+  extra: () => ocDaily(),
 });
+
+// OpenCritic: the daily allowance is read by itself while the app is open (Settings › OpenCritic).
+function ocDaily() {
+  const oc = state.settings.oc;
+  if (!oc) return "";
+  const at = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  let note;
+  if (!oc.left) note = "Every game has been looked up. New games get their scores by themselves.";
+  else {
+    const left = `${oc.left.toLocaleString()} game${oc.left === 1 ? "" : "s"} still to look up`;
+    const today = oc.used_today ? ` · ${oc.used_today} of ${oc.daily} lookups used today` : "";
+    const next = !oc.auto ? ". They're looked up when you sync or use Refresh assets."
+      : oc.paused || !oc.requests ? `. The next ${oc.daily} start by themselves after ${at(oc.next_day)}, while ${APP} is open.`
+      : oc.cooling_until ? `. OpenCritic asked for a short break: carrying on by itself after ${at(oc.cooling_until)}.`
+      : `. Carrying on by itself in the background.`;
+    note = left + today + next;
+  }
+  return `<div class="oc-daily">
+    <label class="switch"><input type="checkbox" id="oc-auto" ${oc.auto ? "checked" : ""}><span>Look up scores by itself each day while ${APP} is open</span></label>
+    <p class="source-note">${note}</p></div>`;
+}
 
 const LATER = [
   ["Nintendo Switch and Switch 2", "Import from a screen recording (Sync › Nintendo Switch)"],
@@ -3202,6 +3224,7 @@ function serviceBody(svc) {
             : svc.fields.some(([k, , sec]) => sec && s[k].set) ? `<button class="link" data-clear="${svc.id}">${svc.id === "battlenet" ? "Remove saved list" : "Remove saved key"}</button>` : ""}
           <span class="test-result" data-result="${svc.id}"></span>
         </div>
+        ${svc.extra && svc.ready(s) ? svc.extra() : ""}
       </div>`;
 }
 
@@ -3306,6 +3329,12 @@ $("#settings-body").addEventListener("change", async (e) => {
     await api("/api/settings", { method: "POST", body: { update_channel: e.target.value } });
     await loadSettings();
     await refreshUpdates();
+    return;
+  }
+  if (e.target.id === "oc-auto") {
+    await api("/api/settings", { method: "POST", body: { oc_auto: e.target.checked } });
+    await loadSettings();
+    renderSettings("opencritic");
     return;
   }
   if (e.target.id === "hltb-toggle") {
@@ -3727,7 +3756,7 @@ const REFRESH_STEPS = [
   { id: "art", label: "Artwork", hint: "Covers, banners and logos", unit: "missing" },
   { id: "reviews", label: "Steam user reviews", hint: "Every 14 days, plus Steam versions of console games", unit: "to check" },
   { id: "ttb", label: "Time to beat", hint: "Main, extras and 100% times", unit: "missing" },
-  { id: "critics", label: "OpenCritic scores", hint: "Stays well inside the free plan (at most 180 lookups a day); the rest carry over", need: "opencritic", unit: "to look up" },
+  { id: "critics", label: "OpenCritic scores", hint: "Stays well inside the free plan (at most 180 lookups a day); the rest are looked up by themselves on later days", need: "opencritic", unit: "to look up" },
   { id: "completions", label: "Finished games", hint: "Marks games completed from your achievements and trophies. Statuses you set yourself stay put", unit: "to check" },
 ];
 
@@ -3848,7 +3877,9 @@ function renderJobDialog() {
           const off = (x.need === "igdb" && !est.igdb) || (x.need === "opencritic" && !est.opencritic);
           const n = est[x.id] || 0;
           const ocNote = x.id === "critics" && !off && est.oc_left
-            ? (est.oc_left.paused || !est.oc_left.requests ? "Paused until tomorrow (free plan)" : `${n.toLocaleString()} to look up, ${est.oc_left.requests} today`)
+            ? (est.oc_left.paused || !est.oc_left.requests ? "Paused until tomorrow (free plan)"
+              : est.oc_left.cooling_until ? "Short break (OpenCritic asked), back in a few minutes"
+              : `${n.toLocaleString()} to look up, ${est.oc_left.requests} today`)
             : null;
           const note = off ? `<button type="button" class="link" data-setup="${x.need}">Set up ${x.need === "igdb" ? "IGDB" : "OpenCritic"}</button>`
             : ocNote ? ocNote

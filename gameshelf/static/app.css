@@ -1206,3 +1206,6 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 #page-curator .rec-why { margin-top: 6px; }
 .why-l1, .why-l2 { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .why-l2 { color: var(--muted); }
+
+.oc-daily { margin-top: 14px; }
+.oc-daily .source-note { margin: 6px 0 0; }

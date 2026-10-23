@@ -3,12 +3,13 @@ time-to-beat. Runs in one worker thread; the UI polls `status()`."""
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
 import traceback
 
-from . import brand, db, net, rules
+from . import brand, db, net, rules, settings
 
 APP_NAME = brand.NAME
 from .meta import achievements, catalogs, hltb, igdb, opencritic, sgdb, steamstore, wishlist
@@ -917,20 +918,32 @@ def _ttb(refresh: bool, scope: str, args):
         _tick()
 
 
+_oc_lock = threading.Lock()        # one OpenCritic run at a time: a sync's or the daily background one
+_oc_auto_stop = threading.Event()  # a sync wants the OpenCritic step: the background run steps aside
+
+
 def _critics(refresh: bool, scope: str, args):
     if not opencritic.configured():
         _tl("critics", state="skipped", note="Add an OpenCritic key in Settings")
         return
-    cond = _conds(refresh)["critics"]
-    # Most recently played first, so the games you care about get scores first.
-    todo = _rows(f"""SELECT g.id, g.title, g.steam_appid, g.igdb_url, g.oc_id FROM games g
+    _oc_auto_stop.set()  # the background run (if any) stops after its current lookup
+    with _oc_lock:
+        _oc_auto_stop.clear()
+        _critics_run(_conds(refresh)["critics"], scope, args, _cancel.is_set)
+
+
+def _critics_run(cond: str, scope: str, args, stopped) -> dict:
+    """Look up OpenCritic scores for the games matching cond. Returns what happened (for the background run)."""
+    # Your own games first, most recently played first; then XGP / PS+ games, newest first.
+    todo = _rows(f"""SELECT g.id, g.title, g.steam_appid, g.igdb_url, g.oc_id, g.release_date FROM games g
                   LEFT JOIN (SELECT game_id, MAX(last_played) lp,
                                     MIN(CASE WHEN ownership IN ('catalog', 'wishlist') THEN 1 ELSE 0 END) cat
                              FROM entries GROUP BY game_id) e ON e.game_id = g.id
                   WHERE {cond.replace("release_date", "g.release_date")}{scope.replace(" id", " g.id")}
-                  ORDER BY COALESCE(e.cat, 0), COALESCE(e.lp, 0) DESC""", args)
+                  ORDER BY COALESCE(e.cat, 0), COALESCE(e.lp, 0) DESC, COALESCE(g.release_date, 0) DESC""", args)
+    out = {"todo": len(todo), "done": 0, "found": 0, "skipped": 0, "waiting": 0, "stopped": None}
     if not todo:
-        return
+        return out
     _stage("critics", "Reading OpenCritic scores", len(todo))
     _tl("critics", note="Matching your games to OpenCritic")
     ids = opencritic.id_map()
@@ -938,15 +951,24 @@ def _critics(refresh: bool, scope: str, args):
     if ids.get("error"):
         _log(f"Couldn't get OpenCritic matches from Wikidata ({ids['error']}), so each game needs a search, "
              f"and {APP_NAME} makes at most {opencritic.DAILY_SEARCHES} OpenCritic searches a day.", "warn")
-    done = found = waiting = 0
+    done = found = waiting = skipped = 0
     searches_left = True
     try:
         for g in todo:
-            if _cancel.is_set():
-                return
+            if stopped():
+                out["stopped"] = "cancelled"
+                return out
             oc_id = g["oc_id"] or ids.get("steam", {}).get(g["steam_appid"]) \
                 or ids.get("igdb", {}).get(opencritic.igdb_slug(g["igdb_url"]) or "")
             if not oc_id:
+                if not opencritic.worth_searching(g["title"], g["release_date"]):
+                    # Older than OpenCritic, or a demo / playtest: not worth one of the day's few searches.
+                    with db.tx() as c:
+                        c.execute("UPDATE games SET oc_checked_at=? WHERE id=?", (db.now(), g["id"]))
+                    skipped += 1
+                    done += 1
+                    _tick()
+                    continue
                 if not searches_left:
                     waiting += 1  # needs a search: leave it for another day
                     _tick()
@@ -972,23 +994,110 @@ def _critics(refresh: bool, scope: str, args):
                     c.execute("UPDATE games SET oc_checked_at=? WHERE id=?", (db.now(), g["id"]))
             done += 1
             _tick()
-    except opencritic.BudgetSpent:
+    except opencritic.BudgetSpent as e:
         left = len(todo) - done  # (games waiting for a search are among them)
-        _tl("critics", state="skipped", note=f"Daily limit reached, {left:,} for another day")
-        _log(f"{APP_NAME} reads at most {opencritic.DAILY_REQUESTS} OpenCritic scores a day (to stay inside the free plan). "
-             f"{left:,} games will be picked up by your next sync or Refresh assets on another day.", "warn")
+        if e.cooling:
+            out["stopped"] = "cooling"
+            _tl("critics", state="skipped", note=f"OpenCritic asked to slow down, {left:,} for later")
+            _log(f"OpenCritic asked {APP_NAME} to slow down. The other {left:,} games carry on by themselves "
+                 f"in a few minutes while {APP_NAME} is open.", "warn")
+        else:
+            out["stopped"] = "daily"
+            _tl("critics", state="skipped", note=f"Daily limit reached, {left:,} for another day")
+            _log(f"{APP_NAME} reads at most {opencritic.DAILY_REQUESTS} OpenCritic scores a day (to stay inside the free plan). "
+                 f"The other {left:,} games are picked up by themselves on another day while {APP_NAME} is open.", "warn")
     except RuntimeError as e:
+        out["stopped"] = "key"
         _log(f"OpenCritic: {e}", "error")
-        return
     except net.HttpError as e:  # OpenCritic having a bad moment: no retry (the free plan counts every call)
+        out["stopped"] = "error"
         _tl("critics", state="skipped", note="OpenCritic didn't answer")
-        _log(f"OpenCritic didn't answer ({e}). The rest will be picked up on another day.", "warn")
-        return
+        _log(f"OpenCritic didn't answer ({e}). The rest will be picked up later.", "warn")
+    out.update(done=done, found=found, skipped=skipped, waiting=waiting)
+    if out["stopped"]:
+        return out
     if waiting and searches_left is False and done + waiting == len(todo):
+        out["stopped"] = "searches"
         _tl("critics", note=f"{waiting:,} need a search, for another day")
         _log(f"{waiting:,} games need an OpenCritic search ({opencritic.DAILY_SEARCHES} a day); they'll be picked up on another day.", "warn")
     if found:
         _log(f"OpenCritic scores for {found:,} game{'s' if found != 1 else ''}.")
+    return out
+
+
+# ------------------------------------------------------------------ OpenCritic, every day by itself
+
+def _oc_auto_due() -> bool:
+    if settings.get("oc_auto") is False or not opencritic.configured() or _state.get("running"):
+        return False
+    left = opencritic.budget_left()
+    if left["paused"] or left["cooling_until"] or not left["requests"]:
+        return False
+    try:
+        last = json.loads(db.get_meta("oc_auto") or "{}")
+    except ValueError:
+        last = {}
+    # Everything left needs a search and today's searches are spent: nothing to do until tomorrow.
+    if last.get("day") == left_day() and last.get("stopped") in ("searches", "daily") and not left["searches"]:
+        return False
+    return _count(_conds(False)["critics"]) > 0
+
+
+def left_day() -> str:
+    return opencritic._today()
+
+
+def _oc_auto_once() -> None:
+    if not _oc_lock.acquire(blocking=False):
+        return
+    try:
+        if not _oc_auto_due():
+            return
+        out = _critics_run(_conds(False)["critics"], "", (), _oc_auto_stop.is_set)
+        if out["todo"]:
+            prev = {}
+            try:
+                prev = json.loads(db.get_meta("oc_auto") or "{}")
+            except ValueError:
+                pass
+            same_day = prev.get("day") == left_day()
+            db.set_meta("oc_auto", json.dumps({
+                "day": left_day(), "at": int(time.time()), "stopped": out["stopped"],
+                "found": out["found"] + (prev.get("found", 0) if same_day else 0),
+                "done": out["done"] + (prev.get("done", 0) if same_day else 0),
+                "left": _count(_conds(False)["critics"]),
+            }))
+    except Exception:
+        traceback.print_exc()  # never take the app down; try again next time
+    finally:
+        _oc_lock.release()
+
+
+def oc_status() -> dict | None:
+    """For Settings: what's left to look up, today's allowance, and what the daily run last did."""
+    if not opencritic.configured():
+        return None
+    try:
+        last = json.loads(db.get_meta("oc_auto") or "{}")
+    except ValueError:
+        last = {}
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc)
+    next_day = int((now.replace(hour=0, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1)).timestamp())
+    return {**opencritic.budget_left(), "left": _count(_conds(False)["critics"]),
+            "auto": settings.get("oc_auto") is not False, "last": last if last.get("day") == left_day() else None,
+            "next_day": next_day, "daily": opencritic.DAILY_REQUESTS}
+
+
+def start_oc_auto() -> None:
+    """While the app is open: read the day's OpenCritic allowance by itself, a few minutes after start
+    and then every half hour (a new allowance starts at midnight UTC). Settings can turn it off."""
+    def loop():
+        time.sleep(90)
+        while True:
+            _oc_auto_once()
+            time.sleep(30 * 60)
+    threading.Thread(target=loop, daemon=True, name="opencritic-daily").start()
 
 
 def _completions(refresh: bool, scope: str, args):
