@@ -368,6 +368,11 @@ def _migrate(c: sqlite3.Connection) -> None:
                 c.execute(f"ALTER TABLE games ADD COLUMN {col} {kind}")
         c.execute("UPDATE games SET igdb_shots = screenshots WHERE igdb_shots IS NULL")
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '24')")
+    if version < 25:
+        # Steam lists every screenshot of a game with mature content (Metal Gear Solid V) as "mature",
+        # which 1.6.1-beta.5 skipped, falling back to IGDB's (sometimes just one): look again.
+        c.execute("UPDATE games SET shots_at = NULL WHERE COALESCE(shots_src, 'igdb') = 'igdb'")
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '25')")
 
 
 @contextmanager

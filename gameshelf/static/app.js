@@ -3178,6 +3178,13 @@ SERVICES.push({
   extra: () => ocDaily(),
 });
 
+// OpenCritic's allowance starts again at midnight UTC: that time here ("8:00 PM").
+const clockTime = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function ocNextDay() {
+  const d = new Date();
+  return clockTime(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1) / 1000);
+}
+
 // OpenCritic: the daily allowance is read by itself while the app is open (Settings › OpenCritic).
 function ocDaily() {
   const oc = state.settings.oc;
@@ -3758,7 +3765,7 @@ const REFRESH_STEPS = [
   { id: "art", label: "Artwork", hint: "Covers, banners, logos, and which screenshot comes first", unit: "missing" },
   { id: "reviews", label: "Steam user reviews", hint: "Every 14 days, plus Steam versions of console games", unit: "to check" },
   { id: "ttb", label: "Time to beat", hint: "Main, extras and 100% times", unit: "missing" },
-  { id: "critics", label: "OpenCritic scores", hint: "Stays well inside the free plan (at most 180 lookups a day); the rest are looked up by themselves on later days", need: "opencritic", unit: "to look up" },
+  { id: "critics", label: "OpenCritic scores", hint: "Up to 180 a day, inside the free plan; the rest fill in by themselves", need: "opencritic", unit: "to look up" },
   { id: "completions", label: "Finished games", hint: "Marks games completed from your achievements and trophies. Statuses you set yourself stay put", unit: "to check" },
 ];
 
@@ -3879,9 +3886,9 @@ function renderJobDialog() {
           const off = (x.need === "igdb" && !est.igdb) || (x.need === "opencritic" && !est.opencritic);
           const n = est[x.id] || 0;
           const ocNote = x.id === "critics" && !off && est.oc_left
-            ? (est.oc_left.paused || !est.oc_left.requests ? "Paused until tomorrow (free plan)"
-              : est.oc_left.cooling_until ? "Short break (OpenCritic asked), back in a few minutes"
-              : `${n.toLocaleString()} to look up, ${est.oc_left.requests} today`)
+            ? (est.oc_left.paused || !est.oc_left.requests ? `${n.toLocaleString()} left<br>more after ${ocNextDay()}`
+              : est.oc_left.cooling_until ? `Short break, back at ${clockTime(est.oc_left.cooling_until)}`
+              : `${n.toLocaleString()} left<br>${est.oc_left.requests} more today`)
             : null;
           const note = off ? `<button type="button" class="link" data-setup="${x.need}">Set up ${x.need === "igdb" ? "IGDB" : "OpenCritic"}</button>`
             : ocNote ? ocNote

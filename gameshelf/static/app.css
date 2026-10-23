@@ -325,7 +325,8 @@ input[type=range] { accent-color: var(--accent); width: 110px; }
 .notice { background: rgba(255,92,158,.08); border: 1px solid rgba(255,92,158,.35); color: var(--text); border-radius: var(--radius-s); padding: 10px 12px; margin: 0 0 12px; font-size: 14px; }
 .refresh-steps label { align-items: flex-start; padding: 8px 2px; }
 .refresh-steps label input { margin-top: 3px; }
-.refresh-steps em { white-space: nowrap; padding-left: 12px; }
+.refresh-steps label > span { flex: 1; min-width: 0; }
+.refresh-steps em { white-space: normal; max-width: 40%; flex-shrink: 0; text-align: right; padding-left: 12px; }
 .refresh-steps small, .timeline small { display: block; color: var(--muted); font-size: 13px; font-weight: 400; }
 .refresh-steps label.off { opacity: .6; }
 .timeline { list-style: none; margin: 12px 0 4px; padding: 0; display: grid; gap: 2px; }

@@ -1,3 +1,9 @@
+Sunbeam 1.6.1 beta 6: fixes.
+
+- **Fixed: Metal Gear Solid V (and other games with mature content) showing a single screenshot.** Steam files every screenshot of those games as "mature", and beta 5 only took the others, so it fell back to IGDB's lone one. They're included now, and a store's screenshots are used whenever it has more than IGDB. Games that got IGDB's screenshots are looked at again by themselves.
+- **Refresh assets:** the OpenCritic line no longer squeezes its name into a narrow column. Its note is shorter ("942 left" over "more after 8:00 PM"), and so is its description.
+- The background screenshot sorting and OpenCritic lookups now start right after a sync or refresh ends, instead of up to half an hour later.
+
 Sunbeam 1.6.1 beta 5: the best screenshot first.
 
 - **Screenshots lead with the best one**, in Curator's previews and on the game's page alike (they always agree). IGDB keeps screenshots in upload order, so the first was often a menu or a dark title card. The order now comes from the store, where the developer chose it: Steam first (with sharper copies), then GOG, then the Microsoft Store (Xbox and XGP games).

@@ -1114,6 +1114,9 @@ def start_shots_auto() -> None:
     def loop():
         time.sleep(120)
         while True:
+            if _state.get("running"):
+                time.sleep(60)  # a sync or refresh is on: right after it
+                continue
             try:
                 while not _state.get("running") and shots.order(stopped=lambda: bool(_state.get("running"))):
                     pass
@@ -1129,6 +1132,9 @@ def start_oc_auto() -> None:
     def loop():
         time.sleep(90)
         while True:
+            if _state.get("running"):
+                time.sleep(120)  # a sync or refresh is on (it may read OpenCritic itself): right after it
+                continue
             _oc_auto_once()
             time.sleep(30 * 60)
     threading.Thread(target=loop, daemon=True, name="opencritic-daily").start()

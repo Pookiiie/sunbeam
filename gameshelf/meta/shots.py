@@ -83,7 +83,10 @@ def steam(appids: list[int]) -> tuple[dict[int, list[str]], set[int]]:
             continue
         for item in ((data or {}).get("response") or {}).get("store_items") or []:
             appid = item.get("appid") or item.get("id")
-            shots = ((item.get("screenshots") or {}).get("all_ages_screenshots")) or []
+            # Games with mature content (Metal Gear Solid V, say) have every screenshot in the "mature"
+            # list and none in "all ages": both lists share one order, so they're merged.
+            sc = item.get("screenshots") or {}
+            shots = (sc.get("all_ages_screenshots") or []) + (sc.get("mature_content_screenshots") or [])
             shots = sorted((s for s in shots if s.get("filename")), key=lambda s: s.get("ordinal") or 0)
             urls = []
             for s in shots[:MAX]:
@@ -287,13 +290,20 @@ def order(game_ids: list[int] | None = None, stopped=lambda: False, batch: int =
              if r["id"] in ms_products or r["id"] in xbox_titles else []),
         ]
         try:
+            fewer = []  # stores with only one or two screenshots
             for name, get in candidates:
                 got = get()
-                if len(got) >= MIN_STORE or (got and not igdb_list):
+                if len(got) >= MIN_STORE:
                     urls, src = got, name
                     break
-            if not urls and igdb_list:
-                urls, src = ranked(igdb_list, sizes), "igdb"
+                if got:
+                    fewer.append((len(got), name, got))
+            if not urls:
+                best = max(fewer, default=None)
+                if best and best[0] > len(igdb_list):
+                    urls, src = best[2], best[1]  # a store's two beat IGDB's one
+                elif igdb_list:
+                    urls, src = ranked(igdb_list, sizes), "igdb"
         except Unavailable:
             continue
         with db.tx() as c:
