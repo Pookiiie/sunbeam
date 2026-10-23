@@ -811,12 +811,21 @@ $("#page-curator").addEventListener("click", (e) => {
 
 // Point at a cover in Curator: a small card with a screenshot, the summary, and Play or Install.
 let peekTimer = null, peekHide = null, peekId = null;
+const previewsOn = () => state.settings?.settings?.curator_previews !== false;  // Settings › Display (on unless switched off)
 function peekHTML(g) {
-  const shot = (g.screenshots || [])[0] || g.hero_url;
+  const shots = (g.screenshots || []).length ? g.screenshots.slice(0, 5) : g.hero_url ? [g.hero_url] : [];
   const bits = [yearOf(g), (g.genres || []).slice(0, 2).map(genreLabel).join(", ")].filter(Boolean).join(" · ");
-  const facts = [scoreTag(g) ? `${scoreTag(g)} ${g.steam_review_pct != null ? "Steam" : "OpenCritic"}` : "", g.ttb ? `about ${esc(fmtHours(g.ttb))} to beat` : g.isEndless ? "Open-ended" : ""].filter(Boolean).join(" · ");
+  const facts = [
+    g.steam_review_pct != null ? `<span class="score ${steamClass(g)}">${Math.round(g.steam_review_pct)}%</span> Steam` : "",
+    g.oc_score != null ? `<span class="score ${criticClass(g)}">${Math.round(g.oc_score)}%</span> OpenCritic${g.oc_tier ? ` (${esc(g.oc_tier)})` : ""}` : "",
+    g.ttb ? `about ${esc(fmtHours(g.ttb))} to beat` : g.isEndless ? "Open-ended" : ""].filter(Boolean).join(" · ");
   const inst = !g.canPlay ? installOrder(g)[0] : null;
-  return `${shot ? `<div class="peek-shot" style="background-image:url('${esc(shot)}')"></div>` : ""}
+  // The first screenshot large, the next ones as thumbnails (point at one to see it large; click to open them full size).
+  // Shown whole (never cropped), on a dark backing when a shot isn't 16:9.
+  return `${shots.length ? `<div class="peek-shots">
+      <button type="button" class="peek-main" data-peek="shots" data-i="0" title="Open the screenshots"><img src="${esc(shots[0])}" alt=""></button>
+      ${shots.length > 1 ? `<div class="peek-thumbs">${shots.slice(1).map((u, i) => `<button type="button" data-peek="shots" data-i="${i + 1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}
+    </div>` : ""}
     <div class="peek-body">
       <b>${esc(g.title)}</b>
       ${bits ? `<small>${esc(bits)}</small>` : ""}
@@ -837,10 +846,21 @@ function showPeek(card) {
     pk = document.createElement("div"); pk.id = "peek"; pk.className = "peek"; document.body.append(pk);
     pk.addEventListener("mouseenter", () => clearTimeout(peekHide));
     pk.addEventListener("mouseleave", () => hidePeek());
+    pk.addEventListener("mouseover", (e) => {  // a thumbnail shows large while you point at it
+      const t = e.target.closest(".peek-thumbs [data-i]");
+      if (t) $(".peek-main img", pk).src = $("img", t).src;
+    });
+    pk.addEventListener("mouseleave", () => { const m = $(".peek-main img", pk), first = $(".peek-thumbs", pk) && byId(peekId)?.screenshots?.[0]; if (m && first) m.src = first; });
     pk.addEventListener("click", (e) => {
       const b = e.target.closest("[data-peek]");
       if (!b) return;
-      const id = peekId; hidePeek(true);
+      const id = peekId;
+      if (b.dataset.peek === "shots") {
+        const g = byId(id); hidePeek(true);
+        openLightbox((g.screenshots || []).length ? g.screenshots : [g.hero_url], Number(b.dataset.i) || 0);
+        return;
+      }
+      hidePeek(true);
       if (b.dataset.peek === "play") playGame(id);
       else if (b.dataset.peek === "install") installGame(id, b.dataset.v);
       else openGame(id);
@@ -862,7 +882,7 @@ function hidePeek(now = false) {
 }
 $("#page-curator").addEventListener("mouseover", (e) => {
   const card = e.target.closest(".rec[data-id], .card[data-id], .shelf-cover[data-id]");
-  if (!card || card.contains(e.relatedTarget)) return;
+  if (!card || card.contains(e.relatedTarget) || !previewsOn()) return;
   clearTimeout(peekTimer); clearTimeout(peekHide);
   if ($("#why-pop") && !$("#why-pop").hidden) return;
   peekTimer = setTimeout(() => showPeek(card), Number(card.dataset.id) === peekId ? 0 : 450);
@@ -3246,11 +3266,12 @@ $("#settings-body").addEventListener("click", (e) => {
 $("#settings-body").addEventListener("change", async (e) => {
   if (e.target.dataset.sub) { await saveSub(e.target); renderSettings("subs"); return; }
   const display = { "set-hide-vr": ["hide_vr", (t) => t.checked], "set-hide-ea": ["hide_early_access", (t) => t.checked],
-    "set-start": ["start_page", (t) => t.value], "set-shelves": ["curator_shelves", (t) => t.value] }[e.target.id];
+    "set-start": ["start_page", (t) => t.value], "set-shelves": ["curator_shelves", (t) => t.value],
+    "set-previews": ["curator_previews", (t) => t.checked] }[e.target.id];
   if (display) {
     await api("/api/settings", { method: "POST", body: { [display[0]]: display[1](e.target) } });
     await loadSettings();
-    renderSettings(["set-start", "set-shelves"].includes(e.target.id) ? undefined : "hidden-types");
+    renderSettings(["set-start", "set-shelves", "set-previews"].includes(e.target.id) ? undefined : "hidden-types");
     renderAll();
     return;
   }
@@ -3454,6 +3475,9 @@ function displayBlock() {
       <span class="spacer"></span>
       <select id="set-shelves" aria-label="Your shelves in ${esc(CURATOR)}">${[["cards", "Cards"], ["rows", "Rows"]].map(([v, l]) =>
         `<option value="${v}" ${(s.curator_shelves || "cards") === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+    </div>
+    <div class="pc-row display-row">
+      <label class="switch"><input type="checkbox" id="set-previews" ${previewsOn() ? "checked" : ""}><span>Previews in ${esc(CURATOR)}: point at a cover for its screenshots and summary</span></label>
     </div>
   </div>`;
 }

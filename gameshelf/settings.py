@@ -44,6 +44,7 @@ FIELDS = {
     "start_page": False,         # the tab the app opens on: curator (default), library or wishlist
     "curator_layout": False,     # Curator's sections: {"order": [...], "hidden": [...]} (Customize on Curator)
     "curator_shelves": False,    # Your shelves in Curator: cards (default) or rows
+    "curator_previews": False,   # previews when pointing at a cover in Curator (default: on)
     "update_channel": False,     # stable (default) or beta: test builds of new features
     "setup_done": False,       # finished (or skipped) the first-run setup
     "shortcuts_asked": False,  # answered the desktop / Start menu shortcut question
