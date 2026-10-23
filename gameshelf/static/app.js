@@ -3147,10 +3147,10 @@ function ubiBookmarklet() {
       for (const c of document.cookie.split(";")) { const k = c.split("=")[0].trim(); if (k) names.add("cookie:" + k); }
       out.diag = { host: location.hostname, names: [...names].slice(0, 120) };
     }
-    // Hand over through a small Sunbeam window that closes itself: nothing goes in an address
+    // Hand over to a Sunbeam tab that shows how the import goes: nothing goes in an address
     // (so nothing lands in the browser's history), and this page stays where it is.
     say(APPN + ": sending to " + APPN + "…");
-    const w = window.open(GS + "/#ubisoft-handoff", "sunbeam_ubisoft", "width=560,height=460");
+    const w = window.open(GS + "/#ubisoft-handoff", "sunbeam_ubisoft");
     const fallback = () => location.assign(GS + "/#ubisoft=" + encodeURIComponent(JSON.stringify(out)));
     if (!w) { fallback(); return; }  // pop-up blocked: hand over in this tab, as before
     let answered = false;
@@ -4787,19 +4787,70 @@ new MutationObserver(() => ignoreForPasswordManagers()).observe(document.body, {
 // Arriving from the Send to <app> bookmark on connect.ubisoft.com.
 // The Send to Sunbeam bookmark opens this page in a small window and hands its sign-in over
 // with postMessage (never in the address). Only Ubisoft's own pages are listened to.
+// A tab of its own, showing how the hand-over and the import went (not the whole app).
+function handoffView(o) {
+  let el = $("#handoff");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "handoff";
+    el.className = "handoff";
+    document.body.append(el);
+    document.body.classList.add("handoff-on");
+    document.title = `Ubisoft Connect · ${APP}`;
+    el.addEventListener("click", (e) => { if (e.target.closest("[data-close-tab]")) { window.close(); toast("You can close this tab"); } });
+  }
+  const pct = o.progress != null ? Math.round(o.progress * 100) : null;
+  el.innerHTML = `<div class="handoff-card ${o.state || ""}">
+      <div class="handoff-head"><img src="/icon.svg?v=4" alt="" width="34" height="34"><span>${APP}</span>
+        <span class="handoff-store">${platformBadge("ubisoft")} Ubisoft Connect</span></div>
+      <div class="handoff-mark">${o.state === "done" ? "✓" : o.state === "warn" || o.state === "err" ? "!" : `<span class="handoff-spin"></span>`}</div>
+      <h1>${o.title}</h1>
+      ${o.detail ? `<p class="handoff-detail">${o.detail}</p>` : ""}
+      ${pct != null ? `<div class="handoff-bar"><i style="width:${pct}%"></i></div><p class="handoff-sub">${esc(o.step || "")}</p>` : ""}
+      ${o.note ? `<p class="handoff-note">${o.note}</p>` : ""}
+      ${o.close ? `<button type="button" class="btn" data-close-tab>Close this tab</button>` : ""}
+    </div>`;
+}
+
 function ubisoftHandoff() {
   history.replaceState(null, "", location.pathname);
-  if (!window.opener) { toast("Open this from the Send to " + APP + " bookmark on Ubisoft's site.", true); return; }
+  handoffView({ title: "Getting your sign-in from Ubisoft…" });
+  if (!window.opener) {
+    handoffView({ state: "err", title: "Nothing to import here", detail: `Open this from the Send to ${APP} bookmark on Ubisoft's site.`, close: true });
+    return;
+  }
   window.addEventListener("message", async (e) => {
     if (!/^https:\/\/([a-z0-9-]+\.)*ubisoft\.com$/.test(e.origin) || e.data?.type !== "sunbeam-ubisoft") return;
-    const ok = await receiveUbisoft(e.data.payload);
-    try { e.source.postMessage(ok === "remember" ? "sunbeam-linked" : ok ? "sunbeam-today" : "sunbeam-failed", e.origin); } catch { /* gone */ }
-    if (ok === "remember") setTimeout(() => window.close(), 2500);  // otherwise the message stays to be read
+    handoffView({ title: "Linking your Ubisoft account…" });
+    const res = await receiveUbisoft(e.data.payload, true);
+    try { e.source.postMessage(res?.remember ? "sunbeam-linked" : res ? "sunbeam-today" : "sunbeam-failed", e.origin); } catch { /* gone */ }
+    if (!res) return;
+    // Follow the import to the end.
+    const of = res.total && res.total !== res.games ? ` of the ${res.total} on your account` : "";
+    for (;;) {
+      let st;
+      try { st = await api("/api/sync"); } catch { break; }
+      if (!st.running) break;
+      handoffView({ title: "Importing your Ubisoft games…", detail: `${res.games} PC game${res.games === 1 ? "" : "s"}${of}`,
+        progress: st.overall ?? 0, step: st.stage_label || "" });
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    const lastLog = (await api("/api/sync").catch(() => ({}))).log || [];
+    const failed = lastLog.some((l) => l.level === "error" && /ubisoft/i.test(l.msg));
+    handoffView(failed
+      ? { state: "err", title: "Linked, but the import didn't finish", detail: esc(lastLog.filter((l) => l.level === "error").map((l) => l.msg).join(" ")), close: true }
+      : { state: res.remember ? "done" : "warn",
+          title: `${res.games} Ubisoft game${res.games === 1 ? "" : "s"} imported`,
+          detail: `PC games${of}, with hours played and last played${res.name ? `, for <b>${esc(res.name)}</b>` : ""}.`
+            + (res.total && res.total !== res.games ? " Console games are left out." : ""),
+          note: res.remember ? `${APP} keeps them up to date by itself at every sync from now on.`
+            : `Ubisoft didn't hand over a "stay signed in" pass, so this only lasts today. On connect.ubisoft.com, sign out, sign in again with <b>Remember me</b> ticked (on a "Welcome back!" page, choose <b>Not you? Click here</b>), then click the bookmark again.`,
+          close: true });
   });
   window.opener.postMessage("sunbeam-ready", "*");  // "ready" carries nothing
 }
 
-async function receiveUbisoft(given) {
+async function receiveUbisoft(given, quiet = false) {
   let payload = given || null;
   if (!given) {
     try { payload = JSON.parse(decodeURIComponent(location.hash.slice("#ubisoft=".length))); } catch { /* broken link */ }
@@ -4809,20 +4860,31 @@ async function receiveUbisoft(given) {
   try {
     const res = await api("/api/ubisoft/link", { method: "POST", body: { payload } });
     await loadSettings();
-    toast(res.remember ? `Ubisoft Connect linked${res.name ? ` as ${res.name}` : ""}: ${res.games} games. Adding them now…`
+    if (!quiet) toast(res.remember ? `Ubisoft Connect linked${res.name ? ` as ${res.name}` : ""}: ${res.games} games. Adding them now…`
       : `Ubisoft Connect linked for today only: Ubisoft didn't hand over a "stay signed in" pass, so later syncs can't refresh by themselves. `
         + `On connect.ubisoft.com, sign out, then sign in again with Remember me ticked (on a "Welcome back!" page, choose "Not you? Click here" for the full sign-in), then click the bookmark again.`, !res.remember);
     if (!state.sync?.running) {
-      state.sync = await api("/api/sync", { method: "POST", body: { sources: ["ubisoft"] } });
-      startPolling();
+      state.sync = await api("/api/sync", { method: "POST", body: { sources: ["ubisoft"] } }).catch(() => state.sync);
+      if (!quiet) startPolling();  // the hand-over tab follows the import itself
     }
-    return res.remember ? "remember" : "today";
-  } catch (e) { toast(e.message, true); return false; }
+    return res;
+  } catch (e) {
+    if (quiet) handoffView({ state: "err", title: "That didn't work", detail: esc(e.message), close: true });
+    else toast(e.message, true);
+    return false;
+  }
 }
 
 (async function boot() {
   ignoreForPasswordManagers();
   bind();
+  if (location.hash === "#ubisoft-handoff") {
+    // The bookmark's own tab: only the hand-over and the import, none of the app (no dialogs popping up).
+    handoffView({ title: "Getting your sign-in from Ubisoft…" });
+    try { await loadSettings(); } catch { /* shown when the link fails */ }
+    ubisoftHandoff();
+    return;
+  }
   try {
     await loadSettings();
     await reloadLibrary();
@@ -4832,7 +4894,6 @@ async function receiveUbisoft(given) {
     await startDesktop();
     state.sync = await api("/api/sync");
     if (location.hash.startsWith("#ubisoft=")) await receiveUbisoft();
-    else if (location.hash === "#ubisoft-handoff") ubisoftHandoff();
     if (state.sync.running) startPolling();
     else {
       maybeReviewDups();  // a sync that ran while the window was closed may have found some

@@ -288,7 +288,8 @@ def link(payload: dict) -> dict:
              (not g.get("types") or "PC" in [str(t).upper() for t in g["types"]])]
     items = _items(games, [_times(g.get("cards") or []) for g in games])
     _save_snapshot(items, "bookmark")
-    return {"games": len(items), "name": settings.get("ubi_name") or "", "remember": bool(payload.get("remember"))}
+    return {"games": len(items), "total": len(payload["games"]), "name": settings.get("ubi_name") or "",
+            "remember": bool(payload.get("remember"))}
 
 
 def fetch() -> list[dict]:
