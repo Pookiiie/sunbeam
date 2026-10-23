@@ -1,7 +1,10 @@
-Sunbeam 1.5: smart shelves, three new filters, and GOG and Epic prices on your wishlist.
+Sunbeam 1.6 beta 1: more from Curator.
 
-- **Smart shelves** (✦) fill themselves. Set the Library's filters the way you like (say Never played, Under 10 h and Reviews 85%+), choose **Save as smart shelf** next to the filters and give it a name. Every game that fits is on it, now and as your library changes. To change one, choose **rules** next to it in the Library's Shelves menu: its filters come back; change them and choose **Update**. Smart shelves show in Curator's Your shelves and on a game's page like your other shelves.
-- **New Library filters:** **Length** (time to beat, from under 5 h to 40 h or more, plus open-ended or unknown), **Reviews** (90%+ down to 60%+, the score on the covers) and **Players** (single-player, co-op, couch co-op, online multiplayer).
-- **Wishlist prices from GOG and the Epic Games Store** too, next to Steam and PlayStation, in Canadian dollars. The cheapest price is the one on the cover.
-- **A wishlist game's prices fit on one row:** where you own it comes first (green), then XGP or PS+ when it's included (green), then prices from cheapest (outlined) to most expensive, then the rest. Hover a box for the usual price and when you wishlisted it.
-- Curator's Your shelves updates as soon as a shelf changes.
+- **In season**, a new Curator row with a theme for each month: horror in October, cozy games in December, love stories in February, big RPGs in January, and so on. Ranked like the picks.
+- **Hidden gems**: games loved by the few who've played them (90%+ on Steam from 20 to 3,000 reviews).
+- **Classics worth it**: games ten years or older that are still rated 85%+.
+- Neither row repeats a game the picks already show; both only include games you've played little or not at all. All three are in **Customize**, to move or switch off.
+- **Why this pick?** Click a pick's reason line ("97% Steam · 4h to beat") to see which list it's in and why, its review and length scores, your mark, and what would move it.
+- **Previews**: point at a cover in Curator for a screenshot, the summary, and Play or Install.
+- **Keen or not?** (next to Customize): the games you haven't marked, one at a time, best first. Press 1 for Keen, 2 for Meh, 3 for Skip, or → when you're not sure; ← goes back.
+- **Your pace** in Stats: how your hours on finished games compare with the usual time to the credits, with the games you took your time with and the ones you breezed through. Only a stat: estimates elsewhere don't change.

@@ -523,10 +523,10 @@ function renderUpNext() {
   const el = $("#upnext");
   const L = recLists();
   const card = (g, i) => `
-    <button class="rec" data-id="${g.id}" title="${esc(g.title)}: ${esc(recReason(g))}">
+    <button class="rec" data-id="${g.id}" data-why="picks">
       <div class="cover">${coverHTML(g)}<span class="rec-n">${i + 1}</span>${interestMark(g)}${instMark(g)}</div>
       <div class="rec-title">${esc(g.title)}</div>
-      <div class="rec-why">${recShort(g)}</div>
+      <div class="rec-why" title="Why this pick?">${recShort(g)}</div>
     </button>`;
   const row = (title, hint, list, empty) => `
     <div class="cur-sub">
@@ -545,6 +545,7 @@ function renderUpNext() {
       ${row("Worthwhile commitments", "big, and among the best", L.freshCommit, "Long, great games you haven't played show up here.")}
     </section>`);
   renderWishRows();
+  renderCuratorExtras();
   renderRecent();
   renderShelfRows();
   applyCuratorLayout();
@@ -556,7 +557,10 @@ function renderUpNext() {
 // switches them off; saved in settings (curator_layout).
 const CUR_SECTIONS = [
   ["picks", "Picks", "Keep playing and Try something new"],
+  ["season", "In season", "A theme for each month, like horror in October"],
   ["wishlist", "From your wishlist", "Coming out soon, Recently released, On sale"],
+  ["gems", "Hidden gems", "Loved by the few who've played them"],
+  ["classics", "Classics worth it", "Ten years old or more and still great"],
   ["recent", "Recently played", "Your latest games"],
   ["shelves", "Your shelves", "The lists you make"],
 ];
@@ -691,6 +695,260 @@ function renderRecent() {
   setHTML($("#recent"), list.length
     ? `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">Recently played</h2></div><div class="grid cur-recent">${renderGrid(list)}</div></section>` : "");
 }
+
+/* ------------------------------------------------------------ Curator: In season, Hidden gems, Classics worth it */
+
+// In season: a theme for each month (IGDB genres and themes), ranked like the picks.
+const SEASONS = [
+  { months: [0], title: "Long winter nights", hint: "big RPGs to sink into", test: (g) => has(g.genres, "Role-playing (RPG)") && (g.ttb || 0) >= 20 },
+  { months: [1], title: "Love stories", hint: "romance, for February", test: (g) => has(g.themes, "Romance") || has(g.genres, "Visual Novel") },
+  { months: [2], title: "Brain teasers", hint: "puzzle games", test: (g) => has(g.genres, "Puzzle") },
+  { months: [3], title: "Spring jumps", hint: "platformers", test: (g) => has(g.genres, "Platform") },
+  { months: [4], title: "Mysteries", hint: "something to solve", test: (g) => has(g.themes, "Mystery") || has(g.genres, "Point-and-click") },
+  { months: [5, 6, 7], title: "Summer adventures", hint: "big worlds to roam", test: (g) => has(g.genres, "Adventure") && has(g.themes, "Open world") },
+  { months: [8], title: "Back to strategy", hint: "for September", test: (g) => has(g.genres, "Strategy", "Tactical", "Turn-based strategy (TBS)", "Real Time Strategy (RTS)") },
+  { months: [9], title: "Spooky season", hint: "horror, for October", test: (g) => has(g.themes, "Horror") },
+  { months: [10], title: "Stories to curl up with", hint: "drama and narrative games", test: (g) => has(g.themes, "Drama") },
+  { months: [11], title: "Cozy games", hint: "gentle ones for December",
+    test: (g) => (has(g.themes, "Comedy", "Kids", "Party") || has(g.genres, "Simulator", "Puzzle")) && !has(g.themes, "Horror", "Warfare", "Thriller", "Survival", "Erotic") },
+];
+const has = (list, ...names) => (list || []).some((x) => names.includes(x));
+const season = () => SEASONS.find((s) => s.months.includes(new Date().getMonth()));
+const playedLittle = (g) => g.neverPlayed || (g.playtime_min || 0) < 120;
+const yearOf = (g) => g.release_date ? new Date(g.release_date * 1000).getFullYear() : null;
+const CUR_STRIP = 18;  // rendered per row; the row shows as many as fit the window
+
+// The extra rows don't repeat what the picks above already show (or each other).
+function curatorExtras() {
+  const L = recLists();
+  const seen = new Set([...L.keepQuick, ...L.keepCommit, ...L.freshQuick, ...L.freshCommit].map((g) => g.id));
+  const take = (list) => { const out = list.filter((g) => !seen.has(g.id)).slice(0, CUR_STRIP); out.forEach((g) => seen.add(g.id)); return out; };
+  const ok = state.games.filter((g) => recEligible(g) && !g.isWishOnly);
+  const s = season();
+  const byScore = (a, b) => (recScore(b) ?? -1) - (recScore(a) ?? -1) || a.title.localeCompare(b.title);
+  const seasonList = s ? take(ok.filter((g) => s.test(g) && recScore(g) != null).sort(byScore)) : [];
+  // Hidden gems: 90%+ on Steam from a small crowd (20 to 3,000 reviews), little or no play yet.
+  const gems = take(ok.filter((g) => playedLittle(g) && g.steam_review_pct >= 90 && g.steam_review_count >= 20 && g.steam_review_count <= 3000)
+    .sort((a, b) => b.steam_review_pct - a.steam_review_pct || b.steam_review_count - a.steam_review_count || a.title.localeCompare(b.title)));
+  // Classics: out for ten years or more and still loved (85%+), little or no play yet.
+  const tenYears = Date.now() / 1000 - 10 * 365.25 * 86400;
+  const classics = take(ok.filter((g) => playedLittle(g) && g.release_date && g.release_date < tenYears && (recReview(g) ?? 0) >= 85)
+    .sort((a, b) => recReview(b) - recReview(a) || a.title.localeCompare(b.title)));
+  return { season: s, seasonList, gems, classics };
+}
+function stripCard(g, why, kind) {
+  return `<button class="rec" data-id="${g.id}" data-why="${kind}">
+      <div class="cover">${coverHTML(g)}${interestMark(g)}${instMark(g)}</div>
+      <div class="rec-title">${esc(g.title)}</div>
+      <div class="rec-why" title="Why this pick?">${why}</div>
+    </button>`;
+}
+const scoreTag = (g) => g.steam_review_pct != null ? `<span class="score ${steamClass(g)}">${Math.round(g.steam_review_pct)}%</span>`
+  : g.oc_score != null ? `<span class="score ${criticClass(g)}">${Math.round(g.oc_score)}%</span>` : "";
+function renderCuratorExtras() {
+  const x = curatorExtras();
+  const strip = (el, title, hint, list, why, kind) => setHTML($(el), list.length
+    ? `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">${title}</h2><span class="cur-hint">${hint}</span></div>
+       <div class="cur-strip">${list.map((g) => stripCard(g, why(g), kind)).join("")}</div></section>` : "");
+  strip("#cur-season", x.season ? `In season: ${esc(x.season.title)}` : "In season", x.season ? esc(x.season.hint) : "", x.seasonList, (g) => recShort(g), "season");
+  strip("#cur-gems", "Hidden gems", "loved by the few who've played them", x.gems,
+    (g) => `${scoreTag(g)} of ${g.steam_review_count.toLocaleString()} Steam reviews`, "gems");
+  strip("#cur-classics", "Classics worth it", "ten years or more, and still great", x.classics,
+    (g) => `${yearOf(g)} · ${scoreTag(g) || `${Math.round(recReview(g))}%`}`, "classics");
+}
+
+/* ------------------------------------------------------------ Curator: Why this pick? */
+
+// Click a pick's reason line: what went into it, and what would move it.
+function whyHTML(g, kind) {
+  const steam = g.steam_review_pct, n = g.steam_review_count || 0, oc = g.oc_score;
+  const review = recReview(g), left = recHoursLeft(g), sc = recScore(g);
+  const time = left == null ? 50 : Math.max(10, Math.min(100, 100 - 21 * Math.log2(Math.max(left, 0.5) / 5)));
+  const nudge = INTEREST_NUDGE[g.interest] || 0;
+  const row = (label, value, note = "") => `<div class="why-row"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+  const revNote = steam != null
+    ? `Steam ${Math.round(steam)}% from ${n.toLocaleString()} review${n === 1 ? "" : "s"}${n < 50 ? " (few, so it leans on " + (oc != null ? "OpenCritic" : "a middling 65") + ")" : ""}${oc != null ? ` · OpenCritic ${Math.round(oc)}` : ""}`
+    : oc != null ? `OpenCritic ${Math.round(oc)}` : "No reviews yet: counts as 60";
+  const lenNote = left == null ? "No time-to-beat data: counts as middling"
+    : `${g.neverPlayed ? "About" : recRestart(g) ? "From the start (untouched for over a year):" : "Left to the credits: about"} ${fmtHours(left)}; shorter scores higher`;
+  const list = kind === "season" ? `In season: ${esc(season()?.title || "")}. Fits this month's theme, ranked like the picks.`
+    : kind === "gems" ? "Hidden gems: 90%+ on Steam from 20 to 3,000 reviews, and you've played it little or not at all."
+    : kind === "classics" ? `Classics worth it: out in ${yearOf(g)}, reviews 85%+, and you've played it little or not at all.`
+    : left != null && left >= COMMIT_HOURS ? `Worthwhile commitments: ${COMMIT_HOURS} h or more and reviews ${COMMIT_MIN}%+, ranked on reviews and your mark only (length doesn't count against it).`
+    : `Quick wins: under ${COMMIT_HOURS} h ${g.neverPlayed ? "to beat" : "to go"}, ranked on the score below.`;
+  const commit = !kind || kind === "picks" ? left != null && left >= COMMIT_HOURS : false;
+  return `<h3>${esc(g.title)}</h3>
+    <p class="why-list">${list}</p>
+    ${row("Reviews", review == null ? "—" : Math.round(review), revNote)}
+    ${commit ? "" : row("Length", Math.round(time), lenNote)}
+    ${row(`Your mark`, nudge ? (nudge > 0 ? "+10" : "−10") : "0", g.interest ? `${INTEREST[g.interest]}` : "Not marked: Keen adds 10, Meh takes 10 off, Skip leaves it out")}
+    ${sc != null ? row("Score", Math.round(commit ? (review ?? 0) + nudge : sc), commit ? "Reviews + your mark" : "70% reviews + 30% length + your mark") : ""}`;
+}
+function showWhy(g, kind, anchor) {
+  let pop = $("#why-pop");
+  if (!pop) { pop = document.createElement("div"); pop.id = "why-pop"; pop.className = "why-pop"; pop.setAttribute("role", "dialog"); document.body.append(pop); }
+  pop.innerHTML = whyHTML(g, kind);
+  pop.hidden = false;
+  const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px";
+  pop.style.top = (r.bottom + 8 + h > innerHeight ? Math.max(8, r.top - h - 8) : r.bottom + 8) + "px";
+  hidePeek(true);
+}
+const hideWhy = () => { const p = $("#why-pop"); if (p) p.hidden = true; };
+document.addEventListener("click", (e) => { if (!e.composedPath().some((x) => x.id === "why-pop" || x.classList?.contains("rec-why"))) hideWhy(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideWhy(); });
+addEventListener("scroll", hideWhy, { passive: true });
+// (in the capture phase, before the card opens its game)
+$("#page-curator").addEventListener("click", (e) => {
+  const why = e.target.closest(".rec-why");
+  const card = why?.closest(".rec[data-id]");
+  if (!why || !card || !card.closest("#upnext, #cur-season, #cur-gems, #cur-classics")) return;
+  e.preventDefault(); e.stopPropagation();
+  showWhy(byId(Number(card.dataset.id)), card.dataset.why || "picks", why);
+}, true);
+
+/* ------------------------------------------------------------ Curator: hover previews */
+
+// Point at a cover in Curator: a small card with a screenshot, the summary, and Play or Install.
+let peekTimer = null, peekHide = null, peekId = null;
+function peekHTML(g) {
+  const shot = (g.screenshots || [])[0] || g.hero_url;
+  const bits = [yearOf(g), (g.genres || []).slice(0, 2).map(genreLabel).join(", ")].filter(Boolean).join(" · ");
+  const facts = [scoreTag(g) ? `${scoreTag(g)} ${g.steam_review_pct != null ? "Steam" : "OpenCritic"}` : "", g.ttb ? `about ${esc(fmtHours(g.ttb))} to beat` : g.isEndless ? "Open-ended" : ""].filter(Boolean).join(" · ");
+  const inst = !g.canPlay ? installOrder(g)[0] : null;
+  return `${shot ? `<div class="peek-shot" style="background-image:url('${esc(shot)}')"></div>` : ""}
+    <div class="peek-body">
+      <b>${esc(g.title)}</b>
+      ${bits ? `<small>${esc(bits)}</small>` : ""}
+      ${facts ? `<div class="peek-facts">${facts}</div>` : ""}
+      ${g.summary ? `<p>${esc(g.summary)}</p>` : ""}
+      <div class="peek-actions">
+        ${g.canPlay ? `<button type="button" class="btn small" data-peek="play">${PLAY_SVG} Play</button>`
+          : inst ? `<button type="button" class="btn small ghost" data-peek="install" data-v="${inst}">${DL_SVG} Install on ${esc(PLATFORM_SHORT[inst] || inst)}</button>` : ""}
+        <button type="button" class="btn small ghost" data-peek="open">Open</button>
+      </div>
+    </div>`;
+}
+function showPeek(card) {
+  const g = byId(Number(card.dataset.id));
+  if (!g || g.isWishOnly) return;
+  let pk = $("#peek");
+  if (!pk) {
+    pk = document.createElement("div"); pk.id = "peek"; pk.className = "peek"; document.body.append(pk);
+    pk.addEventListener("mouseenter", () => clearTimeout(peekHide));
+    pk.addEventListener("mouseleave", () => hidePeek());
+    pk.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-peek]");
+      if (!b) return;
+      const id = peekId; hidePeek(true);
+      if (b.dataset.peek === "play") playGame(id);
+      else if (b.dataset.peek === "install") installGame(id, b.dataset.v);
+      else openGame(id);
+    });
+  }
+  peekId = g.id;
+  pk.innerHTML = peekHTML(g);
+  pk.hidden = false;
+  const r = card.querySelector(".cover").getBoundingClientRect(), w = pk.offsetWidth, h = pk.offsetHeight;
+  const right = r.right + 12 + w <= innerWidth;
+  pk.style.left = (right ? r.right + 12 : Math.max(8, r.left - w - 12)) + "px";
+  pk.style.top = Math.max(8, Math.min(r.top, innerHeight - h - 8)) + "px";
+}
+function hidePeek(now = false) {
+  clearTimeout(peekTimer);
+  clearTimeout(peekHide);
+  const go = () => { const pk = $("#peek"); if (pk) pk.hidden = true; peekId = null; };
+  if (now) go(); else peekHide = setTimeout(go, 180);
+}
+$("#page-curator").addEventListener("mouseover", (e) => {
+  const card = e.target.closest(".rec[data-id], .card[data-id], .shelf-cover[data-id]");
+  if (!card || card.contains(e.relatedTarget)) return;
+  clearTimeout(peekTimer); clearTimeout(peekHide);
+  if ($("#why-pop") && !$("#why-pop").hidden) return;
+  peekTimer = setTimeout(() => showPeek(card), Number(card.dataset.id) === peekId ? 0 : 450);
+});
+$("#page-curator").addEventListener("mouseout", (e) => {
+  const card = e.target.closest(".rec[data-id], .card[data-id], .shelf-cover[data-id]");
+  if (!card || card.contains(e.relatedTarget)) return;
+  clearTimeout(peekTimer);
+  hidePeek();
+});
+addEventListener("scroll", () => hidePeek(true), { passive: true });
+document.addEventListener("click", (e) => { if (!e.composedPath().some((x) => x.id === "peek")) hidePeek(true); }, true);
+
+/* ------------------------------------------------------------ Keen or not? */
+
+// Games you haven't marked, one at a time, best first: Keen (1), Meh (2), Skip (3), not sure (→).
+const kon = { list: [], i: 0, done: {} };
+function konQueue() {
+  return state.games.filter((g) => recEligible(g) && !g.interest && !g.isWishOnly)
+    .sort((a, b) => (recScore(b) ?? -1) - (recScore(a) ?? -1) || a.title.localeCompare(b.title));
+}
+function openKon() {
+  kon.list = konQueue().map((g) => g.id); kon.i = 0; kon.done = {};
+  renderKon();
+  $("#kon-dialog").showModal();
+}
+function renderKon() {
+  const body = $("#kon-body");
+  const counts = Object.values(kon.done).reduce((n, v) => { n[v] = (n[v] || 0) + 1; return n; }, {});
+  const tally = Object.keys(counts).length ? `You marked ${["more", "less", "skip"].filter((k) => counts[k]).map((k) => `${counts[k]} ${INTEREST[k]}`).join(", ")}.` : "";
+  if (kon.i >= kon.list.length) {
+    body.innerHTML = `<div class="kon-end"><h3>${kon.list.length ? "That's all of them" : "Nothing left to mark"}</h3>
+      <p>${tally || `Every game ${CURATOR} could suggest already has a mark.`} ${CURATOR}'s picks are up to date.</p>
+      <div class="dialog-actions"><button type="button" class="btn" data-close-dialog>Done</button></div></div>`;
+    return;
+  }
+  const g = byId(kon.list[kon.i]);
+  if (!g) { kon.i++; renderKon(); return; }
+  const cur = kon.done[g.id] || g.interest || "";
+  const facts = [yearOf(g), (g.genres || []).slice(0, 3).map(genreLabel).join(", "),
+    g.ttb ? `about ${fmtHours(g.ttb)} to beat` : g.isEndless ? "open-ended" : "",
+    g.neverPlayed ? "not played yet" : `${fmtHours(g.played_h)} played`].filter(Boolean).join(" · ");
+  const btn = (k, key) => `<button type="button" class="btn ${cur === k ? "" : "ghost"} kon-mark ${k}" data-kon="${k}">${INTEREST_ICON[k]()}${INTEREST[k]}<kbd>${key}</kbd></button>`;
+  body.innerHTML = `<div class="kon">
+      <div class="kon-cover cover">${coverHTML(g)}</div>
+      <div class="kon-info">
+        <h3>${esc(g.title)}</h3>
+        <p class="kon-facts">${esc(facts)}</p>
+        ${scoreTag(g) ? `<p class="kon-facts">${scoreTag(g)} ${g.steam_review_pct != null ? `on Steam${g.steam_review_count ? ` (${g.steam_review_count.toLocaleString()} reviews)` : ""}` : "on OpenCritic"}</p>` : ""}
+        ${g.summary ? `<p class="kon-sum">${esc(g.summary)}</p>` : ""}
+        <div class="badges kon-plats">${badgesHTML(g)}</div>
+      </div>
+    </div>
+    <div class="kon-bar">
+      <button type="button" class="btn icon ghost" data-kon="back" ${kon.i ? "" : "disabled"} aria-label="Back">←</button>
+      ${btn("more", "1")}${btn("less", "2")}${btn("skip", "3")}
+      <button type="button" class="btn ghost" data-kon="next">Not sure<kbd>→</kbd></button>
+      <span class="spacer"></span>
+      <span class="kon-count">${(kon.i + 1).toLocaleString()} of ${kon.list.length.toLocaleString()}</span>
+    </div>
+    <p class="source-note kon-note">${tally || `Games ${CURATOR} might suggest, best first. Stop whenever you like.`}</p>`;
+}
+async function konMark(v) {
+  const id = kon.list[kon.i];
+  if (!id) return;
+  kon.done[id] = v;
+  kon.i++;
+  renderKon();
+  try { await patchGame(id, { interest: v }); } catch (e) { toast(e.message, true); }
+}
+$("#cur-kon").addEventListener("click", openKon);
+$("#kon-body").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-kon]");
+  if (!b) return;
+  const k = b.dataset.kon;
+  if (k === "back") { kon.i = Math.max(0, kon.i - 1); renderKon(); return; }
+  if (k === "next") { kon.i++; renderKon(); return; }
+  konMark(k);
+});
+$("#kon-dialog").addEventListener("keydown", (e) => {
+  if (e.target.matches("input, textarea")) return;
+  const k = { 1: "more", 2: "less", 3: "skip" }[e.key];
+  if (k) { e.preventDefault(); konMark(k); }
+  else if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); kon.i++; renderKon(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); kon.i = Math.max(0, kon.i - 1); renderKon(); }
+});
 
 // Two pages: CURATOR (the default) and Library. The address remembers which (#library).
 function showPage(page, { push = true } = {}) {
@@ -2143,6 +2401,43 @@ function similarSection(g) {
 // the year you actually played them.
 state.yearCache = {};
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// Your pace (Stats): how your hours on games you finished compare with the usual time to the
+// credits (Main + Extras, as on the progress bars). Only a stat: estimates elsewhere don't change.
+function paceStats() {
+  const rows = [];
+  for (const g of state.games) {
+    if (g.status !== "completed" || g.isEndless || g.isHidden) continue;
+    const usual = g.ttb_extra || g.ttb_main, mine = g.played_h;
+    if (!usual || !(mine > 0)) continue;
+    const r = mine / usual;
+    if (r < 0.25 || r > 4) continue;  // far off: a replay, idle hours, or hours from another copy
+    rows.push({ g, usual, mine, r });
+  }
+  if (rows.length < 5) return null;
+  const sorted = rows.map((x) => x.r).sort((a, b) => a - b);
+  const mid = sorted.length / 2;
+  const median = sorted.length % 2 ? sorted[Math.floor(mid)] : (sorted[mid - 1] + sorted[mid]) / 2;
+  rows.sort((a, b) => a.r - b.r);
+  return { median, n: rows.length, quicker: rows.filter((x) => x.r < 0.9).length, longer: rows.filter((x) => x.r > 1.1).length,
+    fastest: rows.slice(0, 3), slowest: rows.slice(-3).reverse() };
+}
+function paceHTML() {
+  const p = paceStats();
+  if (!p) return "";
+  const m = Math.round(p.median * 100) / 100;
+  const say = Math.abs(m - 1) < 0.05 ? "the usual time to the credits: about the same as most players"
+    : m > 1 ? `the usual time to the credits: you take ${Math.round((m - 1) * 100)}% longer` : `the usual time to the credits: you're ${Math.round((1 - m) * 100)}% quicker`;
+  const line = (x) => `<li><button type="button" class="link" data-id="${x.g.id}">${esc(x.g.title)}</button><span>${esc(fmtHours(x.mine))} <em>vs about ${esc(fmtHours(x.usual))}</em></span></li>`;
+  return `<section class="ysec ypace"><h2>Your pace <small>all time, from ${p.n} games you finished</small></h2>
+    <div class="ypace-grid">
+      <div class="ytile"><b>${m.toLocaleString(undefined, { maximumFractionDigits: 2 })}×</b><span>${esc(say)}</span></div>
+      <div><h3>Took your time with</h3><ul>${p.slowest.map(line).join("")}</ul></div>
+      <div><h3>Breezed through</h3><ul>${p.fastest.map(line).join("")}</ul></div>
+    </div>
+    <p class="source-note">Your hours compared with HowLongToBeat's Main + Extras (or IGDB's). Games far off the usual time aren't counted (a replay, or a game left running). ${p.quicker} were quicker than usual, ${p.longer} took longer.</p>
+  </section>`;
+}
+
 async function renderYear() {
   const el = $("#year");
   const thisYear = new Date().getFullYear();
@@ -2207,6 +2502,7 @@ async function renderYear() {
       ${topGenres.length ? `<section class="ysec"><h2>Genres you played <small>games in each</small></h2>
         <div class="ygenres">${topGenres.map(([n, c]) => `<div class="ygenre" title="${esc(genreLabel(n))}: ${c} game${c === 1 ? "" : "s"}"><span>${esc(genreLabel(n))}</span><i style="width:${c / topGenres[0][1] * 100}%"></i><em>${c}</em></div>`).join("")}</div></section>` : ""}
     </div>
+    ${paceHTML()}
     <section class="ysec"><h2>Everything you played in ${y} <small>most recent first</small></h2>
       <div class="ygrid">${played.map((g) => card(g, g.last_played && new Date(g.last_played * 1000).getFullYear() === y ? `Last played ${esc(day(g.last_played))}` : esc(fmtHours(g.played_h)))).join("")}</div></section>`}
   `);
