@@ -1,4 +1,4 @@
-Sunbeam 1.6 beta 2: more from Curator.
+Sunbeam 1.6: more from Curator.
 
 - **In season**, a new Curator row with a theme for each month: horror in October, cozy games in December, love stories in February, big RPGs in January, and so on. Ranked like the picks.
 - **Hidden gems**: games loved by the few who've played them (90%+ on Steam from 20 to 3,000 reviews).
