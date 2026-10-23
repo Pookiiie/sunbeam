@@ -524,9 +524,9 @@ function renderUpNext() {
   const L = recLists();
   const card = (g, i) => `
     <button class="rec" data-id="${g.id}" data-why="picks">
-      <div class="cover">${coverHTML(g)}${interestMark(g)}${instMark(g)}</div>
+      <div class="cover">${coverHTML(g)}<span class="rec-n">${i + 1}</span>${interestMark(g)}${instMark(g)}</div>
       <div class="rec-title">${esc(g.title)}</div>
-      <div class="rec-why" title="Why this pick?">${recLines(g)}</div>
+      <div class="rec-why" title="Why this pick?">${recShort(g)}</div>
     </button>`;
   const row = (title, hint, list, empty) => `
     <div class="cur-sub">
@@ -560,7 +560,7 @@ const CUR_SECTIONS = [
   ["season", "In season", "A theme for each month, like horror in October"],
   ["wishlist", "From your wishlist", "Coming out soon, Recently released, On sale"],
   ["gems", "Hidden gems", "Loved by the few who've played them"],
-  ["classics", "Classics worth trying", "Ten years old or more and still great"],
+  ["classics", "Classics worth it", "Ten years old or more and still great"],
   ["recent", "Recently played", "Your latest games"],
   ["shelves", "Your shelves", "The lists you make"],
 ];
@@ -696,7 +696,7 @@ function renderRecent() {
     ? `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">Recently played</h2></div><div class="grid cur-recent">${renderGrid(list)}</div></section>` : "");
 }
 
-/* ------------------------------------------------------------ Curator: In season, Hidden gems, Classics worth trying */
+/* ------------------------------------------------------------ Curator: In season, Hidden gems, Classics worth it */
 
 // In season: a theme for each month (IGDB genres and themes), ranked like the picks.
 const SEASONS = [
@@ -750,10 +750,10 @@ function renderCuratorExtras() {
   const strip = (el, title, hint, list, why, kind) => setHTML($(el), list.length
     ? `<section class="cur-section"><div class="cur-title"><h2 class="cur-h">${title}</h2><span class="cur-hint">${hint}</span></div>
        <div class="cur-strip">${list.map((g) => stripCard(g, why(g), kind)).join("")}</div></section>` : "");
-  strip("#cur-season", x.season ? `In season: ${esc(x.season.title)}` : "In season", x.season ? esc(x.season.hint) : "", x.seasonList, (g) => recLines(g), "season");
+  strip("#cur-season", x.season ? `In season: ${esc(x.season.title)}` : "In season", x.season ? esc(x.season.hint) : "", x.seasonList, (g) => recShort(g), "season");
   strip("#cur-gems", "Hidden gems", "loved by the few who've played them", x.gems,
-    (g) => `<span class="why-l1">${scoreTag(g)} Steam</span><span class="why-l2">${g.steam_review_count.toLocaleString()} reviews</span>`, "gems");
-  strip("#cur-classics", "Classics worth trying", "ten years or more, and still great", x.classics,
+    (g) => `${scoreTag(g)} of ${g.steam_review_count.toLocaleString()} Steam reviews`, "gems");
+  strip("#cur-classics", "Classics worth it", "ten years or more, and still great", x.classics,
     (g) => `${yearOf(g)} · ${scoreTag(g) || `${Math.round(recReview(g))}%`}`, "classics");
 }
 
@@ -773,7 +773,7 @@ function whyHTML(g, kind) {
     : `${g.neverPlayed ? "About" : recRestart(g) ? "From the start (untouched for over a year):" : "Left to the credits: about"} ${fmtHours(left)}; shorter scores higher`;
   const list = kind === "season" ? `In season: ${esc(season()?.title || "")}. Fits this month's theme, ranked like the picks.`
     : kind === "gems" ? "Hidden gems: 90%+ on Steam from 20 to 3,000 reviews, and you've played it little or not at all."
-    : kind === "classics" ? `Classics worth trying: out in ${yearOf(g)}, reviews 85%+, and you've played it little or not at all.`
+    : kind === "classics" ? `Classics worth it: out in ${yearOf(g)}, reviews 85%+, and you've played it little or not at all.`
     : left != null && left >= COMMIT_HOURS ? `Worthwhile commitments: ${COMMIT_HOURS} h or more and reviews ${COMMIT_MIN}%+, ranked on reviews and your mark only (length doesn't count against it).`
     : `Quick wins: under ${COMMIT_HOURS} h ${g.neverPlayed ? "to beat" : "to go"}, ranked on the score below.`;
   const commit = !kind || kind === "picks" ? left != null && left >= COMMIT_HOURS : false;
@@ -982,11 +982,6 @@ function showPage(page, { push = true } = {}) {
   if (page === "year") renderYear();
 }
 
-// The same on two lines under a Curator cover: the score, then the hours ("4.3h to beat").
-function recLines(g) {
-  const [a = "", b = ""] = recShort(g).split(" · ");
-  return `<span class="why-l1">${a}</span><span class="why-l2">${b}</span>`;
-}
 // The to-the-point version of recReason for Curator: "97% Steam · 4.3h to beat".
 function recShort(g) {
   const bits = [];

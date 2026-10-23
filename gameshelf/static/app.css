@@ -1185,13 +1185,3 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 .ypace li em { font-style: normal; color: var(--faint); font-size: 12.5px; }
 .ypace .source-note { margin-top: 10px; }
 @media (max-width: 900px) { .ypace-grid { grid-template-columns: 1fr; } }
-
-/* ---------- Curator: one cover size everywhere, no titles under covers (the cover shows the game; the
-   name stays for screen readers), score and hours on their own lines */
-#page-curator .cur-row { grid-template-columns: repeat(5, minmax(0, 116px)); column-gap: 14px; }
-#page-curator .cur-strip, #page-curator .grid.cur-recent { grid-template-columns: repeat(auto-fill, 116px); column-gap: 14px; justify-content: start; }
-#page-curator .rec-title, #page-curator #recent .card-title {
-  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; }
-#page-curator .rec-why { margin-top: 6px; }
-.why-l1, .why-l2 { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.why-l2 { color: var(--muted); }
