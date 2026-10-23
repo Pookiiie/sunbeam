@@ -290,7 +290,7 @@ function derive(g) {
   g.neverPlayed = !(g.playtime_min > 0) && !g.last_played;
   g.hoursUnknown = !(g.playtime_min > 0) && !!g.last_played;
   g.covers = [g.cover_url, g.igdb_cover, g.psn_image].filter(Boolean);
-  g.heroes = [g.hero_url, g.igdb_artwork, ...(g.screenshots || [])].filter(Boolean);
+  g.heroes = [g.hero_url, g.igdb_artwork, ...(g.screenshots || []).map(bigShot)].filter(Boolean);
   g._search = `${g.title} ${(g.developers || []).join(" ")} ${(g.franchises || []).join(" ")}`.toLowerCase();
   return g;
 }
@@ -879,7 +879,8 @@ function showPeek(card) {
       const id = peekId;
       if (b.dataset.peek === "shots") {
         const g = byId(id); hidePeek(true);
-        openLightbox((g.screenshots || []).length ? g.screenshots : [g.hero_url], Number(b.dataset.i) || 0);
+        openLightbox((g.screenshots || []).length ? g.screenshots : [g.hero_url], Number(b.dataset.i) || 0,
+          (g.screenshots || []).length ? id : null);
         return;
       }
       hidePeek(true);
@@ -1447,6 +1448,7 @@ const svgIcon = (d) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
 const STATUS_ICON = { "": "", completed: svgIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'), dnf: svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>') };
 const INTEREST_SHORT = { more: INTEREST_ICON.more() + "Keen", less: INTEREST_ICON.less() + "Meh", skip: INTEREST_ICON.skip() + "Skip" };
 const ACTION_ICON = {
+  first: svgIcon('<path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8-4.3-4.1 5.9-.9z"/>'),
   more: svgIcon('<circle class="dot" cx="5" cy="12" r="1.7"/><circle class="dot" cx="12" cy="12" r="1.7"/><circle class="dot" cx="19" cy="12" r="1.7"/>'),
   fix: svgIcon('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>'),
   hide: svgIcon('<path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a16 16 0 0 1-2.6 3.2M6.6 7.6A16 16 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4.4-1.2M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
@@ -3753,7 +3755,7 @@ function syncSources() {
 const JOB_TITLES = { sync: "Sync your libraries", refresh: "Refresh assets" };
 const REFRESH_STEPS = [
   { id: "info", label: "Game details", hint: "Identifies games on IGDB, then description, genres, developers", need: "igdb", unit: "missing" },
-  { id: "art", label: "Artwork", hint: "Covers, banners and logos", unit: "missing" },
+  { id: "art", label: "Artwork", hint: "Covers, banners, logos, and which screenshot comes first", unit: "missing" },
   { id: "reviews", label: "Steam user reviews", hint: "Every 14 days, plus Steam versions of console games", unit: "to check" },
   { id: "ttb", label: "Time to beat", hint: "Main, extras and 100% times", unit: "missing" },
   { id: "critics", label: "OpenCritic scores", hint: "Stays well inside the free plan (at most 180 lookups a day); the rest are looked up by themselves on later days", need: "opencritic", unit: "to look up" },
@@ -3790,7 +3792,7 @@ function syncPreview() {
     { label: "Update XGP and PS+ lists", hint: "What's included, recently added and leaving soon", state: "upcoming" },
     { label: "Identify new games", hint: igdb ? "Finds each game on IGDB" : "Skipped until IGDB is set up", state: igdb ? "upcoming" : "skipped" },
     { label: "Fetch details for new games", hint: "Description, genres, developers", state: igdb ? "upcoming" : "skipped" },
-    { label: "Collect artwork for new games", hint: "Covers, banners and logos", state: "upcoming" },
+    { label: "Collect artwork for new games", hint: "Covers, banners, logos, and which screenshot comes first", state: "upcoming" },
     { label: "Read Steam reviews for new games", hint: "Steam's positive-review percentage", state: "upcoming" },
     { label: "Look up time to beat for new games", hint: "Main, extras and 100% times", state: "upcoming" },
     { label: "Read OpenCritic scores for new games", hint: "Top critic average and % recommended", state: est.opencritic_key?.set ? "upcoming" : "skipped", need: "OpenCritic" },
@@ -4221,7 +4223,11 @@ function bind() {
       } catch (err) { toast(err.message, true); }
     }
     const shot = e.target.closest(".shots img");
-    if (shot) openLightbox([...shot.parentElement.querySelectorAll("img")].map((x) => x.src), Number(shot.dataset.shot) || 0);
+    if (shot) {
+      const g = byId(state.openId);
+      openLightbox(g?.screenshots?.length ? g.screenshots : [...shot.parentElement.querySelectorAll("img")].map((x) => x.src),
+        Number(shot.dataset.shot) || 0, g?.screenshots?.length ? g.id : null);
+    }
   });
   $("#detail-wrap").addEventListener("input", (e) => {
     if (e.target.id === "ttb-range") $("#ttb-val").textContent = fmtHours(Number(e.target.value));
@@ -4363,22 +4369,38 @@ function toggleMoreMenu(open) {
 /* ------------------------------------------------------------ screenshot viewer */
 
 // Full-size screenshots with previous / next (buttons, arrow keys or a swipe), wrapping around.
-const lightbox = { list: [], i: 0 };
-const bigShot = (u) => u.replace("t_screenshot_big", "t_1080p");
+const lightbox = { list: [], i: 0, gameId: null };
+// The full-size copy of a screenshot, whichever store it's from.
+function bigShot(u) {
+  return u.replace("t_screenshot_big", "t_1080p")
+    .replace(/\.600x338\.jpg/, ".1920x1080.jpg")                          // Steam
+    .replace(/_product_card_v2_mobile_slider_639\.jpg$/, ".jpg")            // GOG
+    .replace(/\?w=640$/, "?w=1920");                                         // Microsoft Store
+}
+// The same screenshot whatever its size (meta/shots.py key()).
+function shotKey(u) {
+  return (u || "").replace(/[?#].*$/, "").replace(/\.(600x338|1920x1080|116x65)\.jpg$/, ".jpg")
+    .replace(/_(product_card_v2_mobile_slider_639|ggvgl|ggvgm|ggvgt)(_2x)?\.jpg$/, ".jpg").replace(/\/t_[a-z0-9_]+\//, "/");
+}
 
-function openLightbox(list, i) {
+// gameId: the game's own screenshots (offers "Show this one first").
+function openLightbox(list, i, gameId = null) {
   $(".lightbox")?.remove();
-  Object.assign(lightbox, { list, i });
+  Object.assign(lightbox, { list, i, gameId });
   const lb = document.createElement("div");
   lb.className = "lightbox";
   lb.innerHTML = `<img alt="">
     ${list.length > 1 ? `<button class="lb-nav prev" data-lb="-1" aria-label="Previous screenshot">‹</button>
       <button class="lb-nav next" data-lb="1" aria-label="Next screenshot">›</button>
       <span class="lb-count"></span>` : ""}
-    <button class="lb-close" aria-label="Close">✕</button>`;
+    <button class="lb-close" aria-label="Close">✕</button>
+    ${gameId != null && list.length > 1 ? `<div class="lb-pick"></div>` : ""}`;
   lb.addEventListener("click", (e) => {
     const nav = e.target.closest("[data-lb]");
     if (nav) { lightboxStep(Number(nav.dataset.lb)); return; }
+    const pick = e.target.closest("[data-pick]");
+    if (pick) { pickFirstShot(pick.dataset.pick === "auto" ? null : lightbox.list[lightbox.i]); return; }
+    if (e.target.closest(".lb-pick")) return;
     if (e.target.tagName !== "IMG") lb.remove();  // outside the picture, or ✕
   });
   let x0 = null;
@@ -4405,7 +4427,32 @@ function lightboxShow() {
   $("img", lb).src = bigShot(list[i]);
   const c = $(".lb-count", lb);
   if (c) c.textContent = `${i + 1} / ${list.length}`;
+  const pick = $(".lb-pick", lb), g = lightbox.gameId != null ? byId(lightbox.gameId) : null;
+  if (pick && g) {
+    const mine = g.shot_first && shotKey(list[0]) === g.shot_first;
+    pick.innerHTML = i === 0
+      ? `<span class="lb-first">${ACTION_ICON.first}${mine ? "Your pick, shown first" : "Shown first"}</span>${mine ? `<button type="button" class="link" data-pick="auto">Back to automatic order</button>` : ""}`
+      : `<button type="button" class="btn small" data-pick="this">${ACTION_ICON.first}Show this one first</button>`;
+  }
   for (const j of [i + 1, i - 1]) { const u = list[(j + list.length) % list.length]; if (u) new Image().src = bigShot(u); }  // ready for the next flip
+}
+
+// "Show this one first": the preview and the game page lead with it from now on.
+async function pickFirstShot(url) {
+  const id = lightbox.gameId, cur = lightbox.list[lightbox.i];
+  try {
+    const res = await api(`/api/games/${id}/shots`, { method: "POST", body: { first: url } });
+    const g = byId(id);
+    if (g) {
+      g.screenshots = res.screenshots;
+      g.shot_first = url ? shotKey(url) : null;
+    }
+    lightbox.list = res.screenshots.length ? res.screenshots : lightbox.list;
+    lightbox.i = url ? 0 : Math.max(0, lightbox.list.findIndex((u) => shotKey(u) === shotKey(cur)));
+    lightboxShow();
+    if (state.openId === id && g) renderDetail(g);
+    toast(url ? "This screenshot now comes first" : "Back to the automatic order");
+  } catch (err) { toast(err.message, true); }
 }
 
 /* ------------------------------------------------------------ unidentified games */

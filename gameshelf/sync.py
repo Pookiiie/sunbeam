@@ -12,7 +12,7 @@ import traceback
 from . import brand, db, net, rules, settings
 
 APP_NAME = brand.NAME
-from .meta import achievements, catalogs, hltb, igdb, opencritic, sgdb, steamstore, wishlist
+from .meta import achievements, catalogs, hltb, igdb, opencritic, sgdb, shots, steamstore, wishlist
 from .sources import battlenet, epic, gog, playstation, steam, ubisoft, xbox
 
 SOURCES = {"steam": steam, "playstation": playstation, "epic": epic, "gog": gog, "xbox": xbox, "ubisoft": ubisoft,
@@ -211,7 +211,7 @@ SOURCE_LABELS = {"steam": "Steam", "playstation": "PlayStation", "epic": "Epic G
 STEP_HINTS = {
     "match": "Finds each game on IGDB",
     "details": "Description, genres, developers",
-    "art": "Covers, banners and logos",
+    "art": "Covers, banners, logos, and which screenshot comes first",
     "reviews": "Steam's positive-review percentage",
     "ttb": "Main, extras and 100% times",
     "critics": "Top critic average and % recommended",
@@ -829,6 +829,25 @@ def _art(refresh: bool, scope: str, args, prefer_sgdb: bool = False):
                 (art.get("cover"), art.get("hero"), art.get("logo"), db.now(), g["id"]),
             )
         _tick()
+    _order_shots([g["id"] for g in todo], refresh)
+
+
+def _order_shots(ids: list[int], refresh: bool) -> None:
+    """Screenshots in the best order (meta/shots.py), for the games whose art was just collected."""
+    if not refresh and ids:
+        marks = ",".join("?" * len(ids))
+        ids = [r["id"] for r in db.query(f"SELECT id FROM games WHERE shots_at IS NULL AND id IN ({marks})", tuple(ids))]
+    if not ids:
+        return
+    _tl("art", note="Choosing which screenshot comes first")
+    try:
+        for i in range(0, len(ids), 100):
+            if _cancel.is_set():
+                break
+            shots.order(ids[i:i + 100], stopped=_cancel.is_set)
+    except Exception as e:
+        _log(f"Couldn't order screenshots: {e}", "warn")
+    _tl("art", note=None)
 
 
 def _reviews(refresh: bool, scope: str, args):
@@ -1089,6 +1108,21 @@ def oc_status() -> dict | None:
             "next_day": next_day, "daily": opencritic.DAILY_REQUESTS}
 
 
+def start_shots_auto() -> None:
+    """While the app is open: put the screenshots of games not done yet in the best order
+    (all of them once, after this update; then new games and ones whose details were re-fetched)."""
+    def loop():
+        time.sleep(120)
+        while True:
+            try:
+                while not _state.get("running") and shots.order(stopped=lambda: bool(_state.get("running"))):
+                    pass
+            except Exception:
+                traceback.print_exc()
+            time.sleep(10 * 60)
+    threading.Thread(target=loop, daemon=True, name="screenshots").start()
+
+
 def start_oc_auto() -> None:
     """While the app is open: read the day's OpenCritic allowance by itself, a few minutes after start
     and then every half hour (a new allowance starts at midnight UTC). Settings can turn it off."""
@@ -1176,7 +1210,8 @@ def recheck_auto_completions() -> int:
 def refresh_one(game_id: int, prefer_sgdb: bool = False):
     """Re-fetch everything for a single game (after fixing a match, or on request)."""
     with db.tx() as c:
-        c.execute("UPDATE games SET meta_at=NULL, art_at=NULL, reviews_at=NULL, ttb_at=NULL, hltb_id=NULL WHERE id=?",
+        c.execute("UPDATE games SET meta_at=NULL, art_at=NULL, reviews_at=NULL, ttb_at=NULL, hltb_id=NULL, shots_at=NULL "
+                  "WHERE id=?",
                   (game_id,))
         # A Steam version found by search (not one you own on Steam) is looked for again, so a
         # wrong one (Watch Dogs 2's for Watch Dogs) doesn't keep feeding art and reviews.

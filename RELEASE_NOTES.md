@@ -1,3 +1,10 @@
+Sunbeam 1.6.1 beta 5: the best screenshot first.
+
+- **Screenshots lead with the best one**, in Curator's previews and on the game's page alike (they always agree). IGDB keeps screenshots in upload order, so the first was often a menu or a dark title card. The order now comes from the store, where the developer chose it: Steam first (with sharper copies), then GOG, then the Microsoft Store (Xbox and XGP games).
+- **For games on none of those** (PlayStation, Switch, Battle.net…), Sunbeam ranks IGDB's screenshots itself: full-size widescreen ones first, then the ones that look most like the game being played: colourful and detailed rather than dark, washed out, or mostly one flat colour like a menu or a logo.
+- **Show this one first**: in the full-size screenshot viewer (click a screenshot in a preview or on a game's page), make any screenshot the one that leads. "Back to automatic order" undoes it.
+- Your whole library is sorted out in the background a couple of minutes after Sunbeam starts (no sync needed); new games are done as they arrive.
+
 Sunbeam 1.6.1 beta 4: OpenCritic keeps going by itself, and XGP / PS+ games are yours in previews.
 
 - **OpenCritic scores fill in by themselves.** While Sunbeam is open, it reads the day's allowance (up to 180) in the background: a couple of minutes after it starts, then every half hour, picking up again when a new allowance starts at midnight UTC (8 pm in Toronto, 7 pm once the clocks go back). Settings › OpenCritic shows how many games are left and has a switch to turn it off.

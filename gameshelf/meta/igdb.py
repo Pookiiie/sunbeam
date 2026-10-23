@@ -200,7 +200,7 @@ def apply_details(c, game_id: int, g: dict) -> None:
     platforms = [p.get("abbreviation") or p.get("name") for p in g.get("platforms") or [] if isinstance(p, dict)]
     c.execute(
         """UPDATE games SET summary=?, storyline=?, genres=?, themes=?, modes=?, perspectives=?,
-           developers=?, publishers=?, franchises=?, igdb_platforms=?, screenshots=?, release_date=?,
+           developers=?, publishers=?, franchises=?, igdb_platforms=?, igdb_shots=?, shots_at=NULL, release_date=?,
            critic_score=?, critic_count=?, user_score=?, user_count=?, igdb_url=?, igdb_cover=?,
            igdb_artwork=?, meta_at=?, title=COALESCE(?, title), similar=?, similar_at=? WHERE id=?""",
         (
@@ -224,6 +224,9 @@ def apply_details(c, game_id: int, g: dict) -> None:
             game_id,
         ),
     )
+    # A newly found game shows IGDB's screenshots until the order is worked out (meta/shots.py).
+    c.execute("UPDATE games SET screenshots = igdb_shots WHERE id=? AND screenshots IS NULL", (game_id,))
+
 
 
 def fill_similar(limit: int = 5000) -> int:

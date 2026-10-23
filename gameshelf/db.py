@@ -359,6 +359,15 @@ def _migrate(c: sqlite3.Connection) -> None:
         if "rules" not in cols:
             c.execute("ALTER TABLE shelves ADD COLUMN rules TEXT")
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '23')")
+    if version < 24:
+        # Screenshot order (meta/shots.py): IGDB's list is kept as it came, and `screenshots` holds the
+        # order shown (from a store, or IGDB's ranked), with the one you picked first.
+        cols = {r[1] for r in c.execute("PRAGMA table_info(games)")}
+        for col, kind in (("igdb_shots", "TEXT"), ("shots_src", "TEXT"), ("shots_at", "INTEGER"), ("shot_first", "TEXT")):
+            if col not in cols:
+                c.execute(f"ALTER TABLE games ADD COLUMN {col} {kind}")
+        c.execute("UPDATE games SET igdb_shots = screenshots WHERE igdb_shots IS NULL")
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '24')")
 
 
 @contextmanager
@@ -596,6 +605,8 @@ def game_to_dict(row: sqlite3.Row) -> dict:
     if "wishlist_only" in d:
         d["wishlist_only"] = bool(d["wishlist_only"])
     d.pop("similar", None)  # only the game page needs it, worked out in game_detail
+    d.pop("igdb_shots", None)  # IGDB's own order, kept for re-ranking; the page shows `screenshots`
+    d.pop("shots_at", None)
     if "playtime_min" in d and "modes" in d:
         from .rules import open_ended
         d["endless_auto"] = open_ended(d)

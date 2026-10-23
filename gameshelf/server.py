@@ -252,6 +252,13 @@ def post_refresh(req, body, query, game_id):
     return db.game_detail(int(game_id))
 
 
+@route("POST", r"/api/games/(\d+)/shots")
+def post_shot_first(req, body, query, game_id):
+    """Show this screenshot first, or (url empty) go back to the automatic order."""
+    from .meta import shots
+    return {"screenshots": shots.pick_first(int(game_id), (body or {}).get("first") or None)}
+
+
 @route("GET", r"/api/games/(\d+)/art")
 def get_art_options(req, body, query, game_id):
     data = sync.art_options(int(game_id))
@@ -800,4 +807,5 @@ def serve(port: int) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
     sync.start_oc_auto()  # OpenCritic scores, a day's allowance at a time, by themselves
+    sync.start_shots_auto()  # screenshots in the best order (meta/shots.py)
     return httpd
