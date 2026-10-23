@@ -3101,6 +3101,14 @@ function ubiBookmarklet() {
         } catch (e) { /* keep the page's own pass */ }
       }
       if (!ss.ticket) continue;
+      if (!ss.rememberMeTicket) {
+        // Signed in without Remember me (Ubisoft's "Welcome back!" page has no box): ask for a
+        // "stay signed in" pass on top of this sign-in.
+        try {
+          const r = await fetch(U + "/v3/profiles/sessions", { method: "POST", headers: { ...H, Authorization: "Ubi_v1 t=" + ss.ticket, "Ubi-SessionId": ss.sessionId || "" }, body: JSON.stringify({ rememberMe: true }) });
+          if (r.ok) { const j = await r.json(); if (j.ticket) ss = { ...ss, ...j }; }
+        } catch (e) { /* keep going without it */ }
+      }
       const h = { ...H, Authorization: "Ubi_v1 t=" + ss.ticket, "Ubi-SessionId": ss.sessionId };
       const gr = await fetch(U + "/v1/profiles/me/uplay/graphql", { method: "POST", headers: h, body: JSON.stringify({ operationName: "AllGames", variables: { owned: true }, query: q }) });
       tried.push(gr.status);
@@ -3127,8 +3135,33 @@ function ubiBookmarklet() {
     }
     const out = { v: 1, app, user: s.userId, name: s.nameOnPlatform || info.nameOnPlatform || info.username, ticket: s.ticket, session: s.sessionId,
       remember: s.rememberMeTicket || info.rememberMeTicket, expiration: s.expiration, games };
-    say(APPN + ": opening " + APPN + "…");
-    location.assign(GS + "/#ubisoft=" + encodeURIComponent(JSON.stringify(out)));
+    if (!out.remember) {
+      // Only names, never values: where this page keeps sign-in things, so Ubisoft's changes can be followed.
+      const names = new Set();
+      const walk = (v, path, d) => { if (!v || typeof v !== "object" || d > 4) return;
+        for (const k in v) { if (/remember|ticket|token|refresh|session/i.test(k)) names.add(path + "." + k); walk(v[k], path + "." + k, d + 1); } };
+      for (const [n, st] of [["local", localStorage], ["session", sessionStorage]]) for (let i = 0; i < st.length; i++) {
+        const k = st.key(i); names.add(n + ":" + k);
+        try { walk(JSON.parse(st.getItem(k)), n + ":" + k, 0); } catch (e) { /* not JSON */ }
+      }
+      for (const c of document.cookie.split(";")) { const k = c.split("=")[0].trim(); if (k) names.add("cookie:" + k); }
+      out.diag = { host: location.hostname, names: [...names].slice(0, 120) };
+    }
+    // Hand over through a small Sunbeam window that closes itself: nothing goes in an address
+    // (so nothing lands in the browser's history), and this page stays where it is.
+    say(APPN + ": sending to " + APPN + "…");
+    const w = window.open(GS + "/#ubisoft-handoff", "sunbeam_ubisoft", "width=560,height=460");
+    const fallback = () => location.assign(GS + "/#ubisoft=" + encodeURIComponent(JSON.stringify(out)));
+    if (!w) { fallback(); return; }  // pop-up blocked: hand over in this tab, as before
+    let answered = false;
+    window.addEventListener("message", (e) => {
+      if (e.origin !== GS) return;
+      if (e.data === "sunbeam-ready") { answered = true; w.postMessage({ type: "sunbeam-ubisoft", payload: out }, GS); }
+      if (e.data === "sunbeam-linked") say(APPN + ": done. Your Ubisoft games are on their way.");
+      if (e.data === "sunbeam-today") say(APPN + ": linked for today only (no \"stay signed in\" pass). See the " + APPN + " window.");
+      if (e.data === "sunbeam-failed") say(APPN + ": that didn't work. See the " + APPN + " window.");
+    });
+    setTimeout(() => { if (!answered) { try { w.close(); } catch (e) { /* gone */ } fallback(); } }, 15000);
   })().catch((e) => { say(""); alert("Something went wrong: " + e.message); });
 }
 const ubiBookmarkHref = () => "javascript:" + encodeURIComponent("(" + ubiBookmarklet.toString().replace("__GS__", location.origin).replace("__APP__", APP.replace(/["\\]/g, "")) + ")()");
@@ -4752,11 +4785,27 @@ function ignoreForPasswordManagers(root = document) {
 new MutationObserver(() => ignoreForPasswordManagers()).observe(document.body, { childList: true, subtree: true });
 
 // Arriving from the Send to <app> bookmark on connect.ubisoft.com.
-async function receiveUbisoft() {
-  let payload = null;
-  try { payload = JSON.parse(decodeURIComponent(location.hash.slice("#ubisoft=".length))); } catch { /* broken link */ }
+// The Send to Sunbeam bookmark opens this page in a small window and hands its sign-in over
+// with postMessage (never in the address). Only Ubisoft's own pages are listened to.
+function ubisoftHandoff() {
   history.replaceState(null, "", location.pathname);
-  if (!payload) { toast("That Ubisoft link didn't come through. Click the bookmark again.", true); return; }
+  if (!window.opener) { toast("Open this from the Send to " + APP + " bookmark on Ubisoft's site.", true); return; }
+  window.addEventListener("message", async (e) => {
+    if (!/^https:\/\/([a-z0-9-]+\.)*ubisoft\.com$/.test(e.origin) || e.data?.type !== "sunbeam-ubisoft") return;
+    const ok = await receiveUbisoft(e.data.payload);
+    try { e.source.postMessage(ok === "remember" ? "sunbeam-linked" : ok ? "sunbeam-today" : "sunbeam-failed", e.origin); } catch { /* gone */ }
+    if (ok === "remember") setTimeout(() => window.close(), 2500);  // otherwise the message stays to be read
+  });
+  window.opener.postMessage("sunbeam-ready", "*");  // "ready" carries nothing
+}
+
+async function receiveUbisoft(given) {
+  let payload = given || null;
+  if (!given) {
+    try { payload = JSON.parse(decodeURIComponent(location.hash.slice("#ubisoft=".length))); } catch { /* broken link */ }
+    history.replaceState(null, "", location.pathname);
+  }
+  if (!payload) { toast("That Ubisoft link didn't come through. Click the bookmark again.", true); return false; }
   try {
     const res = await api("/api/ubisoft/link", { method: "POST", body: { payload } });
     await loadSettings();
@@ -4767,7 +4816,8 @@ async function receiveUbisoft() {
       state.sync = await api("/api/sync", { method: "POST", body: { sources: ["ubisoft"] } });
       startPolling();
     }
-  } catch (e) { toast(e.message, true); }
+    return res.remember ? "remember" : "today";
+  } catch (e) { toast(e.message, true); return false; }
 }
 
 (async function boot() {
@@ -4782,6 +4832,7 @@ async function receiveUbisoft() {
     await startDesktop();
     state.sync = await api("/api/sync");
     if (location.hash.startsWith("#ubisoft=")) await receiveUbisoft();
+    else if (location.hash === "#ubisoft-handoff") ubisoftHandoff();
     if (state.sync.running) startPolling();
     else {
       maybeReviewDups();  // a sync that ran while the window was closed may have found some

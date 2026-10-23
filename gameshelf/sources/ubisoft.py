@@ -279,6 +279,11 @@ def link(payload: dict) -> dict:
                      "ubi_ticket": str(payload.get("ticket") or ""), "ubi_session": str(payload.get("session") or ""),
                      "ubi_remember": str(payload.get("remember") or settings.get("ubi_remember") or ""),
                      "ubi_expires": expires})
+    diag = payload.get("diag")
+    if isinstance(diag, dict) and not payload.get("remember"):
+        # Names only (the bookmark never sends values): where Ubisoft's page keeps its sign-in.
+        names = [str(n)[:120] for n in (diag.get("names") or [])[:120]]
+        print(f"  Ubisoft: no stay-signed-in pass on {str(diag.get('host'))[:60]}; storage names: {', '.join(names)}")
     games = [g for g in payload["games"] if isinstance(g, dict) and g.get("name") and
              (not g.get("types") or "PC" in [str(t).upper() for t in g["types"]])]
     items = _items(games, [_times(g.get("cards") or []) for g in games])
