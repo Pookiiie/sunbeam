@@ -1,6 +1,6 @@
 """The app: a local, private library of every game you own."""
 
-__version__ = "1.7.0"
+__version__ = "1.7.1-beta.1"
 
 # Versions whose new features need a sync to fill something in. After updating past one of these,
 # the app says so once and offers "Sync now" (updater.note_version, shown by the page).

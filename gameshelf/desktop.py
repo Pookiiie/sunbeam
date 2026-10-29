@@ -248,6 +248,11 @@ def watch_and_quit(httpd, busy) -> None:
             if busy():
                 ping()  # a sync is running: wait for it, and count the minute from when it ends
                 continue
+            if _window_open():
+                # The window is there, even if its page has gone quiet (Windows and the browser slow
+                # down or freeze a minimised window's page, so its "still here" can stop for a while).
+                ping()
+                continue
             if _last_ping:
                 if now - _last_ping > IDLE_QUIT_S:
                     break
@@ -255,6 +260,15 @@ def watch_and_quit(httpd, busy) -> None:
                 break
         quit_app(httpd)
     threading.Thread(target=loop, daemon=True, name="watchdog").start()
+
+
+def _window_open() -> bool:
+    if not is_windows() or not APP_MODE:
+        return False
+    try:
+        return bool(_find_window())
+    except Exception:
+        return False
 
 
 def quit_app(httpd) -> None:

@@ -731,6 +731,8 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             match = pattern.match(path)
             if match:
+                key = threading.get_ident()
+                _inflight[key] = (time.time(), f"{method} {path}")
                 try:
                     return self._json(200, fn(self, body, query, *match.groups()))
                 except ApiError as e:
@@ -738,6 +740,8 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     traceback.print_exc()
                     return self._json(500, {"error": str(e)})
+                finally:
+                    _inflight.pop(key, None)
         return self._json(404, {"error": "Not found"})
 
     def _upload_video(self):
@@ -810,9 +814,47 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("image/svg+xml", ".svg")
 
 
+# ------------------------------------------------------------------ when something hangs
+
+_inflight: dict[int, tuple[float, str]] = {}  # thread -> (started, "GET /api/...") for requests being answered
+STALL_S = 30
+
+
+def _watch_stalls() -> None:
+    """A request taking far too long means something is stuck: write what every thread is
+    doing to the log (once per stuck request), so the cause can be found."""
+    import sys
+    reported: set = set()
+    while True:
+        time.sleep(5)
+        now = time.time()
+        stuck = {k: v for k, v in list(_inflight.items()) if now - v[0] > STALL_S}
+        new = {k: v for k, v in stuck.items() if (k, v[0]) not in reported}
+        if not new:
+            continue
+        reported.update((k, v[0]) for k, v in new.items())
+        names = {t.ident: t.name for t in threading.enumerate()}
+        lines = [f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} stuck: "
+                 + "; ".join(f"{what} for {int(now - t0)} s" for t0, what in new.values())]
+        for ident, frame in sys._current_frames().items():
+            lines.append(f"Thread {names.get(ident, '?')} ({ident})" + (f" answering {_inflight[ident][1]}" if ident in _inflight else "") + ":")
+            lines.append("".join(traceback.format_stack(frame, limit=25)).rstrip())
+        print("\n".join(lines), flush=True)
+
+
+@route("POST", "/api/client-error")
+def post_client_error(req, body, query):
+    """An error in the page: written to the log (the page also shows it)."""
+    msg = str((body or {}).get("message") or "")[:500]
+    where = str((body or {}).get("where") or "")[:1500]
+    print(f"  Page error: {msg}\n{where}".rstrip(), flush=True)
+    return {"ok": True}
+
+
 def serve(port: int) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
+    threading.Thread(target=_watch_stalls, daemon=True, name="stall-watch").start()
     try:
         settings.encrypt_existing()  # sign-ins saved by older versions in plain text
     except Exception as e:

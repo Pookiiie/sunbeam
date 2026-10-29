@@ -434,6 +434,47 @@ def _wishlists():
     _tl("wishlists", state="done", note=", ".join(notes) or "Couldn't update")
 
 
+# Stores whose list is every game you own: a game missing from it has left your library
+# (a refund, say). Not the stores that list what you've played (PlayStation, Xbox, Nintendo),
+# where games never drop off, nor GOG, whose list is pieced together from two places.
+OWNED_LISTS = {"steam": "steam", "epic": "epic", "ubisoft": "ubisoft", "battlenet": "battlenet"}
+GONE_MAX = 5           # take out at most this many at once (or GONE_SHARE of the copies), else wait
+GONE_SHARE = 0.05
+
+
+def _remove_gone(c, name: str, items: list[dict]) -> tuple[list[str], int]:
+    """Take out copies the store no longer lists. Returns (names taken out, how many held back)."""
+    platform = OWNED_LISTS.get(name)
+    if not platform or not items:
+        return [], 0
+    seen = {str(it["external_id"]) for it in items if it.get("platform") == platform}
+    if not seen:
+        return [], 0
+    rows = c.execute("""SELECT id, game_id, external_id, name FROM entries WHERE platform=? AND COALESCE(manual, 0)=0
+                        AND COALESCE(ownership, '') NOT IN ('catalog', 'wishlist')""", (platform,)).fetchall()
+    missing = [r for r in rows if str(r["external_id"]) not in seen]
+    if not missing:
+        c.execute("DELETE FROM meta WHERE key=?", (f"gone_{name}",))
+        return [], 0
+    ids = sorted(r["id"] for r in missing)
+    if len(missing) > len(rows) * 0.5:
+        return [], -len(missing)  # half the library at once: the list is broken, never act on it
+    if len(missing) > max(GONE_MAX, int(len(rows) * GONE_SHARE)):
+        # A lot at once looks more like a short or broken list than refunds. Only take them out if the
+        # same ones are missing on the next sync too.
+        prev = c.execute("SELECT value FROM meta WHERE key=?", (f"gone_{name}",)).fetchone()
+        if not prev or prev["value"] != ",".join(map(str, ids)):
+            c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (f"gone_{name}", ",".join(map(str, ids))))
+            return [], len(missing)
+    marks = ",".join("?" * len(ids))
+    c.execute(f"DELETE FROM play_days WHERE entry_id IN ({marks})", ids)
+    c.execute(f"DELETE FROM playtime_log WHERE entry_id IN ({marks})", ids)
+    c.execute(f"DELETE FROM entries WHERE id IN ({marks})", ids)
+    db.delete_orphans(c)
+    c.execute("DELETE FROM meta WHERE key=?", (f"gone_{name}",))
+    return [r["name"] or str(r["external_id"]) for r in missing], 0
+
+
 def _import(name: str):
     module = SOURCES[name]
     label = SOURCE_LABELS[name]
@@ -455,8 +496,18 @@ def _import(name: str):
             )
         if hasattr(module, "after_import"):
             module.after_import(c)
+        notice = getattr(module, "notice", None)
+        gone, held = _remove_gone(c, name, items) if not notice else ([], 0)
         db.log_playtime(c)
-    notice = getattr(module, "notice", None)
+    if gone:
+        names = ", ".join(sorted(gone)[:8]) + (f" and {len(gone) - 8} more" if len(gone) > 8 else "")
+        _log(f"{label}: {names} {'is' if len(gone) == 1 else 'are'} no longer in your {label} library "
+             f"(refunded or removed), so {'it was' if len(gone) == 1 else 'they were'} taken out.")
+    if held:
+        _log(f"{label}: {abs(held)} games were missing from {label}'s list this time. That's more than usual, so they were "
+             f"left in place in case the list was incomplete."
+             + (f" If they really are gone, they'll be taken out once {label} confirms it on a later sync." if held > 0 else ""),
+             "warn")
     _log(f"{label}: {len(items)} games imported." if not notice else f"{label}: {len(items)} games kept from last time.")
     if notice:
         _log(f"{label}: {notice}", "warn")

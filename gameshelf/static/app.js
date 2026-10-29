@@ -79,17 +79,62 @@ function savePrefs() {
   try { localStorage.setItem("gameshelf.prefs", JSON.stringify(state.prefs)); } catch { /* storage unavailable */ }
 }
 
+// Every call gives up after a while (2 minutes for the slow ones), so a stuck request can't
+// silently freeze a button: you get a message instead.
+const SLOW_CALLS = /^\/api\/(test|sync|refresh|manual|switch|update|games\/\d+\/(refresh|match|art|shots)|nintendo|ubisoft)/;
 async function api(path, { method = "GET", body } = {}) {
-  const res = await fetch(path, {
-    method,
-    headers: { "X-GameShelf": "1", ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const ctl = new AbortController();
+  const limit = setTimeout(() => ctl.abort(), SLOW_CALLS.test(path) && method !== "GET" ? 120000 : 45000);
+  let res;
+  try {
+    res = await fetch(path, {
+      method, signal: ctl.signal,
+      headers: { "X-GameShelf": "1", ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    serverTrouble(ctl.signal.aborted ? "slow" : "gone");
+    throw new Error(ctl.signal.aborted ? `${APP} took too long to answer.` : `${APP} isn't answering.`);
+  } finally { clearTimeout(limit); }
+  serverTrouble(null);
   let data = null;
   try { data = await res.json(); } catch { /* empty */ }
   if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
   return data;
 }
+
+// A bar across the top when the app's own server stops answering (stuck, or stopped).
+function serverTrouble(kind) {
+  let bar = $("#server-trouble");
+  if (!kind) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "server-trouble";
+    bar.className = "server-trouble";
+    document.body.prepend(bar);
+    bar.addEventListener("click", (e) => { if (e.target.closest("[data-retry]")) location.reload(); });
+  }
+  bar.innerHTML = kind === "slow"
+    ? `${APP} is taking too long to answer, so buttons may not respond. What it was doing has been written to its log. <button type="button" class="link" data-retry>Reload</button> If that doesn't help, quit ${APP} from its icon by the clock and open it again.`
+    : `${APP} isn't answering: it may have stopped. Open it again from the Start menu or the desktop shortcut. <button type="button" class="link" data-retry>Try again</button>`;
+}
+
+// Errors in the page go to the log (so they can be fixed) and show up, instead of a button quietly doing nothing.
+let lastErrorAt = 0;
+function reportPageError(message, where) {
+  const now = Date.now();
+  if (now - lastErrorAt < 3000) return;
+  lastErrorAt = now;
+  fetch("/api/client-error", { method: "POST", headers: { "X-GameShelf": "1", "Content-Type": "application/json" },
+    body: JSON.stringify({ message: String(message || "").slice(0, 500), where: String(where || "").slice(0, 1500) }) }).catch(() => {});
+  try { toast(`Something went wrong (${String(message || "error").slice(0, 120)}). It's been written to ${APP}'s log.`, true); } catch { /* page not ready */ }
+}
+window.addEventListener("error", (e) => reportPageError(e.message, e.error?.stack || `${e.filename}:${e.lineno}`));
+window.addEventListener("unhandledrejection", (e) => {
+  const r = e.reason;
+  if (r instanceof Error && /isn't answering|took too long/.test(r.message)) return;  // already shown in the bar
+  reportPageError(r?.message || String(r), r?.stack || "");
+});
 
 let toastTimer;
 // undo: a function that takes the change back; the toast then shows an Undo button for a while.

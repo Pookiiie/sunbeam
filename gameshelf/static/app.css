@@ -1238,3 +1238,7 @@ body.handoff-on > :not(.handoff):not(.toast):not(#toast) { display: none !import
 .handoff-sub { color: var(--faint, var(--muted)); font-size: 13px; margin: 0; }
 .handoff-note { font-size: 14px; line-height: 1.45; margin: 12px 0 18px; }
 .handoff-card.warn .handoff-note { color: #ffcf85; }
+/* The app's server isn't answering */
+.server-trouble { position: fixed; top: 0; left: 0; right: 0; z-index: 200; padding: 10px 16px; text-align: center; font-size: 14px;
+  background: #5a2430; color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+.server-trouble .link { color: #fff; margin-left: 6px; }
