@@ -252,6 +252,20 @@ def post_refresh(req, body, query, game_id):
     return db.game_detail(int(game_id))
 
 
+@route("GET", r"/api/games/(\d+)/steam-reviews")
+def get_steam_reviews(req, body, query, game_id):
+    """The most helpful Steam reviews for a game (Keen or not?)."""
+    from .meta import steamstore
+    rows = db.query("SELECT steam_appid FROM games WHERE id=?", (int(game_id),))
+    if not rows or not rows[0]["steam_appid"]:
+        return {"reviews": [], "appid": None}
+    appid = rows[0]["steam_appid"]
+    try:
+        return {"reviews": steamstore.top_reviews(appid), "appid": appid}
+    except Exception as e:
+        return {"reviews": [], "appid": appid, "error": str(e)[:200]}
+
+
 @route("POST", r"/api/games/(\d+)/shots")
 def post_shot_first(req, body, query, game_id):
     """Show this screenshot first, or (url empty) go back to the automatic order."""

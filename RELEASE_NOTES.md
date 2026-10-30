@@ -1,3 +1,9 @@
+Sunbeam 1.7.1 beta 3: Keen or not? shows more of each game.
+
+- **Screenshots**: a big one with up to six more under it (point at one to see it large, click to open them full size).
+- **What players say on Steam**: the three most helpful English reviews, with a critical one among them when there's one near the top, how long each reviewer had played and how many found it helpful; a link to more on Steam. The next game's reviews are fetched while you decide on this one.
+- Steam and OpenCritic scores as chips, with the number of reviews; the summary has more room. The window is wider.
+
 Sunbeam 1.7.1 beta 2: Steam reviews are back, and the Library's filters stay in view.
 
 - **Fixed: Steam user reviews stopped updating on Oct 21.** Steam's old reviews page now redirects scripts to the store's front page, so new games (Tape to Tape, say) got no score and others weren't refreshed. Sunbeam now reads them from Steam's store service instead, 100 games per call, so the next sync fills them in quickly.

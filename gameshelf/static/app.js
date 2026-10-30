@@ -994,16 +994,26 @@ function renderKon() {
     g.ttb ? `about ${fmtHours(g.ttb)} to beat` : g.isEndless ? "open-ended" : "",
     g.neverPlayed ? "not played yet" : `${fmtHours(g.played_h)} played`].filter(Boolean).join(" · ");
   const btn = (k, key) => `<button type="button" class="btn ${cur === k ? "" : "ghost"} kon-mark ${k}" data-kon="${k}">${INTEREST_ICON[k]()}${INTEREST[k]}<kbd>${key}</kbd></button>`;
+  const shots = (g.screenshots || []).slice(0, 6);
+  const scores = [
+    g.steam_review_pct != null ? `<span class="peek-chip"><span class="score ${steamClass(g)}">${Math.round(g.steam_review_pct)}%</span> Steam${g.steam_review_count ? ` · ${g.steam_review_count.toLocaleString()} reviews` : ""}</span>` : "",
+    g.oc_score != null ? `<span class="peek-chip"><span class="score ${criticClass(g)}">${Math.round(g.oc_score)}%</span> OpenCritic${g.oc_tier ? ` · ${esc(g.oc_tier)}` : ""}</span>` : "",
+  ].join("");
   body.innerHTML = `<div class="kon">
-      <div class="kon-cover cover">${coverHTML(g)}</div>
+      <div class="kon-media">
+        ${shots.length ? `<button type="button" class="kon-shot" data-kon-shot="0" title="Open full size"><img src="${esc(shots[0])}" alt=""></button>
+          ${shots.length > 1 ? `<div class="kon-thumbs">${shots.map((u, i) => `<button type="button" data-kon-shot="${i}" class="${i ? "" : "on"}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}`
+          : `<div class="kon-cover cover">${coverHTML(g)}</div>`}
+      </div>
       <div class="kon-info">
         <h3>${esc(g.title)}</h3>
         <p class="kon-facts">${esc(facts)}</p>
-        ${scoreTag(g) ? `<p class="kon-facts">${scoreTag(g)} ${g.steam_review_pct != null ? `on Steam${g.steam_review_count ? ` (${g.steam_review_count.toLocaleString()} reviews)` : ""}` : "on OpenCritic"}</p>` : ""}
-        ${g.summary ? `<p class="kon-sum">${esc(g.summary)}</p>` : ""}
+        ${scores ? `<div class="peek-chips kon-chips">${scores}</div>` : ""}
         <div class="badges kon-plats">${badgesHTML(g)}</div>
+        ${g.summary ? `<p class="kon-sum">${esc(g.summary)}</p>` : ""}
       </div>
     </div>
+    <div class="kon-reviews" id="kon-reviews">${g.steam_appid ? `<div class="kon-rv-head">What players say on Steam</div><p class="kon-rv-wait">Reading the most helpful reviews…</p>` : ""}</div>
     <div class="kon-bar">
       <button type="button" class="btn icon ghost" data-kon="back" ${kon.i ? "" : "disabled"} aria-label="Back">←</button>
       ${btn("more", "1")}${btn("less", "2")}${btn("skip", "3")}
@@ -1012,7 +1022,34 @@ function renderKon() {
       <span class="kon-count">${(kon.i + 1).toLocaleString()} of ${kon.list.length.toLocaleString()}</span>
     </div>
     <p class="source-note kon-note">${tally || `Games ${CURATOR} might suggest, best first. Stop whenever you like.`}</p>`;
+  konShowReviews(g);
 }
+// The most helpful Steam reviews for the game on screen (and the next one, ready in advance).
+const konReviews = new Map();
+function konReviewsFor(id) {
+  if (!konReviews.has(id)) konReviews.set(id, api(`/api/games/${id}/steam-reviews`).catch(() => ({ reviews: [] })));
+  return konReviews.get(id);
+}
+async function konShowReviews(g) {
+  if (!g.steam_appid) return;
+  const nextId = kon.list[kon.i + 1];
+  const data = await konReviewsFor(g.id);
+  if (nextId && byId(nextId)?.steam_appid) konReviewsFor(nextId);
+  const box = $("#kon-reviews");
+  if (!box || kon.list[kon.i] !== g.id) return;  // moved on meanwhile
+  const rv = data.reviews || [];
+  const when = (t) => t ? new Date(t * 1000).toLocaleDateString([], { month: "short", year: "numeric" }) : "";
+  box.innerHTML = !rv.length ? `<div class="kon-rv-head">What players say on Steam</div><p class="kon-rv-wait">${data.error ? "Steam didn't answer just now." : "No written reviews to show."}</p>`
+    : `<div class="kon-rv-head">What players say on Steam <span>most helpful</span></div>
+      <div class="kon-rv-list">${rv.map((r) => `<article class="kon-rv ${r.up ? "up" : "down"}">
+        <header><span class="kon-rv-verdict">${r.up ? "👍 Recommended" : "👎 Not recommended"}</span>
+          <span>${r.hours ? `${fmtHours(r.hours)} played` : ""}${r.early ? " · early access" : ""}${r.at ? ` · ${when(r.at)}` : ""}</span></header>
+        <p>${esc(r.text)}${r.long ? "…" : ""}</p>
+        ${r.helpful ? `<footer>${r.helpful.toLocaleString()} found this helpful</footer>` : ""}
+      </article>`).join("")}</div>
+      <a class="kon-rv-more" href="https://store.steampowered.com/app/${data.appid}/#app_reviews_hash" target="_blank" rel="noopener">More reviews on Steam</a>`;
+}
+
 async function konMark(v) {
   const id = kon.list[kon.i];
   if (!id) return;
@@ -1022,7 +1059,17 @@ async function konMark(v) {
   try { await patchGame(id, { interest: v }); } catch (e) { toast(e.message, true); }
 }
 $("#cur-kon").addEventListener("click", openKon);
+$("#kon-body").addEventListener("mouseover", (e) => {
+  const t = e.target.closest(".kon-thumbs [data-kon-shot]");
+  const g = t && byId(kon.list[kon.i]);
+  if (!g) return;
+  $(".kon-shot img").src = g.screenshots[Number(t.dataset.konShot)];
+  $(".kon-shot").dataset.konShot = t.dataset.konShot;
+  document.querySelectorAll(".kon-thumbs button").forEach((x) => x.classList.toggle("on", x === t));
+});
 $("#kon-body").addEventListener("click", (e) => {
+  const shot = e.target.closest("[data-kon-shot]");
+  if (shot) { const g = byId(kon.list[kon.i]); if (g) openLightbox(g.screenshots, Number(shot.dataset.konShot) || 0, g.id); return; }
   const b = e.target.closest("[data-kon]");
   if (!b) return;
   const k = b.dataset.kon;

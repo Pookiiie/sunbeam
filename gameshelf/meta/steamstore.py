@@ -191,3 +191,48 @@ def reviews_many(appids: list[int]) -> dict[int, dict | None]:
 
 def reviews(appid: int) -> dict | None:
     return reviews_many([appid]).get(int(appid))
+
+# ------------------------------------------------------------------ what players say
+
+_top_cache: dict[int, tuple[float, list]] = {}
+BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+
+
+def _plain(text: str) -> str:
+    import re as _re
+    t = _re.sub(r"\[/?[a-z0-9*]+(=[^\]]*)?\]", " ", text or "", flags=_re.I)  # Steam's [b], [url=…], [spoiler]…
+    t = _re.sub(r"[ \t]+", " ", t)
+    t = _re.sub(r"\s*\n\s*(\n\s*)+", "\n\n", t)
+    return t.strip()
+
+
+def top_reviews(appid: int, n: int = 3) -> list[dict]:
+    """The most helpful English Steam reviews (what the store page shows first), with a critical
+    one among them when there's one near the top, so you hear both sides."""
+    import time as _time
+    appid = int(appid)
+    hit = _top_cache.get(appid)
+    if hit and _time.time() - hit[0] < 86400:
+        return hit[1]
+    _limiter.wait()
+    data = net.get_json(f"https://store.steampowered.com/ajaxappreviews/{appid}", retries=1, timeout=20,
+                        headers={"User-Agent": BROWSER_UA, "Accept": "application/json"},
+                        params={"filter": "summary", "language": "english", "purchase_type": "all", "review_type": "all",
+                                "use_review_quality": 1, "filter_offtopic_activity": 1, "cursor": "*", "num_per_page": 10}) or {}
+    rows = []
+    for r in data.get("reviews") or []:
+        text = _plain(r.get("review") or "")
+        if len(text) < 30:
+            continue  # "10/10", "yes": not much to go on
+        a = r.get("author") or {}
+        rows.append({"up": bool(r.get("voted_up")), "text": text[:900], "long": len(text) > 900,
+                     "hours": round((a.get("playtime_at_review") or a.get("playtime_forever") or 0) / 60, 1),
+                     "helpful": int(r.get("votes_up") or 0), "at": int(r.get("timestamp_created") or 0),
+                     "early": bool(r.get("written_during_early_access")), "id": str(r.get("recommendationid") or "")})
+    top = rows[:n]
+    if top and all(x["up"] for x in top):
+        neg = next((x for x in rows[n:] if not x["up"]), None)
+        if neg:
+            top = top[:n - 1] + [neg]
+    _top_cache[appid] = (_time.time(), top)
+    return top
