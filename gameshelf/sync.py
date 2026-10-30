@@ -581,12 +581,12 @@ def _conds(refresh: bool) -> dict[str, str]:
                f" AND (ttb_at IS NULL OR (ttb_main IS NULL AND ttb_extra IS NULL AND ttb_complete IS NULL "
                f"AND ttb_at < {db.now() - 30 * 86400}))"),
         # not looked up yet; scores of recent games move, so re-read them for a few months after release
-        # a wishlist game out in the last two months that OpenCritic didn't have yet: once a week
+        # a game out in the last four months (or on your wishlist, two) that OpenCritic didn't have yet: once a week
         "critics": out + (" AND 1=1" if refresh else
                    f" AND (oc_checked_at IS NULL OR (oc_id IS NOT NULL AND oc_at < {db.now() - 30 * 86400} "
                    f"AND COALESCE(release_date, 0) > {db.now() - 180 * 86400}) "
-                   f"OR (oc_id IS NULL AND oc_checked_at < {now - 7 * 86400} AND id IN (SELECT game_id FROM wishlist "
-                   f"WHERE released = 1 AND release_ts > {now - 60 * 86400})))"),
+                   f"OR (oc_id IS NULL AND oc_checked_at < {now - 7 * 86400} AND (COALESCE(release_date, 0) > {now - 120 * 86400} "
+                   f"OR id IN (SELECT game_id FROM wishlist WHERE released = 1 AND release_ts > {now - 60 * 86400}))))"),
         # games you haven't marked, played since we last looked at their achievements
         # (never games in early access: there's more to come)
         "completions": "status = '' AND COALESCE(status_manual, 0) = 0 AND COALESCE(early_access, 0) = 0 AND id IN (SELECT game_id FROM entries "
@@ -667,7 +667,7 @@ def _plan(refresh: bool, scope: str, args, prefer_sgdb: bool, steps=ALL_STEPS):
         "match": 0.4,
         "details": 0.03,
         "art": art_weight,
-        "reviews": 0.5,
+        "reviews": 0.03,  # 100 games per call
         "ttb": 1.3 if hltb.available() else 0.03,
         "critics": 0.35,
         "completions": 0.4,
@@ -908,6 +908,7 @@ def _reviews(refresh: bool, scope: str, args):
         return
     _stage("reviews", "Reading Steam user reviews", len(todo))
     found = 0
+    ready = []
     for g in todo:
         if _cancel.is_set():
             return
@@ -922,17 +923,23 @@ def _reviews(refresh: bool, scope: str, args):
                 continue
             g["steam_appid"] = appid
             found += 1
-        try:
-            r = steamstore.reviews(g["steam_appid"])
-        except Exception:
-            _tick()  # Steam didn't answer: keep the score we had, and try again next time
-            continue
+        ready.append(g)
+    # 100 games per call to Steam's store service.
+    for i in range(0, len(ready), 100):
+        if _cancel.is_set():
+            return
+        batch = ready[i:i + 100]
+        got = steamstore.reviews_many([g["steam_appid"] for g in batch])
         with db.tx() as c:
-            c.execute(
-                "UPDATE games SET steam_review_pct=?, steam_review_count=?, steam_review_desc=?, reviews_at=? WHERE id=?",
-                (r and r["pct"], r and r["count"], r and r["desc"], db.now(), g["id"]),
-            )
-        _tick()
+            for g in batch:
+                if int(g["steam_appid"]) not in got:
+                    continue  # Steam didn't answer about it: keep the score we had, and try again next time
+                r = got[int(g["steam_appid"])]
+                c.execute(
+                    "UPDATE games SET steam_review_pct=?, steam_review_count=?, steam_review_desc=?, reviews_at=? WHERE id=?",
+                    (r and r["pct"], r and r["count"], r and r["desc"], db.now(), g["id"]),
+                )
+        _tick(len(batch))
     if found:
         _log(f"Found {found} more game{'s' if found != 1 else ''} on Steam for user reviews.")
 

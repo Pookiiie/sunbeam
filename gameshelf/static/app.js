@@ -5009,6 +5009,14 @@ addEventListener("scroll", () => {
   requestAnimationFrame(() => { wishJumpTick = false; markWishJump(); });
 }, { passive: true });
 // Where the header ends (fractional on scaled displays: rounded down and overlapped by a pixel so no gap shows).
+// The Library's filter bar gets a line under it once it sits under the header.
+(() => {
+  const bar = document.querySelector("#page-library main.content > .toolbar");
+  if (!bar) return;
+  const mark = () => { const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-h")) || 68;
+    bar.classList.toggle("stuck", bar.getBoundingClientRect().top <= top + 1 && window.scrollY > 0); };
+  window.addEventListener("scroll", mark, { passive: true });
+})();
 const setTopbarH = () => document.documentElement.style.setProperty("--topbar-h", Math.max(0, Math.floor($(".topbar")?.getBoundingClientRect().height || 68) - 1) + "px");
 new MutationObserver(() => { markWishJump(); setTopbarH(); }).observe($("#wishlist"), { childList: true });
 addEventListener("resize", setTopbarH);

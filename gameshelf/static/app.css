@@ -1242,3 +1242,7 @@ body.handoff-on > :not(.handoff):not(.toast):not(#toast) { display: none !import
 .server-trouble { position: fixed; top: 0; left: 0; right: 0; z-index: 200; padding: 10px 16px; text-align: center; font-size: 14px;
   background: #5a2430; color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
 .server-trouble .link { color: #fff; margin-left: 6px; }
+/* Library: the filters and sort stay in view under the header while scrolling */
+#page-library main.content > .toolbar { position: sticky; top: var(--topbar-h, 68px); z-index: 15; margin: -10px -12px 18px; padding: 10px 12px;
+  border-radius: 0 0 14px 14px; background: rgba(20, 17, 28, .9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+#page-library main.content > .toolbar.stuck { border-bottom: 1px solid var(--line); }

@@ -154,18 +154,40 @@ def find_app(title: str) -> int | None:
     return int(best["id"]) if best and best_sim >= 0.9 and str(best.get("id", "")).isdigit() else None
 
 
+def reviews_many(appids: list[int]) -> dict[int, dict | None]:
+    """Steam's user review summary for many apps at once (100 per call), from the store service.
+    (The old appreviews page stopped answering scripts in Oct 2026: it now redirects to the store.)
+    Apps Steam couldn't be asked about are left out, so they're tried again next time."""
+    out: dict[int, dict | None] = {}
+    ids = [int(a) for a in appids if a]
+    for i in range(0, len(ids), 100):
+        chunk = ids[i:i + 100]
+        payload = {"ids": [{"appid": a} for a in chunk], "context": {"language": "english", "country_code": "CA"},
+                   "data_request": {"include_reviews": True}}
+        params = {"input_json": json.dumps(payload, separators=(",", ":"))}
+        if settings.get("steam_api_key"):
+            params["key"] = settings.get("steam_api_key")
+        _limiter.wait()
+        try:
+            data = net.get_json("https://api.steampowered.com/IStoreBrowseService/GetItems/v1/", params=params, retries=1)
+        except net.HttpError:
+            continue
+        got = set()
+        for item in ((data or {}).get("response") or {}).get("store_items") or []:
+            appid = item.get("appid") or item.get("id")
+            if not appid:
+                continue
+            got.add(int(appid))
+            rv = item.get("reviews") or {}
+            s = rv.get("summary_filtered") or rv.get("summary_language_specific") or {}
+            count = int(s.get("review_count") or 0)
+            out[int(appid)] = {"pct": float(s.get("percent_positive") or 0), "count": count,
+                               "desc": s.get("review_score_label")} if count else None
+        if got:  # Steam answered: an app it left out has no store page, so no reviews
+            for a in chunk:
+                out.setdefault(a, None)
+    return out
+
+
 def reviews(appid: int) -> dict | None:
-    _limiter.wait()
-    data = net.get_json(
-        f"https://store.steampowered.com/appreviews/{appid}",
-        params={"json": 1, "language": "all", "purchase_type": "all", "num_per_page": 0, "filter": "summary"},
-    )
-    s = (data or {}).get("query_summary") or {}
-    total = s.get("total_reviews") or 0
-    if not total:
-        return None
-    return {
-        "pct": round(100 * (s.get("total_positive") or 0) / total, 1),
-        "count": total,
-        "desc": s.get("review_score_desc"),
-    }
+    return reviews_many([appid]).get(int(appid))
