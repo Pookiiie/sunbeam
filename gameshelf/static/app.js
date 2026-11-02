@@ -3315,12 +3315,14 @@ SERVICES.push({
 // Settings › Nintendo: the nintendo.com wish list, read in a browser window of Sunbeam's own.
 function ninWishBlock() {
   const s = state.settings.settings;
-  const waiting = state.ninWeb?.state === "waiting";
+  const waiting = state.ninWeb?.state === "waiting", checking = state.ninWeb?.state === "checking";
   const at = Number(s.nin_web_at) || 0;
   let body;
   if (waiting) {
-    body = `<p class="source-note">A small Edge window is open on nintendo.com: sign in there with the Nintendo Account your Switch uses. Once your wish list shows, ${APP} reads it and closes the window by itself.</p>
-      <p class="test-result">Waiting for you to sign in…</p>`;
+    body = `<p class="source-note">An Edge window is open on nintendo.com. Sign in there with the Nintendo Account your Switch uses (choose <b>Keep me signed in</b> if Nintendo offers it). When your wish list shows, <b>close that window</b>: ${APP} reads your wish list then.</p>
+      <p class="test-result">Waiting for you to sign in and close the window…</p>`;
+  } else if (checking) {
+    body = `<p class="test-result">Reading your Nintendo wish list…</p>`;
   } else if (s.nin_web && s.nin_web_state === "signed_out") {
     body = `<p class="test-result err">Nintendo's sign-in in ${APP}'s window has ended, so your wish list isn't being updated (prices still are).</p>
       <div class="nin-wish-actions"><button type="button" class="btn small" data-nin-web="signin">Sign in again</button>
@@ -3330,7 +3332,7 @@ function ninWishBlock() {
       <div class="nin-wish-actions"><button type="button" class="link" data-nin-web="forget">Sign out of nintendo.com</button></div>`;
   } else {
     body = `<p class="source-note">Add your nintendo.com wish list to ${APP}'s Wishlist, with Canadian eShop prices and sales.
-      A small Edge window opens with a profile of ${APP}'s own (not your everyday browser): sign in there once and ${APP} takes it from there.
+      An Edge window opens with a profile of ${APP}'s own (not your everyday browser): sign in there once, close it, and ${APP} takes it from there.
       Your password only goes to Nintendo; Edge keeps the sign-in encrypted for your Windows account.</p>
       <div class="nin-wish-actions"><button type="button" class="btn small" data-nin-web="signin">Sign in to nintendo.com</button></div>`;
   }
@@ -3354,7 +3356,10 @@ async function ninWebAction(kind) {
   clearInterval(state.ninWebPoll);
   state.ninWebPoll = setInterval(async () => {
     try { state.ninWeb = await api("/api/nintendo/web/signin"); } catch { return; }
-    if (state.ninWeb.state === "waiting") return;
+    if (state.ninWeb.state === "waiting" || state.ninWeb.state === "checking") {
+      if (state.ninWeb.state === "checking" && $("#settings-dialog").open && !$(".nin-wish .test-result")?.textContent.startsWith("Reading")) await redraw();
+      return;
+    }
     clearInterval(state.ninWebPoll);
     if (state.ninWeb.state === "done") {
       const n = state.ninWeb.count || 0;

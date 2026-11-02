@@ -1,10 +1,10 @@
 """Your Nintendo wish list (Switch and Switch 2), read from nintendo.com the way the site reads it.
 
-Sign in once: Settings › Nintendo Switch › "Sign in to nintendo.com" opens a small Edge window
+Sign in once: Settings › Nintendo Switch › "Sign in to nintendo.com" opens an ordinary Edge window
 with a profile of Sunbeam's own (data/nintendo-web, separate from your everyday browser; Edge
-keeps its cookies encrypted for your Windows account). Once your wish list shows there, Sunbeam
-reads it, closes the window, and at every sync opens the same page in a window out of sight and
-reads the list the page loads (cdp.py). Nothing is sent anywhere else.
+keeps its cookies encrypted for your Windows account). Sunbeam doesn't touch that window: you sign
+in, see your wish list and close it. Then, and at every sync, Sunbeam opens the same page in a
+window out of sight and reads the list the page loads (cdp.py). Nothing is sent anywhere else.
 
 Prices: the list comes with each game's Canadian eShop price and sale. Between reads, and when the
 sign-in has ended, prices are refreshed from Nintendo's public price service (by eShop id).
@@ -30,7 +30,7 @@ GRAPH = "https://graph.nintendo.com"        # where the page asks for your wish 
 ACCOUNTS = "accounts.nintendo.com"          # where it sends you to sign in
 EXTRA_ARGS: list[str] = []
 PROFILE = DATA_DIR / "nintendo-web"
-SIGNIN_MINUTES = 10
+SIGNIN_MINUTES = 20
 
 _lock = threading.Lock()   # one window on the profile at a time
 _signin: dict = {"state": "idle"}
@@ -235,17 +235,48 @@ def refresh_prices() -> int:
 
 # ------------------------------------------------------------------ signing in (the visible window)
 
+def _plain_window(exe: str):
+    """Edge (or Chrome) on the wish list page with Sunbeam's Nintendo profile, as an ordinary
+    window: nothing attached to it while you sign in. Returns the process."""
+    import os
+    import subprocess
+    PROFILE.mkdir(parents=True, exist_ok=True)
+    args = [exe, f"--user-data-dir={PROFILE}", "--no-first-run", "--no-default-browser-check", "--disable-sync",
+            "--new-window", "--window-size=1000,860", *EXTRA_ARGS, WISH_URL]
+    return subprocess.Popen(args, creationflags=0x08000000 if os.name == "nt" else 0, close_fds=True)
+
+
 def start_signin() -> dict:
-    if _signin.get("state") == "waiting":
+    """Sign in once. The window is an ordinary browser window that Sunbeam doesn't touch (Nintendo's
+    sign-in turns away a browser that's being driven); once you close it, Sunbeam reads your wish
+    list the way it does at every sync."""
+    if _signin.get("state") in ("waiting", "checking"):
         return dict(_signin)
-    if not _exe():
+    exe = _exe()
+    if not exe:
         raise Unavailable("Microsoft Edge (or Chrome) wasn't found on this PC.")
+    if not _lock.acquire(blocking=False):
+        raise Unavailable("Sunbeam is reading your Nintendo wish list right now. Try again in a minute.")
     _signin.clear()
     _signin.update(state="waiting", started=int(time.time()))
 
     def run():
         try:
-            data = _read(visible=True, timeout=SIGNIN_MINUTES * 60)
+            try:
+                proc = _plain_window(exe)
+                try:
+                    proc.wait(timeout=SIGNIN_MINUTES * 60)
+                except Exception:
+                    proc.kill()
+                    raise Unavailable("The Nintendo window was open a long time, so Sunbeam closed it. Try again.") from None
+            finally:
+                _lock.release()
+            _signin.update(state="checking")
+            try:
+                data = _read(visible=False, timeout=60)
+            except SignedOut:
+                raise Unavailable("Sunbeam couldn't see you signed in to nintendo.com in that window. Choose Sign in "
+                                  "again, sign in until your wish list shows, then close the window.") from None
             rows = items(data["items"])
             from . import wishlist
             wishlist._store("nintendo", rows)
