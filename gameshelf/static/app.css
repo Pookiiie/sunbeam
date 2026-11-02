@@ -1210,6 +1210,11 @@ a.pbox.best[href]:hover { border-color: rgba(255,92,158,.85); }
 
 .oc-daily { margin-top: 14px; }
 .oc-daily .source-note { margin: 6px 0 0; }
+.nin-wish { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line, rgba(127,127,127,.2)); }
+.nin-wish h4 { margin: 0 0 4px; font-size: 14px; }
+.nin-wish .source-note { margin: 4px 0 8px; max-width: 70ch; }
+.nin-wish .test-result { display: block; margin: 4px 0 8px; }
+.nin-wish-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 /* Screenshot viewer: Show this one first */
 .lb-pick { position: absolute; bottom: 12px; right: 18px; display: flex; align-items: center; gap: 12px; }
 .lb-pick .btn svg, .lb-first svg { width: 15px; height: 15px; margin-right: 6px; vertical-align: -2px; }

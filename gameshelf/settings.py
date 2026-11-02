@@ -48,6 +48,9 @@ FIELDS = {
     "nin_session": True,    # Nintendo Account sign-in (lasts about two years)
     "nin_pending": True,    # Nintendo: the one-time check for a sign-in in progress
     "nin_name": False,      # Nintendo Account nickname, for "Signed in as"
+    "nin_web": False,       # when nintendo.com was signed in to in Sunbeam's Nintendo window (wish list)
+    "nin_web_state": False, # ok / signed_out: how the last read of the wish list went
+    "nin_web_at": False,    # when the wish list was last read
     "oc_auto": False,            # read OpenCritic scores by itself each day while the app is open (default: on)
     "hltb_enabled": False,
     "hide_early_access": False,  # keep early access games out of the library and Curator (default: shown)
@@ -69,7 +72,8 @@ FIELDS = {
 INTERNAL = {"shortcuts_made", "shortcuts_asked", "window_rect", "epic_refresh", "epic_account", "epic_name",
             "gog_refresh", "gog_user",
             "ubi_ticket", "ubi_session", "ubi_remember", "ubi_user", "ubi_app", "ubi_name", "ubi_expires",
-            "ubi_refreshed_at", "xbl_xuid", "nin_session", "nin_pending", "nin_name"}
+            "ubi_refreshed_at", "xbl_xuid", "nin_session", "nin_pending", "nin_name",
+            "nin_web", "nin_web_state", "nin_web_at"}
 
 # Encrypted in the file: every secret, plus the account names and ids that say whose they are.
 ENCRYPTED = {k for k, secret in FIELDS.items() if secret} | {

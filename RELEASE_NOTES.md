@@ -1,3 +1,9 @@
+Sunbeam 1.8.0 beta 1: your Nintendo wish list, with eShop prices and sales.
+
+- **Nintendo wish list:** Settings › Nintendo Switch › Wish list › **Sign in to nintendo.com**. A small Edge window opens with a profile of Sunbeam's own (not your everyday browser); sign in there once and, when your wish list shows, Sunbeam reads it and closes the window. From then on every sync reads it in a window out of sight. Your password only goes to Nintendo, and Edge keeps the sign-in encrypted for your Windows account.
+- **eShop prices and sales** for those games, in Canadian dollars, next to Steam, PlayStation, GOG and Epic on the Wishlist page and each game's page, with "-20%" badges and when the sale ends. If Nintendo's sign-in in that window ends, Settings says so, the list stays as it was, and prices keep updating from Nintendo's public price service.
+- Games you own on Switch or Switch 2 show "Owned" in the eShop box instead of a price.
+
 Sunbeam 1.7.1 beta 3: Keen or not? shows more of each game.
 
 - **Screenshots**: a big one with up to six more under it (point at one to see it large, click to open them full size).

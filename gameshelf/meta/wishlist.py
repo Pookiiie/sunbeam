@@ -30,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .. import db, net, settings
 from .catalogs import _plain
 
-STORES = {"steam": "Steam", "psn": "PlayStation", "gog": "GOG", "epic": "Epic Games Store"}
+STORES = {"steam": "Steam", "psn": "PlayStation", "gog": "GOG", "epic": "Epic Games Store", "nintendo": "Nintendo eShop"}
 STEAM_API = "https://api.steampowered.com"
 PS_GRAPHQL = "https://web.np.playstation.com/api/graphql/v1/op"
 PS_LOCALE = "en-CA"
@@ -461,7 +461,7 @@ def _other_epic(g: dict, prev: dict) -> dict:
 
 
 OTHER = {"steam": _other_steam, "psn": _other_psn, "gog": _other_gog, "epic": _other_epic}
-OWN_PLATFORM = {"steam": "steam", "psn": "playstation", "gog": "gog", "epic": "epic"}
+OWN_PLATFORM = {"steam": "steam", "psn": "playstation", "gog": "gog", "epic": "epic", "nintendo": "switch"}
 PRICE_FIELDS = ("item_id", "url", "price_text", "base_text", "price_cents", "base_cents", "discount_pct", "sale_ends", "sale_note")
 
 
@@ -595,10 +595,17 @@ def link() -> None:
 
 
 def configured() -> dict[str, bool]:
-    return {"steam": bool(settings.get("steam_id")), "psn": bool(settings.get("psn_npsso"))}
+    from . import nintendo_web
+    return {"steam": bool(settings.get("steam_id")), "psn": bool(settings.get("psn_npsso")),
+            "nintendo": nintendo_web.linked()}
 
 
-FETCH = {"steam": lambda: fetch_steam(), "psn": lambda: fetch_psn()}
+def _fetch_nintendo():
+    from . import nintendo_web
+    return nintendo_web.fetch()
+
+
+FETCH = {"steam": lambda: fetch_steam(), "psn": lambda: fetch_psn(), "nintendo": _fetch_nintendo}
 
 
 def refresh() -> dict:
@@ -617,6 +624,13 @@ def refresh() -> dict:
             out[store] = {"count": _store(store, items)}
         except Exception as e:
             out[store] = {"error": str(e)}
+    if "nintendo" in out and "error" in out["nintendo"]:
+        # The wish list couldn't be read (the sign-in ended, say): today's prices still can be, without signing in.
+        from . import nintendo_web
+        try:
+            nintendo_web.refresh_prices()
+        except Exception:
+            pass
     link()
     try:
         out["other_store"] = {"count": other_prices()}
@@ -701,6 +715,8 @@ def _summary(rows: list[dict], owned_on: list[str], others: list[dict] | None = 
     # Both stores are asked for Canadian prices; written the same way ("C$38.99") so they compare at a glance.
     # A store where you own it shows "Owned" on the game page instead of a price, and isn't the card's price.
     owned_stores = {st for st, plat in OWN_PLATFORM.items() if plat in owned_on}
+    if "switch2" in owned_on:
+        owned_stores.add("nintendo")
     prices = []
     for wished, rs in ((True, rows), (False, others)):
         for r in rs:
@@ -741,5 +757,5 @@ def test() -> str:
         except Exception as e:
             parts.append(f"{STORES[store]}: couldn't read it ({e})")
     if not parts:
-        raise WishlistError("Set up Steam or PlayStation in Settings first.")
+        raise WishlistError("Set up Steam, PlayStation or Nintendo in Settings first.")
     return ". ".join(parts) + "."

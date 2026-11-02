@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import __version__, brand, db, duplicates, installed, settings, switch_import, switch_video, sync
-from .meta import hltb, igdb, opencritic, sgdb, wishlist
+from .meta import hltb, igdb, nintendo_web, opencritic, sgdb, wishlist
 from .paths import DATA_DIR, STATIC_DIR
 from .sources import PLATFORMS, battlenet, epic, gog, nintendo, playstation, steam, ubisoft, xbox
 
@@ -527,6 +527,30 @@ TESTS = {"nintendo": nintendo.test, "steam": steam.test, "playstation": playstat
 def post_nintendo_auth(req, body, query):
     """Nintendo's sign-in page for this one sign-in (it checks the link pasted back answers it)."""
     return {"url": nintendo.auth_url()}
+
+
+@route("POST", "/api/nintendo/web/signin")
+def post_nintendo_web_signin(req, body, query):
+    """Open Sunbeam's Nintendo window on nintendo.com's wish list, for signing in once."""
+    try:
+        return nintendo_web.start_signin()
+    except nintendo_web.Unavailable as e:
+        raise ApiError(400, str(e)) from None
+
+
+@route("GET", "/api/nintendo/web/signin")
+def get_nintendo_web_signin(req, body, query):
+    return nintendo_web.signin_status()
+
+
+@route("POST", "/api/nintendo/web/forget")
+def post_nintendo_web_forget(req, body, query):
+    """Sign out of nintendo.com in Sunbeam's window: its profile and the Nintendo wish list go."""
+    try:
+        nintendo_web.forget()
+    except nintendo_web.Unavailable as e:
+        raise ApiError(409, str(e)) from None
+    return {"ok": True}
 
 
 @route("POST", r"/api/test/(\w+)")

@@ -71,7 +71,7 @@ function loadPrefs() {
     if (!Array.isArray(p.length)) p.length = [];
     if (!Array.isArray(p.players)) p.players = [];
     if (typeof p.reviews !== "number") p.reviews = null;
-  if (!["steam", "psn", "gog", "epic"].includes(p.wishStore)) p.wishStore = "all";
+  if (!["steam", "psn", "gog", "epic", "nintendo"].includes(p.wishStore)) p.wishStore = "all";
     return p;
   } catch { return { ...DEFAULT_PREFS }; }
 }
@@ -1129,10 +1129,10 @@ async function setInterest(id, v) {
 /* ------------------------------------------------------------ Wishlist */
 
 // Your Steam and PlayStation wishlists (the app reads them; it can't change them), priced on GOG and Epic too.
-const WISH_PLATFORM = { steam: "steam", psn: "playstation", gog: "gog", epic: "epic" };
-const WISH_STORE = { steam: "Steam", psn: "PlayStation", gog: "GOG", epic: "Epic Games Store" };
-const WISH_SHORT = { steam: "Steam", psn: "PlayStation", gog: "GOG", epic: "Epic" };
-const WISH_LETTER = { steam: "S", psn: "PS", gog: "G", epic: "E" };  // shown when the store icons can't load
+const WISH_PLATFORM = { steam: "steam", psn: "playstation", gog: "gog", epic: "epic", nintendo: "switch" };
+const WISH_STORE = { steam: "Steam", psn: "PlayStation", gog: "GOG", epic: "Epic Games Store", nintendo: "Nintendo eShop" };
+const WISH_SHORT = { steam: "Steam", psn: "PlayStation", gog: "GOG", epic: "Epic", nintendo: "eShop" };
+const WISH_LETTER = { steam: "S", psn: "PS", gog: "G", epic: "E", nintendo: "N" };  // shown when the store icons can't load
 const WISH_DAYS = 60;  // Curator's "Recently released" and "Coming out soon" windows
 const nowS = () => Date.now() / 1000;
 
@@ -1314,7 +1314,7 @@ function renderWishlist() {
     el.innerHTML = `<div class="empty"><h2>${state.wishlistAt ? "Your wishlists are empty" : "Your wishlists will show up here"}</h2>
       <p>${state.wishlistAt
         ? "Nothing on your wishlists right now. If that's not right, check that your Steam profile's game details are public."
-        : "The next sync reads your wishlists: Steam (from your Steam profile; its game details need to be public) and PlayStation (with your NPSSO token from Settings)."}</p>
+        : "The next sync reads your wishlists: Steam (from your Steam profile; its game details need to be public), PlayStation (with your NPSSO token from Settings) and Nintendo (Settings › Nintendo Switch › Wish list)."}</p>
       <button class="btn" id="wish-sync">Sync now</button></div>`;
     return;
   }
@@ -1399,8 +1399,9 @@ function wishBox(g) {
   if (!g.wish) return "";
   const w = g.wish;
   // Owned on Steam / PlayStation: that store's box says so. Other stores (Switch, Epic…) are listed below the boxes.
-  const ownedStores = Object.keys(WISH_STORE).filter((st) => (w.owned_on || []).includes(WISH_PLATFORM[st]));
-  const tags = (w.owned_on || []).filter((p) => p !== "xbox" && !["steam", "playstation", "gog", "epic"].includes(p)).map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`);
+  const ownedOn = (w.owned_on || []).includes("switch2") ? [...w.owned_on, "switch"] : (w.owned_on || []);
+  const ownedStores = Object.keys(WISH_STORE).filter((st) => ownedOn.includes(WISH_PLATFORM[st]));
+  const tags = (w.owned_on || []).filter((p) => p !== "xbox" && !["steam", "playstation", "gog", "epic", "switch", "switch2"].includes(p)).map((p) => `Owned on ${PLATFORM_SHORT[p] || p}`);
   const when = (x) => {
     if (!x || x.released === 1 || g.rel.state === "out") return "";  // out already: the date doesn't matter
     if (x.release_ts) return `Coming ${fmtRelease({ ts: x.release_ts, prec: x.precision || "day" })}`;
@@ -3307,6 +3308,68 @@ SERVICES.push({
   },
   fields: [["nin_link", "Link from Nintendo's page", true]],
   clears: ["nin_session", "nin_link", "nin_pending", "nin_name"],
+  extra: () => ninWishBlock(),
+  extraAlways: true,
+});
+
+// Settings › Nintendo: the nintendo.com wish list, read in a browser window of Sunbeam's own.
+function ninWishBlock() {
+  const s = state.settings.settings;
+  const waiting = state.ninWeb?.state === "waiting";
+  const at = Number(s.nin_web_at) || 0;
+  let body;
+  if (waiting) {
+    body = `<p class="source-note">A small Edge window is open on nintendo.com: sign in there with the Nintendo Account your Switch uses. Once your wish list shows, ${APP} reads it and closes the window by itself.</p>
+      <p class="test-result">Waiting for you to sign in…</p>`;
+  } else if (s.nin_web && s.nin_web_state === "signed_out") {
+    body = `<p class="test-result err">Nintendo's sign-in in ${APP}'s window has ended, so your wish list isn't being updated (prices still are).</p>
+      <div class="nin-wish-actions"><button type="button" class="btn small" data-nin-web="signin">Sign in again</button>
+      <button type="button" class="link" data-nin-web="forget">Remove the Nintendo wish list</button></div>`;
+  } else if (s.nin_web) {
+    body = `<p class="source-note">Your wish list joins ${APP}'s Wishlist, with Canadian eShop prices and sales. Every sync reads it in a window out of sight${at ? ` (last read ${esc(relDate(at).toLowerCase())})` : ""}.</p>
+      <div class="nin-wish-actions"><button type="button" class="link" data-nin-web="forget">Sign out of nintendo.com</button></div>`;
+  } else {
+    body = `<p class="source-note">Add your nintendo.com wish list to ${APP}'s Wishlist, with Canadian eShop prices and sales.
+      A small Edge window opens with a profile of ${APP}'s own (not your everyday browser): sign in there once and ${APP} takes it from there.
+      Your password only goes to Nintendo; Edge keeps the sign-in encrypted for your Windows account.</p>
+      <div class="nin-wish-actions"><button type="button" class="btn small" data-nin-web="signin">Sign in to nintendo.com</button></div>`;
+  }
+  const err = state.ninWeb?.state === "error" ? `<p class="test-result err">${esc(state.ninWeb.error || "That didn't work.")}</p>` : "";
+  return `<div class="nin-wish"><h4>Wish list</h4>${body}${err}</div>`;
+}
+
+async function ninWebAction(kind) {
+  const redraw = async () => { await loadSettings(); if ($("#settings-dialog").open) renderSettings("nintendo"); };
+  if (kind === "forget") {
+    if (!confirm(`Sign out of nintendo.com in ${APP}'s window? Your Nintendo wish list leaves ${APP}'s Wishlist.`)) return;
+    try { await api("/api/nintendo/web/forget", { method: "POST", body: {} }); state.ninWeb = null; }
+    catch (err) { toast(err.message, true); }
+    await redraw();
+    reloadLibrary();
+    return;
+  }
+  try { state.ninWeb = await api("/api/nintendo/web/signin", { method: "POST", body: {} }); }
+  catch (err) { toast(err.message, true); return; }
+  await redraw();
+  clearInterval(state.ninWebPoll);
+  state.ninWebPoll = setInterval(async () => {
+    try { state.ninWeb = await api("/api/nintendo/web/signin"); } catch { return; }
+    if (state.ninWeb.state === "waiting") return;
+    clearInterval(state.ninWebPoll);
+    if (state.ninWeb.state === "done") {
+      const n = state.ninWeb.count || 0;
+      toast(`Nintendo wish list added: ${n} game${n === 1 ? "" : "s"}`);
+      state.ninWeb = null;
+      reloadLibrary();
+    }
+    await redraw();
+  }, 2000);
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-nin-web]");
+  if (!b) return;
+  e.preventDefault();
+  ninWebAction(b.dataset.ninWeb);
 });
 SERVICES.push({
   id: "opencritic", name: "Critic scores: OpenCritic", blurb: "Optional. Top critic average, % recommended and tier",
@@ -3374,7 +3437,7 @@ function serviceBody(svc) {
             : svc.fields.some(([k, , sec]) => sec && s[k].set) ? `<button class="link" data-clear="${svc.id}">${svc.id === "battlenet" ? "Remove saved list" : "Remove saved key"}</button>` : ""}
           <span class="test-result" data-result="${svc.id}"></span>
         </div>
-        ${svc.extra && svc.ready(s) ? svc.extra() : ""}
+        ${svc.extra && (svc.extraAlways || svc.ready(s)) ? svc.extra() : ""}
       </div>`;
 }
 
