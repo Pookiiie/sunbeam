@@ -708,6 +708,9 @@ body:not([data-page="library"]) #page-library, body:not([data-page="curator"]) #
 .wheart i { position: relative; width: 12.5px; height: 12.5px; margin-top: -3px; background: var(--accent-ink);
   -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
 .wheart b { display: none; position: relative; margin-top: -3px; font: 800 7.5px/1 var(--body); color: var(--accent-ink); }
+/* The Switch logo fills its whole square (Steam's is round): smaller, so the heart's top dip and
+   sides don't cut into it */
+.wheart.s-nintendo i { transform: scale(.8); }
 .no-icons .wheart i { display: none; }
 .no-icons .wheart b { display: block; }
 .rec.mini .wheart { width: 24px; height: 22px; }

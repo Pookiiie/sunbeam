@@ -1,3 +1,9 @@
+Sunbeam 1.8.0 beta 4: remakes aren't taken for the original any more.
+
+- **Fixed: a remake or port named like an older game was identified as the older game.** The Legend of Zelda: Ocarina of Time on your Nintendo wish list showed the 1998 game; Paper Mario: The Thousand-Year Door and Star Fox did too. Sunbeam now looks for the game on the store's platform and, for wishlist games, around the store's release date. Your next sync identifies again the games this got wrong, Switch games matched to their Wii U release included (when IGDB has the Switch release). Games you matched by hand stay as they are.
+- Store names with curly apostrophes (Nintendo's "Fortune’s Weave") are found on IGDB.
+- **The Switch icon fits in its wishlist heart** (it's a little smaller than the round Steam one).
+
 Sunbeam 1.8.0 beta 3: a clean start for the Nintendo sign-in.
 
 - **Each Sign in to nintendo.com starts from an empty Edge profile,** so nothing is left from an earlier try. Nintendo's sign-in can keep refusing a browser it has refused once (the error with a Reference Code), and the window kept the first try's cookies.

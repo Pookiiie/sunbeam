@@ -1224,7 +1224,7 @@ function storeMark(store, wished) {
 // Wishlist marker: a heart with the store's icon inside, so it never reads as a copy you own.
 function wishBadge(store) {
   const p = WISH_PLATFORM[store], name = `On your ${WISH_STORE[store]} wishlist`;
-  return `<span class="wheart" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[p])}')"></i><b>${WISH_LETTER[store] || "?"}</b></span>`;
+  return `<span class="wheart s-${esc(store)}" title="${esc(name)}" aria-label="${esc(name)}"><i style="--icon:url('${iconUrl(PLATFORM_ICON[p])}')"></i><b>${WISH_LETTER[store] || "?"}</b></span>`;
 }
 // Bottom-left, like library covers: the platforms you can already play it on (owned, or on XGP / PS+).
 function playableBadges(g) {

@@ -328,6 +328,7 @@ def _run_sync(sources: list[str]):
     _catalogs()
     if any(wishlist.configured().values()):
         _wishlists()
+    rechecked = _recheck_matches()
     db.set_meta("last_sync_at", str(db.now()))
     new = db.query("SELECT COUNT(*) n FROM games WHERE id > ?", (before,))[0]["n"]
     if not new:
@@ -349,6 +350,7 @@ def _run_sync(sources: list[str]):
             _reviews(False, f" AND id IN ({','.join('?' * len(redo_rev))})", redo_rev)
             _tl("reviews", state="done")
         enrich(steps=(("art",) if redo_art else ()) + ("completions",))
+        _refetch(rechecked)
         return
     cat = db.query(f"""SELECT COUNT(*) n FROM games WHERE id > ? AND id NOT IN
                       (SELECT game_id FROM entries WHERE {db.OWNED}) AND id IN
@@ -365,6 +367,7 @@ def _run_sync(sources: list[str]):
     finally:
         if mine:
             _check_duplicates(before)
+    _refetch(rechecked)
 
 
 def _check_duplicates(before: int) -> None:
@@ -695,6 +698,110 @@ def _platforms_of(game_id: int) -> list[str]:
     return [r["platform"] for r in db.query("SELECT DISTINCT platform FROM entries WHERE game_id=?", (game_id,))]
 
 
+# A wishlist's store -> the platforms its games are for (to tell a remake from the original on IGDB).
+WISH_PLATFORMS = {"nintendo": ["switch", "switch2"], "psn": ["playstation"], "steam": ["steam"], "gog": ["gog"], "epic": ["epic"]}
+
+
+def _match_context(game_id: int) -> tuple[str | None, list[str], int | None]:
+    """What identifies a game on IGDB besides its title: the store's own name for it, the platforms
+    it's on (its copies; for a game only on wishlists, the wishlists' stores) and, for a wishlist
+    game, the store's release date (a year alone counts as its middle)."""
+    plats = [p for p in _platforms_of(game_id) if p != wishlist.PLATFORM]
+    name = None
+    released = None
+    if plats:
+        row = db.query(f"SELECT name FROM entries WHERE game_id=? AND {db.NOT_WISHLIST} AND name IS NOT NULL "
+                       "ORDER BY playtime_min DESC LIMIT 1", (game_id,))
+        name = row[0]["name"] if row else None
+    else:
+        rows = db.query("SELECT store, title, release_ts, release_text FROM wishlist WHERE game_id=?", (game_id,))
+        for r in rows:
+            plats += WISH_PLATFORMS.get(r["store"], [])
+        name = next((r["title"] for r in rows if r["title"]), None)
+        dates = [r["release_ts"] for r in rows if r["release_ts"]]
+        if not dates:
+            import datetime
+            for r in rows:
+                m = re.search(r"\b(19|20)\d{2}\b", r["release_text"] or "")
+                if m:
+                    dates.append(int(datetime.datetime(int(m.group(0)), 7, 1, tzinfo=datetime.timezone.utc).timestamp()))
+        released = min(dates) if dates else None
+    return name, sorted(set(plats)), released
+
+
+def _reset_for_new_match(c, game_id: int) -> None:
+    """A game now identified as another IGDB game: everything that came from the old one is
+    fetched again (details, art, screenshots, reviews, time to beat, critic score)."""
+    c.execute("""UPDATE games SET meta_at=NULL, art_at=NULL, reviews_at=NULL, ttb_at=NULL, hltb_id=NULL,
+                 shots_at=NULL, shots_src=NULL, shot_first=NULL, screenshots=NULL, similar_at=NULL,
+                 oc_id=NULL, oc_score=NULL, oc_recommend=NULL, oc_tier=NULL, oc_count=NULL, oc_url=NULL,
+                 oc_at=NULL, oc_checked_at=NULL WHERE id=?""", (game_id,))
+    own = c.execute("SELECT external_id FROM entries WHERE game_id=? AND platform='steam' LIMIT 1", (game_id,)).fetchone()
+    appid = int(own["external_id"]) if own and str(own["external_id"]).isdigit() else None
+    if not appid:
+        w = c.execute("SELECT steam_appid FROM wishlist WHERE game_id=? AND steam_appid IS NOT NULL LIMIT 1",
+                      (game_id,)).fetchone()
+        appid = w and w["steam_appid"]
+    c.execute("UPDATE games SET steam_appid=?, steam_checked_at=NULL WHERE id=?", (appid, game_id))
+
+
+def _forget_match(c, game_id: int) -> None:
+    """No IGDB game fits: drop what came from the wrong one, so the store's own info shows."""
+    _reset_for_new_match(c, game_id)
+    c.execute("""UPDATE games SET igdb_id=NULL, match_state='none', summary=NULL, storyline=NULL, genres=NULL,
+                 themes=NULL, modes=NULL, perspectives=NULL, developers=NULL, publishers=NULL, franchises=NULL,
+                 igdb_platforms=NULL, igdb_shots=NULL, release_date=NULL, critic_score=NULL, critic_count=NULL,
+                 user_score=NULL, user_count=NULL, igdb_url=NULL, igdb_cover=NULL, igdb_artwork=NULL, similar=NULL
+                 WHERE id=?""", (game_id,))
+
+
+def _recheck_matches() -> list[int]:
+    """Games flagged in db migration 26 (an automatic match that contradicts the store: a Switch
+    copy taken for a game that never came out on Switch, a wishlist game for one from years
+    before): identified again with the store's platform and date. Returns the games now
+    identified as another game (their info is fetched again at the end of the sync)."""
+    todo = db.query("SELECT id, title, igdb_id FROM games WHERE match_state='recheck'")
+    if not todo or not igdb.configured():
+        return []
+    changed, cleared = [], 0
+    for g in todo:
+        if _cancel.is_set():
+            break
+        name, plats, released = _match_context(g["id"])
+        try:
+            hit, _score = igdb.best_match(name or g["title"], plats, released)
+        except Exception as e:
+            _log(f"IGDB search failed for {g['title']}: {e}", "warn")
+            break  # again at the next sync
+        owned = bool(db.query(f"SELECT 1 FROM entries WHERE game_id=? AND {db.NOT_WISHLIST} LIMIT 1", (g["id"],)))
+        if hit and hit["id"] != g["igdb_id"]:
+            new_id = _assign_igdb(g["id"], hit["id"], "auto")
+            with db.tx() as c:
+                _reset_for_new_match(c, new_id)
+            changed.append(new_id)
+            print(f"  Re-identified {g['title']}: IGDB {g['igdb_id']} -> {hit['id']} ({hit.get('name')})", flush=True)
+        elif not hit and not owned:
+            with db.tx() as c:
+                _forget_match(c, g["id"])
+            cleared += 1
+        else:
+            with db.tx() as c:
+                c.execute("UPDATE games SET match_state='auto' WHERE id=? AND match_state='recheck'", (g["id"],))
+    if changed:
+        _log(f"Re-identified {len(changed)} game{'s' if len(changed) != 1 else ''} that had been taken for an older "
+             f"game with the same name (a remake or a port, say).")
+    if cleared:
+        _log(f"{cleared} wishlist game{'s' if cleared != 1 else ''} had been taken for an older game with the same name "
+             f"and couldn't be identified again: see Sync › Library checks.", "warn")
+    return sorted(set(changed))
+
+
+def _refetch(ids: list[int]) -> None:
+    """Everything for games just identified again (as Fix match does)."""
+    if ids and not _cancel.is_set():
+        enrich(game_ids=ids, steps=[x for x in ALL_STEPS if x != "completions"])
+
+
 def _assign_igdb(game_id: int, igdb_id: int, state: str):
     """Set a game's IGDB id, merging with any game that already has it."""
     with db.tx() as c:
@@ -734,7 +841,8 @@ def _match(refresh: bool, scope: str, args):
         if g["steam_appid"] and not db.query("SELECT 1 FROM games WHERE id=?", (g["id"],)):
             continue
         try:
-            hit, _score = igdb.best_match(g["title"], _platforms_of(g["id"]))
+            name, plats, released = _match_context(g["id"])
+            hit, _score = igdb.best_match(name or g["title"], plats, released)
         except Exception as e:
             _log(f"IGDB search failed for {g['title']}: {e}", "warn")
             hit = None

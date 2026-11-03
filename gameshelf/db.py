@@ -373,6 +373,57 @@ def _migrate(c: sqlite3.Connection) -> None:
         # which 1.6.1-beta.5 skipped, falling back to IGDB's (sometimes just one): look again.
         c.execute("UPDATE games SET shots_at = NULL WHERE COALESCE(shots_src, 'igdb') = 'igdb'")
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '25')")
+    if version < 26:
+        # Remakes and ports named like an older game were taken for the older one (Ocarina of Time on
+        # Switch 2 for the 1998 game, Captain Toad on Switch for the Wii U release). The next sync
+        # identifies these again, with the store's platform and date (sync._recheck_matches).
+        for gid in _suspect_matches(c):
+            c.execute("UPDATE games SET match_state='recheck' WHERE id=?", (gid,))
+        c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '26')")
+
+
+# IGDB's names for the platforms a store's copy is for (games.igdb_platforms holds IGDB's abbreviations).
+_STORE_IGDB = {"nintendo": {"Switch", "Switch 2"}, "psn": {"PS4", "PS5"}}
+_YEAR = 365.25 * 86400
+
+
+def _suspect_matches(c: sqlite3.Connection) -> list[int]:
+    """Automatic matches that contradict the store: a game whose copies are all on Switch,
+    identified as a game that never came out on Switch; a game only on wishlists, identified as
+    one that isn't on the store's platform and came out years before the store's date (or, from
+    the Nintendo eShop, isn't on Switch at all)."""
+    try:
+        wish = {}
+        for r in c.execute("SELECT game_id, store, release_ts FROM wishlist WHERE game_id IS NOT NULL"):
+            wish.setdefault(r["game_id"], []).append(r)
+    except sqlite3.OperationalError:
+        wish = {}  # no wishlist table yet
+    plats: dict[int, set] = {}
+    for r in c.execute(f"SELECT game_id, platform FROM entries WHERE {NOT_WISHLIST}"):
+        plats.setdefault(r["game_id"], set()).add(r["platform"])
+    out = []
+    for g in c.execute("""SELECT id, igdb_platforms, release_date FROM games WHERE match_state='auto'
+                          AND igdb_id IS NOT NULL AND igdb_platforms IS NOT NULL"""):
+        try:
+            on = set(json.loads(g["igdb_platforms"]) or [])
+        except ValueError:
+            continue
+        mine = plats.get(g["id"])
+        if mine:
+            if mine <= {"switch", "switch2"} and not on & {"Switch", "Switch 2"}:
+                out.append(g["id"])
+            continue
+        rows = wish.get(g["id"]) or []
+        want = set().union(*(_STORE_IGDB.get(r["store"], set()) for r in rows)) if rows else set()
+        if not want or want & on:
+            continue
+        dates = [r["release_ts"] for r in rows if r["release_ts"]]
+        if dates and g["release_date"]:
+            if abs(min(dates) - g["release_date"]) / _YEAR > 5:
+                out.append(g["id"])
+        elif any(r["store"] == "nintendo" for r in rows):
+            out.append(g["id"])
+    return out
 
 
 @contextmanager

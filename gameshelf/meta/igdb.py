@@ -100,47 +100,92 @@ def steam_to_igdb(appids: list[int]) -> dict[int, int]:
 
 SEARCH_FIELDS = (
     "name,first_release_date,platforms,parent_game,version_parent,total_rating_count,"
-    "alternative_names.name,cover.image_id"
+    "alternative_names.name,cover.image_id,release_dates.date,release_dates.platform"
 )
+YEAR = 365.25 * 86400
+QUOTES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-"})
 
 
-def search(title: str, limit: int = 12) -> list[dict]:
+def search(title: str, limit: int = 12, platforms: set[int] | None = None) -> list[dict]:
     """Games by name, the games themselves first: IGDB also lists a live game's updates, seasons
     and events as games of their own ("Genshin Impact: Roses and Muskets"…), and those can fill
-    every result before the game itself shows up."""
-    title = title.strip()
+    every result before the game itself shows up. With `platforms` (IGDB's ids), the games out on
+    them come first: a remake or port named like an older game (Ocarina of Time on Switch 2, Star
+    Fox) can be far down a plain search, behind the original."""
+    # Store names use typographic quotes (Nintendo's "Fortune’s Weave"); IGDB's names don't.
+    title = title.translate(QUOTES).strip()
     if not title:
         return []
+    on = []
+    if platforms:
+        ids = ",".join(str(p) for p in sorted(platforms))
+        try:
+            on = q("games", f"search {_quote(title)}; fields {SEARCH_FIELDS}; where platforms = ({ids}); limit {limit};")
+        except IGDBError:
+            raise
+        except Exception:
+            on = []  # the plain search below still runs
     main = q("games", f"search {_quote(title)}; fields {SEARCH_FIELDS}; "
                       f"where parent_game = null & version_parent = null; limit {limit};")
     rest = q("games", f"search {_quote(title)}; fields {SEARCH_FIELDS}; limit {limit};")
     seen, out = set(), []
-    for r in main + rest:
+    for r in on + main + rest:
         if r["id"] not in seen:
             seen.add(r["id"]); out.append(r)
-    return out[:limit]
+    return out[:limit + len(on)]
 
 
-def best_match(title: str, platforms: list[str]) -> tuple[dict | None, float]:
-    """Pick the most likely IGDB game for a store title. Returns (game, confidence)."""
-    candidates = search(db.clean_display_title(title), limit=15)
+def _released_on(c: dict) -> set[int]:
+    return set(c.get("platforms") or []) | {rd.get("platform") for rd in c.get("release_dates") or []
+                                            if isinstance(rd, dict) and rd.get("platform")}
+
+
+def _gap_years(c: dict, hints: set[int], released: int) -> float | None:
+    """Years between a store's release date and this game's nearest release: on the store's
+    platform when IGDB has one there (a port keeps the original's first date), else any."""
+    dates = [(rd.get("platform"), rd.get("date")) for rd in c.get("release_dates") or []
+             if isinstance(rd, dict) and rd.get("date")]
+    there = [d for p, d in dates if p in hints]
+    pool = there or [d for _, d in dates] or ([c["first_release_date"]] if c.get("first_release_date") else [])
+    return min(abs(d - released) for d in pool) / YEAR if pool else None
+
+
+def best_match(title: str, platforms: list[str], released: int | None = None) -> tuple[dict | None, float]:
+    """Pick the most likely IGDB game for a store title. Returns (game, confidence).
+
+    A game out on the store's platform counts for a lot: a Switch copy of "Captain Toad: Treasure
+    Tracker" is the Switch release, not the Wii U one. `released` is the store's own release date,
+    when known (wishlist games): a game released around then is preferred, and one from long
+    before that never came out on that platform is left out, as another game with the same name
+    (the original of a remake: Ocarina of Time 1998 for the Switch 2 one)."""
+    hints = set().union(*(PLATFORM_HINTS.get(p, set()) for p in platforms)) if platforms else set()
+    candidates = search(db.clean_display_title(title), limit=15, platforms=hints or None)
     if not candidates:
         return None, 0.0
     target = db.normalize_title(title)
-    hints = set().union(*(PLATFORM_HINTS.get(p, set()) for p in platforms)) if platforms else set()
-    best, best_score = None, 0.0
+    best, best_score, need = None, 0.0, 0.72
     for c in candidates:
         names = [c.get("name") or ""] + [a.get("name", "") for a in c.get("alternative_names") or []]
         sim = max(difflib.SequenceMatcher(None, target, db.normalize_title(n)).ratio() for n in names)
         score = sim
-        if hints and hints & set(c.get("platforms") or []):
-            score += 0.08
+        on_platform = bool(hints & _released_on(c))
+        if on_platform:
+            score += 0.12  # (the bar is raised to match: the name has to be as close as before)
         if c.get("version_parent") or c.get("parent_game"):
-            score -= 0.06  # editions / DLC: prefer the main game entry
+            score -= 0.06  # editions / DLC: prefer the main game entry (a port or remake on the platform still wins)
         score += min((c.get("total_rating_count") or 0) / 4000, 0.04)
+        if released and hints:
+            gap = _gap_years(c, hints, released)
+            if gap is not None:
+                if gap <= 1.5:
+                    score += 0.10
+                elif gap > 5 and not on_platform:
+                    continue  # another game with this name, from long before
+                elif gap > 3:
+                    score -= 0.10
         if score > best_score:
-            best, best_score = c, score
-    return (best, best_score) if best_score >= 0.72 else (None, best_score)
+            best, best_score, need = c, score, 0.76 if on_platform else 0.72
+    return (best, best_score) if best_score >= need else (None, best_score)
 
 
 # ------------------------------------------------------------------ details
