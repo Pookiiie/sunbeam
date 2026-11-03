@@ -3315,14 +3315,19 @@ SERVICES.push({
 // Settings › Nintendo: the nintendo.com wish list, read in a browser window of Sunbeam's own.
 function ninWishBlock() {
   const s = state.settings.settings;
-  const waiting = state.ninWeb?.state === "waiting", checking = state.ninWeb?.state === "checking";
+  const st = state.ninWeb?.state;
   const at = Number(s.nin_web_at) || 0;
+  const blocked = s.nin_web_state === "blocked";
   let body;
-  if (waiting) {
-    body = `<p class="source-note">An Edge window is open on nintendo.com. Sign in there with the Nintendo Account your Switch uses (choose <b>Keep me signed in</b> if Nintendo offers it). When your wish list shows, <b>close that window</b>: ${APP} reads your wish list then.</p>
+  if (st === "waiting") {
+    body = `<p class="source-note">An Edge window is open on nintendo.com, with an empty profile of ${APP}'s own. Sign in there with the Nintendo Account your Switch uses (choose <b>Keep me signed in</b> if Nintendo offers it). When your wish list shows, <b>close that window</b>: ${APP} reads your wish list then.</p>
       <p class="test-result">Waiting for you to sign in and close the window…</p>`;
-  } else if (checking) {
+  } else if (st === "checking") {
     body = `<p class="test-result">Reading your Nintendo wish list…</p>`;
+  } else if (s.nin_web && blocked) {
+    body = `<p class="test-result err">Nintendo's site turned away the window ${APP} reads your wish list in (its protection against automated browsers), so ${APP} has stopped reading it by itself. Prices for the games on it still update.</p>
+      <div class="nin-wish-actions"><button type="button" class="btn small" data-nin-web="signin">Try again</button>
+      <button type="button" class="link" data-nin-web="forget">Remove the Nintendo wish list</button></div>`;
   } else if (s.nin_web && s.nin_web_state === "signed_out") {
     body = `<p class="test-result err">Nintendo's sign-in in ${APP}'s window has ended, so your wish list isn't being updated (prices still are).</p>
       <div class="nin-wish-actions"><button type="button" class="btn small" data-nin-web="signin">Sign in again</button>
@@ -3332,11 +3337,12 @@ function ninWishBlock() {
       <div class="nin-wish-actions"><button type="button" class="link" data-nin-web="forget">Sign out of nintendo.com</button></div>`;
   } else {
     body = `<p class="source-note">Add your nintendo.com wish list to ${APP}'s Wishlist, with Canadian eShop prices and sales.
-      An Edge window opens with a profile of ${APP}'s own (not your everyday browser): sign in there once, close it, and ${APP} takes it from there.
+      An Edge window opens with an empty profile of ${APP}'s own (not your everyday browser): sign in there once, close it, and ${APP} takes it from there.
       Your password only goes to Nintendo; Edge keeps the sign-in encrypted for your Windows account.</p>
+      ${blocked && !state.ninWeb ? `<p class="test-result err">Last time, Nintendo's site turned away the window ${APP} reads your wish list in.</p>` : ""}
       <div class="nin-wish-actions"><button type="button" class="btn small" data-nin-web="signin">Sign in to nintendo.com</button></div>`;
   }
-  const err = state.ninWeb?.state === "error" ? `<p class="test-result err">${esc(state.ninWeb.error || "That didn't work.")}</p>` : "";
+  const err = st === "error" ? `<p class="test-result err">${esc(state.ninWeb.error || "That didn't work.")}</p>` : "";
   return `<div class="nin-wish"><h4>Wish list</h4>${body}${err}</div>`;
 }
 

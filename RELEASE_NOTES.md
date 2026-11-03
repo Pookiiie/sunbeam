@@ -1,3 +1,9 @@
+Sunbeam 1.8.0 beta 3: a clean start for the Nintendo sign-in.
+
+- **Each Sign in to nintendo.com starts from an empty Edge profile,** so nothing is left from an earlier try. Nintendo's sign-in can keep refusing a browser it has refused once (the error with a Reference Code), and the window kept the first try's cookies.
+- **If Nintendo's site turns away the window Sunbeam reads your wish list in** (its protection against automated browsers), Settings now says so plainly and Sunbeam stops trying by itself; prices for the games on the list keep updating. Try again is in Settings › Nintendo Switch › Wish list.
+- What that window got from Nintendo's site (which page, and its answer) is noted in Sunbeam's log, so a problem can be traced.
+
 Sunbeam 1.8.0 beta 2: signing in to nintendo.com works.
 
 - **Fixed: Nintendo's sign-in showed an error with a reference code.** Nintendo turns away sign-ins in a browser window that a program is driving, and Sunbeam's sign-in window was one. It's now an ordinary Edge window that Sunbeam doesn't touch: sign in, wait for your wish list to show, and close the window. Sunbeam reads your wish list then, and at every sync.
